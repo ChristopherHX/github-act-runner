@@ -1,0 +1,753 @@
+package main
+
+import (
+	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"net/url"
+	"path"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/dgrijalva/jwt-go"
+	"github.com/google/uuid"
+)
+
+type RunnerAddRemove struct {
+	Url         string `json:"url"`
+	RunnerEvent string `json:"runner_event"`
+}
+
+type GitHubAuthResult struct {
+	TenantUrl   string `json:"url"`
+	TokenSchema string `json:"token_schema"`
+	Token       string `json:"token"`
+}
+
+type ServiceDefinition struct {
+	ServiceType       string
+	Identifier        string
+	DisplayName       string
+	RelativeToSetting int
+	RelativePath      string
+	Description       string
+	ServiceOwner      string
+	ResourceVersion   int
+}
+
+type LocationServiceData struct {
+	ServiceDefinitions []ServiceDefinition
+}
+
+type ConnectionData struct {
+	LocationServiceData LocationServiceData
+}
+
+type TaskAgentPoolReference struct {
+	Id         string
+	Scope      string
+	PoolType   int
+	Name       string
+	IsHosted   bool
+	IsInternal bool
+	Size       int
+}
+
+type TaskAgentPool struct {
+	TaskAgentPoolReference
+}
+
+type TaskAgentPublicKey struct {
+	Exponent string
+	Modulus  string
+}
+
+type TaskAgentAuthorization struct {
+	AuthorizationUrl string `json:"authorizationUrl,omitempty"`
+	ClientId         string `json:"clientId,omitempty"`
+	PublicKey        TaskAgentPublicKey
+}
+
+type AgentLabel struct {
+	Id   int
+	Name string
+	Type string
+}
+
+type TaskAgent struct {
+	Authorization  TaskAgentAuthorization
+	Labels         []AgentLabel
+	MaxParallelism int
+	Id             int
+	Name           string
+	Version        string
+	OSDescription  string
+	// Enabled           bool
+	Status            int
+	ProvisioningState string
+	// AccessPoint       string
+	CreatedOn string
+}
+
+type TaskLogReference struct {
+}
+
+type TimeLineReference struct {
+	Id       string
+	ChangeId int
+	Location *interface{}
+}
+
+type Issue struct {
+}
+
+type TimelineAttempt struct {
+}
+
+type VariableValue struct {
+	Value    string
+	IsSecret bool
+}
+
+type TimelineRecord struct {
+	Id               string
+	TimelineId       string
+	ParentId         string
+	Type             string
+	Name             string
+	StartTime        string
+	FinishTime       string
+	CurrentOperation string
+	PercentComplete  int32
+	State            string
+	Result           *string
+	ResultCode       *string
+	ChangeId         int32
+	LastModified     string
+	WorkerName       string
+	Order            int32
+	RefName          string
+	Log              *TaskLogReference
+	Details          *TimeLineReference
+	ErrorCount       int
+	WarningCount     int
+	Issues           []Issue
+	Location         string
+	Attempt          int32
+	Identifier       string
+	AgentPlatform    string
+	PreviousAttempts []TimelineAttempt
+	Variables        map[string]VariableValue
+}
+
+type TaskOrchestrationPlanReference struct {
+	ScopeIdentifier string
+	PlanId          string
+	PlanType        string
+}
+
+type MapEntry struct {
+	Key   string
+	Value TemplateToken
+}
+
+type TemplateToken struct {
+	FileId    *int32
+	Line      *int32
+	Column    *int32
+	Type      int32
+	Bool      *bool
+	Num       *float64
+	Lit       *string
+	Expr      *string
+	Directive *string
+	Seq       *[]TemplateToken
+	Map       *[]MapEntry
+}
+
+func (token *TemplateToken) UnmarshalJSON(data []byte) error {
+	if json.Unmarshal(data, token.Bool) == nil {
+		token.Type = 0
+		return nil
+	} else if json.Unmarshal(data, token.Num) == nil {
+		token.Type = 1
+		return nil
+	} else if json.Unmarshal(data, token.Lit) == nil {
+		token.Type = 2
+		return nil
+	} else {
+		type TemplateToken2 TemplateToken
+		return json.Unmarshal(data, (*TemplateToken2)(token))
+	}
+}
+
+type JobAuthorization struct {
+	Parameters map[string]string
+	Scheme     string
+}
+
+type JobEndpoint struct {
+	Data          map[string]string
+	Name          string
+	Url           string
+	Authorization JobAuthorization
+	IsShared      bool
+	IsReady       bool
+}
+
+type JobResources struct {
+	Endpoints []JobEndpoint
+}
+
+type PipelineContextData struct {
+}
+
+type WorkspaceOptions struct {
+}
+
+type MaskHint struct {
+	Type  string
+	Value string
+}
+
+type ActionsEnvironmentReference struct {
+}
+
+type ActionStepDefinitionReference struct {
+	Type           int
+	Image          string
+	Name           string
+	Ref            string
+	RepositoryType string
+	Path           string
+}
+
+type ActionStep struct {
+	Type             int
+	Reference        ActionStepDefinitionReference
+	DisplayNameToken TemplateToken
+	ContextName      string
+	Environment      TemplateToken
+	// Inputs           TemplateToken
+	Condition        string
+	ContinueOnError  TemplateToken
+	TimeoutInMinutes TemplateToken
+}
+
+type AgentJobRequestMessage struct {
+	MessageType          string
+	Plan                 TaskOrchestrationPlanReference
+	Timeline             TimeLineReference
+	JobId                string
+	JobDisplayName       string
+	JobName              string
+	JobContainer         TemplateToken
+	JobServiceContainers TemplateToken
+	JobOutputs           TemplateToken
+	RequestId            int64
+	LockedUntil          string
+	Resources            JobResources
+	ContextData          map[string]PipelineContextData
+	Workspace            WorkspaceOptions
+	MaskHints            []MaskHint
+	EnvironmentVariables []TemplateToken
+	Defaults             []TemplateToken
+	ActionsEnvironment   ActionsEnvironmentReference
+	Variables            map[string]VariableValue
+	Steps                []ActionStep
+	FileTable            []string
+}
+
+type TaskAgentMessage struct {
+	MessageId   int64
+	MessageType string
+	IV          string
+	Body        string
+}
+
+type TaskAgentSessionKey struct {
+	Encrypted bool
+	Value     string
+}
+
+type TaskAgentSession struct {
+	SessionId         string `json:"sessionId,omitempty"`
+	EncryptionKey     TaskAgentSessionKey
+	OwnerName         string
+	Agent             TaskAgent
+	UseFipsEncryption bool
+}
+
+type VssOAuthTokenResponse struct {
+	AccessToken string `json:"access_token"`
+	ExpiresIn   int    `json:"expires_in"`
+	TokenType   string `json:"token_type"`
+}
+
+type TimelineRecordWrapper struct {
+	Count int64
+	Value []TimelineRecord
+}
+
+type TimelineRecordFeedLinesWrapper struct {
+	Count     int32
+	Value     []string
+	StepId    string
+	StartLine *int64
+}
+
+func main() {
+	req := &RunnerAddRemove{}
+	req.Url = "https://github.com/ChristopherHX/ghat2"
+	// req.Url = "http://192.168.178.20:5000/ChristopherHX/ghat"
+	req.RunnerEvent = "register"
+	buf := new(bytes.Buffer)
+	enc := json.NewEncoder(buf)
+	if err := enc.Encode(req); err == nil {
+		// "https://api.github.com/actions/runner-registration"
+		// "http://192.168.178.20:5000/api/v3/actions/runner-registration"
+		r, _ := http.NewRequest("POST", "https://api.github.com/actions/runner-registration", buf)
+		// r, _ := http.NewRequest("POST", "http://192.168.178.20:5000/api/v3/actions/runner-registration", buf)
+		r.Header["Authorization"] = []string{"RemoteAuth AKWETFMAOFT45EIFAAFL6ELAU7RDU"}
+		c := &http.Client{}
+		resp, err := c.Do(r)
+		if err != nil {
+			fmt.Printf("error req: %v\n", err)
+		}
+
+		req := &GitHubAuthResult{}
+		dec := json.NewDecoder(resp.Body)
+		if err := dec.Decode(req); err != nil {
+			fmt.Printf("error decoding struct from JSON: %v\n", err)
+		}
+		fmt.Printf("test %v\n", req.TenantUrl)
+
+		_url, _ := url.Parse(req.TenantUrl)
+		_url.Path = path.Join(_url.Path, "_apis/connectionData")
+		q := _url.Query()
+		q.Add("connectOptions", "1")
+		q.Add("lastChangeId", "-1")
+		q.Add("lastChangeId64", "-1")
+		_url.RawQuery = q.Encode()
+		connectionData, _ := http.NewRequest("GET", _url.String(), buf)
+		connectionDataResp, _ := c.Do(connectionData)
+		connectionData_ := &ConnectionData{}
+
+		dec2 := json.NewDecoder(connectionDataResp.Body)
+		dec2.Decode(connectionData_)
+
+		fmt.Printf("test %v\n", req.TenantUrl)
+
+		poolId := 1
+
+		for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
+			if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "a8c47e17-4d56-4a56-92bb-de7ea7dc65be" {
+				url2, _ := url.Parse(req.TenantUrl)
+				url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
+				url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
+				url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
+				re := regexp.MustCompile(`/*\{[^\}]+\}`)
+				url = re.ReplaceAllString(url, "")
+				url2.Path = path.Join(url2.Path, url)
+				poolsreq, _ := http.NewRequest("GET", url2.String(), nil)
+				poolsreq.Header["Authorization"] = []string{"bearer " + req.Token}
+				poolsresp, _ := c.Do(poolsreq)
+
+				bytes, _ := ioutil.ReadAll(poolsresp.Body)
+
+				fmt.Println(string(bytes))
+				break
+			}
+		}
+		key, _ := rsa.GenerateKey(rand.Reader, 2048)
+
+		// key.Decrypt(rand.Reader, d, rsa.OAEPOptions{Hash: crypto.SHA256})
+		taskAgent := &TaskAgent{}
+		taskAgent.Authorization = TaskAgentAuthorization{}
+		bs := make([]byte, 4)
+		ui := uint32(key.E)
+		binary.BigEndian.PutUint32(bs, ui)
+		expof := 0
+		for ; expof < 3 && bs[expof] == 0; expof++ {
+		}
+		taskAgent.Authorization.PublicKey = TaskAgentPublicKey{Exponent: base64.StdEncoding.EncodeToString(bs[expof:]), Modulus: base64.StdEncoding.EncodeToString(key.N.Bytes())}
+		// taskAgent.Authorization.PublicKey.Modulus = "qzh/lEVNIjbERjcql6yrqmQcxxDGd5IQGHPyFJvJuNSka7xqHFOizp5xcqjSMKLsePVL7vWrVCJusGlHB9oCeLe/8hOWQiTNKOIfDzjjBS1r2/QPx9CT48/HvMQ3rFvE3n9ogwQMd8lDrMFA4lv8eu8HIk2P/SDK3i5WqUXrNJRn/KGcuYzuSe0QNiuojun34ur5Vx+7HOLEs+VYYSPj7CHJq76qIQqUNhk37ko3gj5Wqduq/fi4W55R+R3beF9sZCVDhnE55jL2m02Qo0v/6o6PYre7QMANzQg9zfk4wngdRfHDEqBKpCfBOGL39YODRb3yzI9uShglP+eGYvQ9rQ=="
+		taskAgent.Version = "3.0.0"
+		taskAgent.OSDescription = "golang"
+		taskAgent.Labels = make([]AgentLabel, 3)
+		taskAgent.Labels[0] = AgentLabel{Name: "self-hosted", Type: "system"}
+		taskAgent.Labels[1] = AgentLabel{Name: "scratch", Type: "system"}
+		taskAgent.Labels[2] = AgentLabel{Name: "golang", Type: "system"}
+		taskAgent.MaxParallelism = 1
+		taskAgent.Name = "golang_27"
+		taskAgent.ProvisioningState = "Provisioned"
+		taskAgent.CreatedOn = "0001-01-01T00:00:00"
+		for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
+			if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "e298ef32-5878-4cab-993c-043836571f42" {
+				url2, _ := url.Parse(req.TenantUrl)
+				url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
+				url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
+				url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
+				url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
+				re := regexp.MustCompile(`/*\{[^\}]+\}`)
+				url = re.ReplaceAllString(url, "")
+				url2.Path = path.Join(url2.Path, url)
+				poolsreq, _ := http.NewRequest("GET", url2.String(), nil)
+				poolsreq.Header["Authorization"] = []string{"bearer " + req.Token}
+				poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview.2"}
+				poolsresp, _ := c.Do(poolsreq)
+
+				bytes, _ := ioutil.ReadAll(poolsresp.Body)
+
+				fmt.Println(string(bytes))
+				break
+			}
+		}
+		for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
+			if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "e298ef32-5878-4cab-993c-043836571f42" {
+				url2, _ := url.Parse(req.TenantUrl)
+				url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
+				url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
+				url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
+				url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
+				re := regexp.MustCompile(`/*\{[^\}]+\}`)
+				url = re.ReplaceAllString(url, "")
+				url2.Path = path.Join(url2.Path, url)
+				buf := new(bytes.Buffer)
+				enc := json.NewEncoder(buf)
+				enc.Encode(taskAgent)
+				// working := "{\"labels\":[{\"id\":0,\"name\":\"self-hosted\",\"type\":\"system\"},{\"id\":0,\"name\":\"golang\",\"type\":\"system\"},{\"id\":0,\"name\":\"X64\",\"type\":\"system\"},{\"id\":0,\"name\":\"container-host\",\"type\":\"user\"}],\"maxParallelism\":1,\"createdOn\":\"0001-01-01T00:00:00\",\"authorization\":{\"publicKey\":{\"Exponent\":\"AQAB\",\"modulus\":\"qzh/lEVNIjbERjcql6yrqmQcxxDGd5IQGHPyFJvJuNSka7xqHFOizp5xcqjSMKLsePVL7vWrVCJusGlHB9oCeLe/8hOWQiTNKOIfDzjjBS1r2/QPx9CT48/HvMQ3rFvE3n9ogwQMd8lDrMFA4lv8eu8HIk2P/SDK3i5WqUXrNJRn/KGcuYzuSe0QNiuojun34ur5Vx+7HOLEs+VYYSPj7CHJq76qIQqUNhk37ko3gj5Wqduq/fi4W55R+R3beF9sZCVDhnE55jL2m02Qo0v/6o6PYre7QMANzQg9zfk4wngdRfHDEqBKpCfBOGL39YODRb3yzI9uShglP+eGYvQ9rQ==\"}},\"id\":0,\"name\":\"Agent_go_9999999\",\"version\":\"3.4.0\",\"osDescription\":\"Microsoft Windows 10.0.19042\",\"status\":0,\"provisioningState\":\"Provisioned\"}"
+				//
+				// poolsreq, _ := http.NewRequest("POST", url2.String(), bytes.NewBufferString(working))
+				// fmt.Println(buf.String())
+				// return
+				poolsreq, _ := http.NewRequest("POST", url2.String(), buf)
+				poolsreq.Header["Authorization"] = []string{"bearer " + req.Token}
+				poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
+				poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview.2"}
+				poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
+				poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
+				poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+				poolsresp, _ := c.Do(poolsreq)
+
+				if poolsresp.StatusCode != 200 {
+					bytes, _ := ioutil.ReadAll(poolsresp.Body)
+					fmt.Println(string(bytes))
+					fmt.Println(buf.String())
+				} else {
+					dec := json.NewDecoder(poolsresp.Body)
+					dec.Decode(taskAgent)
+				}
+
+				//fmt.Println(working)
+				break
+			}
+		}
+
+		// "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer", "client_assertion": ""
+		// jwt.StandardClaims
+		session := &TaskAgentSession{}
+		session.Agent = *taskAgent
+		session.UseFipsEncryption = true
+		session.OwnerName = "RUNNER"
+		tokenresp := &VssOAuthTokenResponse{}
+		{
+			now := time.Now()
+			token2 := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{"sub": taskAgent.Authorization.ClientId, "iss": taskAgent.Authorization.ClientId, "aud": taskAgent.Authorization.AuthorizationUrl, "nbf": now, "iat": now, "exp": now.Add(time.Minute * 5), "jti": uuid.New().String()})
+			stkn, _ := token2.SignedString(key)
+			fmt.Println(stkn)
+
+			data := url.Values{}
+			data.Set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
+			data.Set("client_assertion", stkn)
+			data.Set("grant_type", "client_credentials")
+
+			poolsreq, _ := http.NewRequest("POST", taskAgent.Authorization.AuthorizationUrl, bytes.NewBufferString(data.Encode()))
+			poolsreq.Header["Content-Type"] = []string{"application/x-www-form-urlencoded; charset=utf-8"}
+			poolsreq.Header["Accept"] = []string{"application/json"}
+			poolsresp, _ := c.Do(poolsreq)
+			if poolsresp.StatusCode != 200 {
+				bytes, _ := ioutil.ReadAll(poolsresp.Body)
+				fmt.Println(string(bytes))
+				fmt.Println(buf.String())
+			} else {
+				dec := json.NewDecoder(poolsresp.Body)
+				dec.Decode(tokenresp)
+			}
+
+		}
+
+		for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
+			if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "134e239e-2df3-4794-a6f6-24f1f19ec8dc" {
+				url2, _ := url.Parse(req.TenantUrl)
+				url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
+				url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
+				url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
+				url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
+				re := regexp.MustCompile(`/*\{[^\}]+\}`)
+				url = re.ReplaceAllString(url, "")
+				url2.Path = path.Join(url2.Path, url)
+				buf := new(bytes.Buffer)
+				enc := json.NewEncoder(buf)
+				enc.Encode(session)
+				// working := "{\"labels\":[{\"id\":0,\"name\":\"self-hosted\",\"type\":\"system\"},{\"id\":0,\"name\":\"golang\",\"type\":\"system\"},{\"id\":0,\"name\":\"X64\",\"type\":\"system\"},{\"id\":0,\"name\":\"container-host\",\"type\":\"user\"}],\"maxParallelism\":1,\"createdOn\":\"0001-01-01T00:00:00\",\"authorization\":{\"publicKey\":{\"exponent\":\"AQAB\",\"modulus\":\"qzh/lEVNIjbERjcql6yrqmQcxxDGd5IQGHPyFJvJuNSka7xqHFOizp5xcqjSMKLsePVL7vWrVCJusGlHB9oCeLe/8hOWQiTNKOIfDzjjBS1r2/QPx9CT48/HvMQ3rFvE3n9ogwQMd8lDrMFA4lv8eu8HIk2P/SDK3i5WqUXrNJRn/KGcuYzuSe0QNiuojun34ur5Vx+7HOLEs+VYYSPj7CHJq76qIQqUNhk37ko3gj5Wqduq/fi4W55R+R3beF9sZCVDhnE55jL2m02Qo0v/6o6PYre7QMANzQg9zfk4wngdRfHDEqBKpCfBOGL39YODRb3yzI9uShglP+eGYvQ9rQ==\"}},\"id\":0,\"name\":\"Agent_go\",\"version\":\"3.4.0\",\"osDescription\":\"Microsoft Windows 10.0.19042\",\"status\":0,\"provisioningState\":\"Provisioned\"}"
+				//bytes.NewBufferString(working)
+				poolsreq, _ := http.NewRequest("POST", url2.String(), buf)
+				poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
+				poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview"}
+				poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
+				poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
+				poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
+				poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+				poolsresp, _ := c.Do(poolsreq)
+
+				// bytes, _ := ioutil.ReadAll(poolsresp.Body)
+
+				// fmt.Println(string(bytes))
+				dec := json.NewDecoder(poolsresp.Body)
+				dec.Decode(session)
+				break
+			}
+		}
+		d, _ := base64.StdEncoding.DecodeString(session.EncryptionKey.Value)
+		sessionKey, _ := rsa.DecryptOAEP(sha256.New(), rand.Reader, key, d, []byte{})
+		if sessionKey == nil {
+			return
+		}
+		b, _ := aes.NewCipher(sessionKey)
+		message := &TaskAgentMessage{}
+		success := false
+		for !success {
+			for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
+				if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7" {
+					url2, _ := url.Parse(req.TenantUrl)
+					url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
+					url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
+					url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
+					url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
+					url = strings.ReplaceAll(url, "{sessionId}", session.SessionId)
+					q := url2.Query()
+					q.Add("sessionId", session.SessionId)
+					url2.RawQuery = q.Encode()
+					re := regexp.MustCompile(`/*\{[^\}]+\}`)
+					url = re.ReplaceAllString(url, "")
+					url2.Path = path.Join(url2.Path, url)
+					buf := new(bytes.Buffer)
+					enc := json.NewEncoder(buf)
+					enc.Encode(session)
+					// working := "{\"labels\":[{\"id\":0,\"name\":\"self-hosted\",\"type\":\"system\"},{\"id\":0,\"name\":\"golang\",\"type\":\"system\"},{\"id\":0,\"name\":\"X64\",\"type\":\"system\"},{\"id\":0,\"name\":\"container-host\",\"type\":\"user\"}],\"maxParallelism\":1,\"createdOn\":\"0001-01-01T00:00:00\",\"authorization\":{\"publicKey\":{\"exponent\":\"AQAB\",\"modulus\":\"qzh/lEVNIjbERjcql6yrqmQcxxDGd5IQGHPyFJvJuNSka7xqHFOizp5xcqjSMKLsePVL7vWrVCJusGlHB9oCeLe/8hOWQiTNKOIfDzjjBS1r2/QPx9CT48/HvMQ3rFvE3n9ogwQMd8lDrMFA4lv8eu8HIk2P/SDK3i5WqUXrNJRn/KGcuYzuSe0QNiuojun34ur5Vx+7HOLEs+VYYSPj7CHJq76qIQqUNhk37ko3gj5Wqduq/fi4W55R+R3beF9sZCVDhnE55jL2m02Qo0v/6o6PYre7QMANzQg9zfk4wngdRfHDEqBKpCfBOGL39YODRb3yzI9uShglP+eGYvQ9rQ==\"}},\"id\":0,\"name\":\"Agent_go\",\"version\":\"3.4.0\",\"osDescription\":\"Microsoft Windows 10.0.19042\",\"status\":0,\"provisioningState\":\"Provisioned\"}"
+					//bytes.NewBufferString(working)
+					poolsreq, _ := http.NewRequest("GET", url2.String(), buf)
+					poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
+					poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
+					poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
+					poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
+					poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
+					poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+					poolsresp, _ := c.Do(poolsreq)
+
+					// bytes, _ := ioutil.ReadAll(poolsresp.Body)
+
+					// fmt.Println(string(bytes))
+					if poolsresp.StatusCode != 200 {
+						bytes, _ := ioutil.ReadAll(poolsresp.Body)
+						fmt.Println(string(bytes))
+						fmt.Println(buf.String())
+					} else {
+						success = true
+						dec := json.NewDecoder(poolsresp.Body)
+						dec.Decode(message)
+					}
+
+					break
+				}
+			}
+		}
+		iv, _ := base64.StdEncoding.DecodeString(message.IV)
+		src, _ := base64.StdEncoding.DecodeString(message.Body)
+		cbcdec := cipher.NewCBCDecrypter(b, iv)
+		cbcdec.CryptBlocks(src, src)
+		maxlen := b.BlockSize()
+		validlen := len(src)
+		if int(src[len(src)-1]) < maxlen {
+			ok := true
+			for i := 2; i <= int(src[len(src)-1]); i++ {
+				if src[len(src)-i] != src[len(src)-1] {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				validlen -= int(src[len(src)-1])
+			}
+		}
+		fmt.Println(string(src[3:validlen]))
+		jobreq := &AgentJobRequestMessage{}
+		{
+			dec := json.NewDecoder(bytes.NewReader(src[3:validlen]))
+			err = dec.Decode(jobreq)
+		}
+		fmt.Println(jobreq.JobName)
+		// jobreq.Timeline.Id
+		wrap := &TimelineRecordWrapper{}
+		wrap.Count = 3
+		wrap.Value = make([]TimelineRecord, 3)
+		wrap.Value[0] = TimelineRecord{}
+		wrap.Value[0].Id = jobreq.JobId
+		wrap.Value[0].RefName = "testjob"
+		wrap.Value[0].Name = "testjob"
+		wrap.Value[0].Type = "Job"
+		wrap.Value[0].WorkerName = "golang-go"
+		wrap.Value[0].State = "InProgress"
+		wrap.Value[0].LastModified = "0001-01-01T00:00:00"
+
+		suc := "Succeeded"
+		wrap.Value[1] = TimelineRecord{}
+		wrap.Value[1].Result = &suc
+		wrap.Value[1].Id = uuid.NewString()
+		wrap.Value[1].RefName = "init"
+		wrap.Value[1].Name = "initializeing"
+		wrap.Value[1].Type = "Task"
+		wrap.Value[1].WorkerName = "golang-go"
+		wrap.Value[1].ParentId = jobreq.JobId
+		wrap.Value[1].State = "Completed"
+		wrap.Value[1].LastModified = "0001-01-01T00:00:00"
+		wrap.Value[1].Order = 1
+		wrap.Value[2] = TimelineRecord{}
+		wrap.Value[2].Id = uuid.NewString()
+		wrap.Value[2].RefName = "running"
+		wrap.Value[2].Name = "Running"
+		wrap.Value[2].Type = "Task"
+		wrap.Value[2].WorkerName = "golang-go"
+		wrap.Value[2].ParentId = jobreq.JobId
+		wrap.Value[2].State = "InProgress"
+		wrap.Value[2].LastModified = "0001-01-01T00:00:00"
+		wrap.Value[2].Order = 2
+
+		for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
+			if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "8893bc5b-35b2-4be7-83cb-99e683551db4" {
+				url2, _ := url.Parse(req.TenantUrl)
+				url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
+				url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
+				url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
+				url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
+				url = strings.ReplaceAll(url, "{sessionId}", session.SessionId)
+				url = strings.ReplaceAll(url, "{scopeIdentifier}", jobreq.Plan.ScopeIdentifier)
+				url = strings.ReplaceAll(url, "{planId}", jobreq.Plan.PlanId)
+				url = strings.ReplaceAll(url, "{hubName}", jobreq.Plan.PlanType)
+				url = strings.ReplaceAll(url, "{timelineId}", jobreq.Timeline.Id)
+
+				q := url2.Query()
+				q.Add("sessionId", session.SessionId)
+				url2.RawQuery = q.Encode()
+				re := regexp.MustCompile(`/*\{[^\}]+\}`)
+				url = re.ReplaceAllString(url, "")
+				url2.Path = path.Join(url2.Path, url)
+				buf := new(bytes.Buffer)
+				enc := json.NewEncoder(buf)
+				enc.Encode(wrap)
+				// working := "{\"labels\":[{\"id\":0,\"name\":\"self-hosted\",\"type\":\"system\"},{\"id\":0,\"name\":\"golang\",\"type\":\"system\"},{\"id\":0,\"name\":\"X64\",\"type\":\"system\"},{\"id\":0,\"name\":\"container-host\",\"type\":\"user\"}],\"maxParallelism\":1,\"createdOn\":\"0001-01-01T00:00:00\",\"authorization\":{\"publicKey\":{\"exponent\":\"AQAB\",\"modulus\":\"qzh/lEVNIjbERjcql6yrqmQcxxDGd5IQGHPyFJvJuNSka7xqHFOizp5xcqjSMKLsePVL7vWrVCJusGlHB9oCeLe/8hOWQiTNKOIfDzjjBS1r2/QPx9CT48/HvMQ3rFvE3n9ogwQMd8lDrMFA4lv8eu8HIk2P/SDK3i5WqUXrNJRn/KGcuYzuSe0QNiuojun34ur5Vx+7HOLEs+VYYSPj7CHJq76qIQqUNhk37ko3gj5Wqduq/fi4W55R+R3beF9sZCVDhnE55jL2m02Qo0v/6o6PYre7QMANzQg9zfk4wngdRfHDEqBKpCfBOGL39YODRb3yzI9uShglP+eGYvQ9rQ==\"}},\"id\":0,\"name\":\"Agent_go\",\"version\":\"3.4.0\",\"osDescription\":\"Microsoft Windows 10.0.19042\",\"status\":0,\"provisioningState\":\"Provisioned\"}"
+				//bytes.NewBufferString(working)
+				poolsreq, _ := http.NewRequest("PATCH", url2.String(), buf)
+				poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
+				poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
+				poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
+				poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
+				poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
+				poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+				poolsresp, _ := c.Do(poolsreq)
+
+				// bytes, _ := ioutil.ReadAll(poolsresp.Body)
+
+				// fmt.Println(string(bytes))
+				if poolsresp.StatusCode != 200 {
+					bytes, _ := ioutil.ReadAll(poolsresp.Body)
+					fmt.Println(string(bytes))
+					fmt.Println(buf.String())
+				} else {
+					success = true
+					// dec := json.NewDecoder(poolsresp.Body)
+					// dec.Decode(message)
+					bytes, _ := ioutil.ReadAll(poolsresp.Body)
+					fmt.Println(string(bytes))
+					fmt.Println(buf.String())
+				}
+
+				break
+			}
+		}
+
+		for counter := 0; ; counter++ {
+			for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
+				if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "858983e4-19bd-4c5e-864c-507b59b58b12" {
+					url2, _ := url.Parse(req.TenantUrl)
+					url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
+					url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
+					url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
+					url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
+					url = strings.ReplaceAll(url, "{sessionId}", session.SessionId)
+					url = strings.ReplaceAll(url, "{scopeIdentifier}", jobreq.Plan.ScopeIdentifier)
+					url = strings.ReplaceAll(url, "{planId}", jobreq.Plan.PlanId)
+					url = strings.ReplaceAll(url, "{hubName}", jobreq.Plan.PlanType)
+					url = strings.ReplaceAll(url, "{timelineId}", jobreq.Timeline.Id)
+					url = strings.ReplaceAll(url, "{recordId}", wrap.Value[2].Id)
+
+					q := url2.Query()
+					q.Add("sessionId", session.SessionId)
+					url2.RawQuery = q.Encode()
+					re := regexp.MustCompile(`/*\{[^\}]+\}`)
+					url = re.ReplaceAllString(url, "")
+					url2.Path = path.Join(url2.Path, url)
+					buf := new(bytes.Buffer)
+					enc := json.NewEncoder(buf)
+					lines := &TimelineRecordFeedLinesWrapper{}
+					lines.Count = 1
+					sl := int64(counter)
+					lines.StartLine = &sl
+					lines.StepId = wrap.Value[2].Id
+					lines.Value = []string{"Hello World from go!: " + fmt.Sprint(counter)}
+					enc.Encode(lines)
+					// working := "{\"labels\":[{\"id\":0,\"name\":\"self-hosted\",\"type\":\"system\"},{\"id\":0,\"name\":\"golang\",\"type\":\"system\"},{\"id\":0,\"name\":\"X64\",\"type\":\"system\"},{\"id\":0,\"name\":\"container-host\",\"type\":\"user\"}],\"maxParallelism\":1,\"createdOn\":\"0001-01-01T00:00:00\",\"authorization\":{\"publicKey\":{\"exponent\":\"AQAB\",\"modulus\":\"qzh/lEVNIjbERjcql6yrqmQcxxDGd5IQGHPyFJvJuNSka7xqHFOizp5xcqjSMKLsePVL7vWrVCJusGlHB9oCeLe/8hOWQiTNKOIfDzjjBS1r2/QPx9CT48/HvMQ3rFvE3n9ogwQMd8lDrMFA4lv8eu8HIk2P/SDK3i5WqUXrNJRn/KGcuYzuSe0QNiuojun34ur5Vx+7HOLEs+VYYSPj7CHJq76qIQqUNhk37ko3gj5Wqduq/fi4W55R+R3beF9sZCVDhnE55jL2m02Qo0v/6o6PYre7QMANzQg9zfk4wngdRfHDEqBKpCfBOGL39YODRb3yzI9uShglP+eGYvQ9rQ==\"}},\"id\":0,\"name\":\"Agent_go\",\"version\":\"3.4.0\",\"osDescription\":\"Microsoft Windows 10.0.19042\",\"status\":0,\"provisioningState\":\"Provisioned\"}"
+					//bytes.NewBufferString(working)
+					poolsreq, _ := http.NewRequest("POST", url2.String(), buf)
+					poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
+					poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
+					poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
+					poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
+					poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
+					poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+					poolsresp, _ := c.Do(poolsreq)
+
+					// bytes, _ := ioutil.ReadAll(poolsresp.Body)
+
+					// fmt.Println(string(bytes))
+					if poolsresp.StatusCode != 200 {
+						bytes, _ := ioutil.ReadAll(poolsresp.Body)
+						fmt.Println(string(bytes))
+						fmt.Println(buf.String())
+					} else {
+						success = true
+						// dec := json.NewDecoder(poolsresp.Body)
+						// dec.Decode(message)
+						bytes, _ := ioutil.ReadAll(poolsresp.Body)
+						fmt.Println(string(bytes))
+						fmt.Println(buf.String())
+					}
+
+					break
+				}
+			}
+		}
+
+	}
+}
