@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -100,6 +101,17 @@ type TaskAgent struct {
 }
 
 type TaskLogReference struct {
+	Id       int
+	Location *string
+}
+
+type TaskLog struct {
+	TaskLogReference
+	IndexLocation *string `json:"IndexLocation,omitempty"`
+	Path          *string `json:"Path,omitempty"`
+	LineCount     *int64  `json:"LineCount,omitempty"`
+	CreatedOn     string
+	LastChangedOn string
 }
 
 type TimeLineReference struct {
@@ -306,19 +318,39 @@ type TimelineRecordFeedLinesWrapper struct {
 	StartLine *int64
 }
 
+func GetConnectionData(c *http.Client, tenantUrl string) *ConnectionData {
+	_url, _ := url.Parse(tenantUrl)
+	_url.Path = path.Join(_url.Path, "_apis/connectionData")
+	q := _url.Query()
+	q.Add("connectOptions", "1")
+	q.Add("lastChangeId", "-1")
+	q.Add("lastChangeId64", "-1")
+	_url.RawQuery = q.Encode()
+	connectionData, _ := http.NewRequest("GET", _url.String(), nil)
+	connectionDataResp, _ := c.Do(connectionData)
+	connectionData_ := &ConnectionData{}
+
+	dec2 := json.NewDecoder(connectionDataResp.Body)
+	dec2.Decode(connectionData_)
+	return connectionData_
+}
+
 func main() {
+	buf := new(bytes.Buffer)
 	req := &RunnerAddRemove{}
 	req.Url = "https://github.com/ChristopherHX/ghat2"
 	// req.Url = "http://192.168.178.20:5000/ChristopherHX/ghat"
 	req.RunnerEvent = "register"
-	buf := new(bytes.Buffer)
 	enc := json.NewEncoder(buf)
-	if err := enc.Encode(req); err == nil {
+	if err := enc.Encode(req); err != nil {
+		return
+	}
+	{
 		// "https://api.github.com/actions/runner-registration"
 		// "http://192.168.178.20:5000/api/v3/actions/runner-registration"
 		r, _ := http.NewRequest("POST", "https://api.github.com/actions/runner-registration", buf)
 		// r, _ := http.NewRequest("POST", "http://192.168.178.20:5000/api/v3/actions/runner-registration", buf)
-		r.Header["Authorization"] = []string{"RemoteAuth AKWETFMAOFT45EIFAAFL6ELAU7RDU"}
+		r.Header["Authorization"] = []string{"RemoteAuth AKWETFMWLIXPGXUXVVOX7BTAVA5KO"}
 		c := &http.Client{}
 		resp, err := c.Do(r)
 		if err != nil {
@@ -330,23 +362,12 @@ func main() {
 		if err := dec.Decode(req); err != nil {
 			fmt.Printf("error decoding struct from JSON: %v\n", err)
 		}
-		fmt.Printf("test %v\n", req.TenantUrl)
 
-		_url, _ := url.Parse(req.TenantUrl)
-		_url.Path = path.Join(_url.Path, "_apis/connectionData")
-		q := _url.Query()
-		q.Add("connectOptions", "1")
-		q.Add("lastChangeId", "-1")
-		q.Add("lastChangeId64", "-1")
-		_url.RawQuery = q.Encode()
-		connectionData, _ := http.NewRequest("GET", _url.String(), buf)
-		connectionDataResp, _ := c.Do(connectionData)
-		connectionData_ := &ConnectionData{}
-
-		dec2 := json.NewDecoder(connectionDataResp.Body)
-		dec2.Decode(connectionData_)
-
-		fmt.Printf("test %v\n", req.TenantUrl)
+		{
+			b, _ := json.MarshalIndent(req, "", "    ")
+			ioutil.WriteFile("auth.json", b, 0777)
+		}
+		connectionData_ := GetConnectionData(c, req.TenantUrl)
 
 		poolId := 1
 
@@ -370,8 +391,8 @@ func main() {
 			}
 		}
 		key, _ := rsa.GenerateKey(rand.Reader, 2048)
+		ioutil.WriteFile("cred.pkcs1", x509.MarshalPKCS1PrivateKey(key), 0777)
 
-		// key.Decrypt(rand.Reader, d, rsa.OAEPOptions{Hash: crypto.SHA256})
 		taskAgent := &TaskAgent{}
 		taskAgent.Authorization = TaskAgentAuthorization{}
 		bs := make([]byte, 4)
@@ -381,7 +402,6 @@ func main() {
 		for ; expof < 3 && bs[expof] == 0; expof++ {
 		}
 		taskAgent.Authorization.PublicKey = TaskAgentPublicKey{Exponent: base64.StdEncoding.EncodeToString(bs[expof:]), Modulus: base64.StdEncoding.EncodeToString(key.N.Bytes())}
-		// taskAgent.Authorization.PublicKey.Modulus = "qzh/lEVNIjbERjcql6yrqmQcxxDGd5IQGHPyFJvJuNSka7xqHFOizp5xcqjSMKLsePVL7vWrVCJusGlHB9oCeLe/8hOWQiTNKOIfDzjjBS1r2/QPx9CT48/HvMQ3rFvE3n9ogwQMd8lDrMFA4lv8eu8HIk2P/SDK3i5WqUXrNJRn/KGcuYzuSe0QNiuojun34ur5Vx+7HOLEs+VYYSPj7CHJq76qIQqUNhk37ko3gj5Wqduq/fi4W55R+R3beF9sZCVDhnE55jL2m02Qo0v/6o6PYre7QMANzQg9zfk4wngdRfHDEqBKpCfBOGL39YODRb3yzI9uShglP+eGYvQ9rQ=="
 		taskAgent.Version = "3.0.0"
 		taskAgent.OSDescription = "golang"
 		taskAgent.Labels = make([]AgentLabel, 3)
@@ -389,7 +409,7 @@ func main() {
 		taskAgent.Labels[1] = AgentLabel{Name: "scratch", Type: "system"}
 		taskAgent.Labels[2] = AgentLabel{Name: "golang", Type: "system"}
 		taskAgent.MaxParallelism = 1
-		taskAgent.Name = "golang_27"
+		taskAgent.Name = "golang_" + uuid.NewString()
 		taskAgent.ProvisioningState = "Provisioned"
 		taskAgent.CreatedOn = "0001-01-01T00:00:00"
 		for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
@@ -426,11 +446,7 @@ func main() {
 				buf := new(bytes.Buffer)
 				enc := json.NewEncoder(buf)
 				enc.Encode(taskAgent)
-				// working := "{\"labels\":[{\"id\":0,\"name\":\"self-hosted\",\"type\":\"system\"},{\"id\":0,\"name\":\"golang\",\"type\":\"system\"},{\"id\":0,\"name\":\"X64\",\"type\":\"system\"},{\"id\":0,\"name\":\"container-host\",\"type\":\"user\"}],\"maxParallelism\":1,\"createdOn\":\"0001-01-01T00:00:00\",\"authorization\":{\"publicKey\":{\"Exponent\":\"AQAB\",\"modulus\":\"qzh/lEVNIjbERjcql6yrqmQcxxDGd5IQGHPyFJvJuNSka7xqHFOizp5xcqjSMKLsePVL7vWrVCJusGlHB9oCeLe/8hOWQiTNKOIfDzjjBS1r2/QPx9CT48/HvMQ3rFvE3n9ogwQMd8lDrMFA4lv8eu8HIk2P/SDK3i5WqUXrNJRn/KGcuYzuSe0QNiuojun34ur5Vx+7HOLEs+VYYSPj7CHJq76qIQqUNhk37ko3gj5Wqduq/fi4W55R+R3beF9sZCVDhnE55jL2m02Qo0v/6o6PYre7QMANzQg9zfk4wngdRfHDEqBKpCfBOGL39YODRb3yzI9uShglP+eGYvQ9rQ==\"}},\"id\":0,\"name\":\"Agent_go_9999999\",\"version\":\"3.4.0\",\"osDescription\":\"Microsoft Windows 10.0.19042\",\"status\":0,\"provisioningState\":\"Provisioned\"}"
-				//
-				// poolsreq, _ := http.NewRequest("POST", url2.String(), bytes.NewBufferString(working))
-				// fmt.Println(buf.String())
-				// return
+
 				poolsreq, _ := http.NewRequest("POST", url2.String(), buf)
 				poolsreq.Header["Authorization"] = []string{"bearer " + req.Token}
 				poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
@@ -448,14 +464,41 @@ func main() {
 					dec := json.NewDecoder(poolsresp.Body)
 					dec.Decode(taskAgent)
 				}
-
-				//fmt.Println(working)
 				break
 			}
 		}
+		b, _ := json.MarshalIndent(taskAgent, "", "    ")
+		ioutil.WriteFile("agent.json", b, 0777)
+	}
+	{
+		poolId := 1
+		c := &http.Client{}
+		taskAgent := &TaskAgent{}
+		var key *rsa.PrivateKey
+		var err error
+		req := &GitHubAuthResult{}
+		{
+			cont, _ := ioutil.ReadFile("agent.json")
+			json.Unmarshal(cont, taskAgent)
+		}
+		{
+			cont, err := ioutil.ReadFile("cred.pkcs1")
+			if err != nil {
+				return
+			}
+			key, err = x509.ParsePKCS1PrivateKey(cont)
+			if err != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+		{
+			cont, _ := ioutil.ReadFile("auth.json")
+			json.Unmarshal(cont, req)
+		}
 
-		// "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer", "client_assertion": ""
-		// jwt.StandardClaims
 		session := &TaskAgentSession{}
 		session.Agent = *taskAgent
 		session.UseFipsEncryption = true
@@ -487,6 +530,8 @@ func main() {
 
 		}
 
+		connectionData_ := GetConnectionData(c, req.TenantUrl)
+
 		for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
 			if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "134e239e-2df3-4794-a6f6-24f1f19ec8dc" {
 				url2, _ := url.Parse(req.TenantUrl)
@@ -500,8 +545,7 @@ func main() {
 				buf := new(bytes.Buffer)
 				enc := json.NewEncoder(buf)
 				enc.Encode(session)
-				// working := "{\"labels\":[{\"id\":0,\"name\":\"self-hosted\",\"type\":\"system\"},{\"id\":0,\"name\":\"golang\",\"type\":\"system\"},{\"id\":0,\"name\":\"X64\",\"type\":\"system\"},{\"id\":0,\"name\":\"container-host\",\"type\":\"user\"}],\"maxParallelism\":1,\"createdOn\":\"0001-01-01T00:00:00\",\"authorization\":{\"publicKey\":{\"exponent\":\"AQAB\",\"modulus\":\"qzh/lEVNIjbERjcql6yrqmQcxxDGd5IQGHPyFJvJuNSka7xqHFOizp5xcqjSMKLsePVL7vWrVCJusGlHB9oCeLe/8hOWQiTNKOIfDzjjBS1r2/QPx9CT48/HvMQ3rFvE3n9ogwQMd8lDrMFA4lv8eu8HIk2P/SDK3i5WqUXrNJRn/KGcuYzuSe0QNiuojun34ur5Vx+7HOLEs+VYYSPj7CHJq76qIQqUNhk37ko3gj5Wqduq/fi4W55R+R3beF9sZCVDhnE55jL2m02Qo0v/6o6PYre7QMANzQg9zfk4wngdRfHDEqBKpCfBOGL39YODRb3yzI9uShglP+eGYvQ9rQ==\"}},\"id\":0,\"name\":\"Agent_go\",\"version\":\"3.4.0\",\"osDescription\":\"Microsoft Windows 10.0.19042\",\"status\":0,\"provisioningState\":\"Provisioned\"}"
-				//bytes.NewBufferString(working)
+
 				poolsreq, _ := http.NewRequest("POST", url2.String(), buf)
 				poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
 				poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview"}
@@ -511,9 +555,6 @@ func main() {
 				poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
 				poolsresp, _ := c.Do(poolsreq)
 
-				// bytes, _ := ioutil.ReadAll(poolsresp.Body)
-
-				// fmt.Println(string(bytes))
 				dec := json.NewDecoder(poolsresp.Body)
 				dec.Decode(session)
 				break
@@ -545,8 +586,7 @@ func main() {
 					buf := new(bytes.Buffer)
 					enc := json.NewEncoder(buf)
 					enc.Encode(session)
-					// working := "{\"labels\":[{\"id\":0,\"name\":\"self-hosted\",\"type\":\"system\"},{\"id\":0,\"name\":\"golang\",\"type\":\"system\"},{\"id\":0,\"name\":\"X64\",\"type\":\"system\"},{\"id\":0,\"name\":\"container-host\",\"type\":\"user\"}],\"maxParallelism\":1,\"createdOn\":\"0001-01-01T00:00:00\",\"authorization\":{\"publicKey\":{\"exponent\":\"AQAB\",\"modulus\":\"qzh/lEVNIjbERjcql6yrqmQcxxDGd5IQGHPyFJvJuNSka7xqHFOizp5xcqjSMKLsePVL7vWrVCJusGlHB9oCeLe/8hOWQiTNKOIfDzjjBS1r2/QPx9CT48/HvMQ3rFvE3n9ogwQMd8lDrMFA4lv8eu8HIk2P/SDK3i5WqUXrNJRn/KGcuYzuSe0QNiuojun34ur5Vx+7HOLEs+VYYSPj7CHJq76qIQqUNhk37ko3gj5Wqduq/fi4W55R+R3beF9sZCVDhnE55jL2m02Qo0v/6o6PYre7QMANzQg9zfk4wngdRfHDEqBKpCfBOGL39YODRb3yzI9uShglP+eGYvQ9rQ==\"}},\"id\":0,\"name\":\"Agent_go\",\"version\":\"3.4.0\",\"osDescription\":\"Microsoft Windows 10.0.19042\",\"status\":0,\"provisioningState\":\"Provisioned\"}"
-					//bytes.NewBufferString(working)
+					//TODO lastMessageId=
 					poolsreq, _ := http.NewRequest("GET", url2.String(), buf)
 					poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
 					poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
@@ -556,9 +596,6 @@ func main() {
 					poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
 					poolsresp, _ := c.Do(poolsreq)
 
-					// bytes, _ := ioutil.ReadAll(poolsresp.Body)
-
-					// fmt.Println(string(bytes))
 					if poolsresp.StatusCode != 200 {
 						bytes, _ := ioutil.ReadAll(poolsresp.Body)
 						fmt.Println(string(bytes))
@@ -595,7 +632,7 @@ func main() {
 		jobreq := &AgentJobRequestMessage{}
 		{
 			dec := json.NewDecoder(bytes.NewReader(src[3:validlen]))
-			err = dec.Decode(jobreq)
+			dec.Decode(jobreq)
 		}
 		fmt.Println(jobreq.JobName)
 		// jobreq.Timeline.Id
@@ -623,6 +660,108 @@ func main() {
 		wrap.Value[1].State = "Completed"
 		wrap.Value[1].LastModified = "0001-01-01T00:00:00"
 		wrap.Value[1].Order = 1
+		{
+			for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
+				if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "46f5667d-263a-4684-91b1-dff7fdcf64e2" {
+					log := &TaskLog{}
+					{
+						url2, _ := url.Parse(req.TenantUrl)
+						url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
+						url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
+						url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
+						url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
+						url = strings.ReplaceAll(url, "{sessionId}", session.SessionId)
+						url = strings.ReplaceAll(url, "{scopeIdentifier}", jobreq.Plan.ScopeIdentifier)
+						url = strings.ReplaceAll(url, "{planId}", jobreq.Plan.PlanId)
+						url = strings.ReplaceAll(url, "{hubName}", jobreq.Plan.PlanType)
+						url = strings.ReplaceAll(url, "{timelineId}", jobreq.Timeline.Id)
+
+						s := "logs/tmo.txt"
+						log.Path = &s
+						log.CreatedOn = "0001-01-01T00:00:00"
+						log.LastChangedOn = "0001-01-01T00:00:00"
+
+						q := url2.Query()
+						q.Add("sessionId", session.SessionId)
+						url2.RawQuery = q.Encode()
+						re := regexp.MustCompile(`/*\{[^\}]+\}`)
+						url = re.ReplaceAllString(url, "")
+						url2.Path = path.Join(url2.Path, url)
+						buf := new(bytes.Buffer)
+						enc := json.NewEncoder(buf)
+						enc.Encode(log)
+
+						poolsreq, _ := http.NewRequest("POST", url2.String(), buf)
+						poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
+						poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
+						poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
+						poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
+						poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
+						poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+						poolsresp, _ := c.Do(poolsreq)
+
+						if poolsresp.StatusCode != 200 {
+							bytes, _ := ioutil.ReadAll(poolsresp.Body)
+							fmt.Println(string(bytes))
+							fmt.Println(buf.String())
+						} else {
+							success = true
+							dec := json.NewDecoder(poolsresp.Body)
+							dec.Decode(log)
+							wrap.Value[1].Log = &TaskLogReference{}
+							wrap.Value[1].Log.Id = log.Id
+							// bytes, _ := ioutil.ReadAll(poolsresp.Body)
+							// fmt.Println(string(bytes))
+							// fmt.Println(buf.String())
+						}
+					}
+					{
+						url2, _ := url.Parse(req.TenantUrl)
+						url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
+						url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
+						url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
+						url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
+						url = strings.ReplaceAll(url, "{sessionId}", session.SessionId)
+						url = strings.ReplaceAll(url, "{scopeIdentifier}", jobreq.Plan.ScopeIdentifier)
+						url = strings.ReplaceAll(url, "{planId}", jobreq.Plan.PlanId)
+						url = strings.ReplaceAll(url, "{hubName}", jobreq.Plan.PlanType)
+						url = strings.ReplaceAll(url, "{timelineId}", jobreq.Timeline.Id)
+						url = strings.ReplaceAll(url, "{logId}", fmt.Sprint(log.Id))
+
+						q := url2.Query()
+						q.Add("sessionId", session.SessionId)
+						url2.RawQuery = q.Encode()
+						re := regexp.MustCompile(`/*\{[^\}]+\}`)
+						url = re.ReplaceAllString(url, "")
+						url2.Path = path.Join(url2.Path, url)
+						buf := new(bytes.Buffer)
+						enc := json.NewEncoder(buf)
+						enc.Encode(log)
+
+						poolsreq, _ := http.NewRequest("POST", url2.String(), buf)
+						poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
+						poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
+						poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
+						poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
+						poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
+						poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+						poolsresp, _ := c.Do(poolsreq)
+
+						if poolsresp.StatusCode != 200 {
+							bytes, _ := ioutil.ReadAll(poolsresp.Body)
+							fmt.Println(string(bytes))
+							fmt.Println(buf.String())
+						} else {
+							bytes, _ := ioutil.ReadAll(poolsresp.Body)
+							fmt.Println(string(bytes))
+							fmt.Println(buf.String())
+						}
+					}
+					break
+				}
+			}
+		}
+		//
 		wrap.Value[2] = TimelineRecord{}
 		wrap.Value[2].Id = uuid.NewString()
 		wrap.Value[2].RefName = "running"
@@ -656,8 +795,7 @@ func main() {
 				buf := new(bytes.Buffer)
 				enc := json.NewEncoder(buf)
 				enc.Encode(wrap)
-				// working := "{\"labels\":[{\"id\":0,\"name\":\"self-hosted\",\"type\":\"system\"},{\"id\":0,\"name\":\"golang\",\"type\":\"system\"},{\"id\":0,\"name\":\"X64\",\"type\":\"system\"},{\"id\":0,\"name\":\"container-host\",\"type\":\"user\"}],\"maxParallelism\":1,\"createdOn\":\"0001-01-01T00:00:00\",\"authorization\":{\"publicKey\":{\"exponent\":\"AQAB\",\"modulus\":\"qzh/lEVNIjbERjcql6yrqmQcxxDGd5IQGHPyFJvJuNSka7xqHFOizp5xcqjSMKLsePVL7vWrVCJusGlHB9oCeLe/8hOWQiTNKOIfDzjjBS1r2/QPx9CT48/HvMQ3rFvE3n9ogwQMd8lDrMFA4lv8eu8HIk2P/SDK3i5WqUXrNJRn/KGcuYzuSe0QNiuojun34ur5Vx+7HOLEs+VYYSPj7CHJq76qIQqUNhk37ko3gj5Wqduq/fi4W55R+R3beF9sZCVDhnE55jL2m02Qo0v/6o6PYre7QMANzQg9zfk4wngdRfHDEqBKpCfBOGL39YODRb3yzI9uShglP+eGYvQ9rQ==\"}},\"id\":0,\"name\":\"Agent_go\",\"version\":\"3.4.0\",\"osDescription\":\"Microsoft Windows 10.0.19042\",\"status\":0,\"provisioningState\":\"Provisioned\"}"
-				//bytes.NewBufferString(working)
+
 				poolsreq, _ := http.NewRequest("PATCH", url2.String(), buf)
 				poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
 				poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
@@ -667,9 +805,6 @@ func main() {
 				poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
 				poolsresp, _ := c.Do(poolsreq)
 
-				// bytes, _ := ioutil.ReadAll(poolsresp.Body)
-
-				// fmt.Println(string(bytes))
 				if poolsresp.StatusCode != 200 {
 					bytes, _ := ioutil.ReadAll(poolsresp.Body)
 					fmt.Println(string(bytes))
@@ -717,8 +852,6 @@ func main() {
 					lines.StepId = wrap.Value[2].Id
 					lines.Value = []string{"Hello World from go!: " + fmt.Sprint(counter)}
 					enc.Encode(lines)
-					// working := "{\"labels\":[{\"id\":0,\"name\":\"self-hosted\",\"type\":\"system\"},{\"id\":0,\"name\":\"golang\",\"type\":\"system\"},{\"id\":0,\"name\":\"X64\",\"type\":\"system\"},{\"id\":0,\"name\":\"container-host\",\"type\":\"user\"}],\"maxParallelism\":1,\"createdOn\":\"0001-01-01T00:00:00\",\"authorization\":{\"publicKey\":{\"exponent\":\"AQAB\",\"modulus\":\"qzh/lEVNIjbERjcql6yrqmQcxxDGd5IQGHPyFJvJuNSka7xqHFOizp5xcqjSMKLsePVL7vWrVCJusGlHB9oCeLe/8hOWQiTNKOIfDzjjBS1r2/QPx9CT48/HvMQ3rFvE3n9ogwQMd8lDrMFA4lv8eu8HIk2P/SDK3i5WqUXrNJRn/KGcuYzuSe0QNiuojun34ur5Vx+7HOLEs+VYYSPj7CHJq76qIQqUNhk37ko3gj5Wqduq/fi4W55R+R3beF9sZCVDhnE55jL2m02Qo0v/6o6PYre7QMANzQg9zfk4wngdRfHDEqBKpCfBOGL39YODRb3yzI9uShglP+eGYvQ9rQ==\"}},\"id\":0,\"name\":\"Agent_go\",\"version\":\"3.4.0\",\"osDescription\":\"Microsoft Windows 10.0.19042\",\"status\":0,\"provisioningState\":\"Provisioned\"}"
-					//bytes.NewBufferString(working)
 					poolsreq, _ := http.NewRequest("POST", url2.String(), buf)
 					poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
 					poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
