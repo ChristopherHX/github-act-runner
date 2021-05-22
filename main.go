@@ -730,10 +730,15 @@ func main() {
 				validlen -= int(src[len(src)-1])
 			}
 		}
-		fmt.Println(string(src[3:validlen]))
+		off := 0
+		// skip utf8 bom, c# cryptostream uses it for utf8
+		if src[0] == 239 && src[1] == 187 && src[2] == 191 {
+			off = 3
+		}
+		fmt.Println(string(src[off:validlen]))
 		jobreq := &AgentJobRequestMessage{}
 		{
-			dec := json.NewDecoder(bytes.NewReader(src[3:validlen]))
+			dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
 			dec.Decode(jobreq)
 		}
 		fmt.Println(jobreq.JobName)
