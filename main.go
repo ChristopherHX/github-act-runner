@@ -335,6 +335,32 @@ func GetConnectionData(c *http.Client, tenantUrl string) *ConnectionData {
 	return connectionData_
 }
 
+func BuildUrl(tenantUrl string, relativePath string, ppath map[string]string, query map[string]string) string {
+	url2, _ := url.Parse(tenantUrl)
+	url := relativePath
+	for p, v := range ppath {
+		url = strings.ReplaceAll(url, "{"+p+"}", v)
+	}
+	re := regexp.MustCompile(`/*\{[^\}]+\}`)
+	url = re.ReplaceAllString(url, "")
+	url2.Path = path.Join(url2.Path, url)
+	q := url2.Query()
+	for p, v := range query {
+		q.Add(p, v)
+	}
+	url2.RawQuery = q.Encode()
+	return url2.String()
+}
+
+func (connectionData *ConnectionData) GetServiceDefinition(id string) *ServiceDefinition {
+	for i := 0; i < len(connectionData.LocationServiceData.ServiceDefinitions); i++ {
+		if connectionData.LocationServiceData.ServiceDefinitions[i].Identifier == id {
+			return &connectionData.LocationServiceData.ServiceDefinitions[i]
+		}
+	}
+	return nil
+}
+
 func main() {
 	buf := new(bytes.Buffer)
 	req := &RunnerAddRemove{}
@@ -345,7 +371,7 @@ func main() {
 	if err := enc.Encode(req); err != nil {
 		return
 	}
-	{
+	if false {
 		// "https://api.github.com/actions/runner-registration"
 		// "http://192.168.178.20:5000/api/v3/actions/runner-registration"
 		r, _ := http.NewRequest("POST", "https://api.github.com/actions/runner-registration", buf)
@@ -604,6 +630,26 @@ func main() {
 						success = true
 						dec := json.NewDecoder(poolsresp.Body)
 						dec.Decode(message)
+						serv := connectionData_.LocationServiceData.ServiceDefinitions[i]
+						url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
+							"area":      serv.ServiceType,
+							"resource":  serv.DisplayName,
+							"poolId":    fmt.Sprint(poolId),
+							"messageId": fmt.Sprint(message.MessageId),
+						}, map[string]string{
+							"sessionId": session.SessionId,
+						})
+						poolsreq, _ := http.NewRequest("DELETE", url, buf)
+						poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
+						poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
+						poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
+						poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
+						poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
+						poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+						poolsresp, _ := c.Do(poolsreq)
+						if poolsresp.StatusCode != 200 {
+							return
+						}
 					}
 
 					break
@@ -822,7 +868,7 @@ func main() {
 			}
 		}
 
-		for counter := 0; ; counter++ {
+		for counter := 0; counter < 10; counter++ {
 			for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
 				if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "858983e4-19bd-4c5e-864c-507b59b58b12" {
 					url2, _ := url.Parse(req.TenantUrl)
@@ -879,6 +925,45 @@ func main() {
 
 					break
 				}
+			}
+			time.Sleep(time.Second)
+		}
+		{
+			type JobEvent struct {
+				Name               string
+				JobId              string
+				RequestId          int64
+				Result             string
+				Outputs            *map[string]VariableValue    `json:"Outputs,omitempty"`
+				ActionsEnvironment *ActionsEnvironmentReference `json:"ActionsEnvironment,omitempty"`
+			}
+			finish := &JobEvent{
+				Name:      "JobCompleted",
+				JobId:     jobreq.JobId,
+				RequestId: jobreq.RequestId,
+				Result:    "Failed",
+			}
+			serv := connectionData_.GetServiceDefinition("557624af-b29e-4c20-8ab0-0399d2204f3f")
+			url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
+				"area":            serv.ServiceType,
+				"resource":        serv.DisplayName,
+				"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
+				"planId":          jobreq.Plan.PlanId,
+				"hubName":         jobreq.Plan.PlanType,
+			}, map[string]string{})
+			buf := new(bytes.Buffer)
+			enc := json.NewEncoder(buf)
+			enc.Encode(finish)
+			poolsreq, _ := http.NewRequest("POST", url, buf)
+			poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
+			poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
+			poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
+			poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
+			poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
+			poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+			poolsresp, _ := c.Do(poolsreq)
+			if poolsresp.StatusCode != 200 {
+				return
 			}
 		}
 
