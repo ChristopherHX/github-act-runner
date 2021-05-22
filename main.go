@@ -138,8 +138,8 @@ type TimelineRecord struct {
 	Type             string
 	Name             string
 	StartTime        string
-	FinishTime       string
-	CurrentOperation string
+	FinishTime       *string
+	CurrentOperation *string
 	PercentComplete  int32
 	State            string
 	Result           *string
@@ -156,7 +156,7 @@ type TimelineRecord struct {
 	Issues           []Issue
 	Location         string
 	Attempt          int32
-	Identifier       string
+	Identifier       *string
 	AgentPlatform    string
 	PreviousAttempts []TimelineAttempt
 	Variables        map[string]VariableValue
@@ -414,6 +414,9 @@ func main() {
 	if err != nil {
 		return
 	}
+	t := &TaskAgent{}
+	m, _ := json.Marshal(t)
+	fmt.Println(string(m))
 
 	buf := new(bytes.Buffer)
 	req := &RunnerAddRemove{}
@@ -490,7 +493,7 @@ func main() {
 		taskAgent.MaxParallelism = 1
 		taskAgent.Name = "golang_" + uuid.NewString()
 		taskAgent.ProvisioningState = "Provisioned"
-		taskAgent.CreatedOn = "0001-01-01T00:00:00"
+		taskAgent.CreatedOn = "2021-05-22T00:00:00"
 		for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
 			if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "e298ef32-5878-4cab-993c-043836571f42" {
 				url2, _ := url.Parse(req.TenantUrl)
@@ -740,15 +743,18 @@ func main() {
 		wrap.Value = make([]TimelineRecord, 3)
 		wrap.Value[0] = TimelineRecord{}
 		wrap.Value[0].Id = jobreq.JobId
-		wrap.Value[0].RefName = "testjob"
-		wrap.Value[0].Name = "testjob"
+		wrap.Value[0].RefName = jobreq.JobName
+		wrap.Value[0].Name = jobreq.JobDisplayName
 		wrap.Value[0].Type = "Job"
 		wrap.Value[0].WorkerName = "golang-go"
 		wrap.Value[0].State = "InProgress"
-		wrap.Value[0].LastModified = "0001-01-01T00:00:00"
+		wrap.Value[0].StartTime = "2021-05-22T00:00:00"
+		wrap.Value[0].LastModified = "2021-05-22T00:00:00"
+		// wrap.Value[0].StartTime = time.Now()
 
-		suc := "Succeeded"
+		suc := "succeeded"
 		wrap.Value[1] = TimelineRecord{}
+		wrap.Value[1].StartTime = "2021-05-22T00:00:00"
 		wrap.Value[1].Result = &suc
 		wrap.Value[1].Id = uuid.NewString()
 		wrap.Value[1].RefName = "init"
@@ -757,7 +763,7 @@ func main() {
 		wrap.Value[1].WorkerName = "golang-go"
 		wrap.Value[1].ParentId = jobreq.JobId
 		wrap.Value[1].State = "Completed"
-		wrap.Value[1].LastModified = "0001-01-01T00:00:00"
+		wrap.Value[1].LastModified = "2021-05-22T00:00:00"
 		wrap.Value[1].Order = 1
 		{
 			for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
@@ -777,8 +783,8 @@ func main() {
 
 						s := "logs/tmo.txt"
 						log.Path = &s
-						log.CreatedOn = "0001-01-01T00:00:00"
-						log.LastChangedOn = "0001-01-01T00:00:00"
+						log.CreatedOn = "2021-05-22T00:00:00"
+						log.LastChangedOn = "2021-05-22T00:00:00"
 
 						q := url2.Query()
 						q.Add("sessionId", session.SessionId)
@@ -862,6 +868,7 @@ func main() {
 		}
 		//
 		wrap.Value[2] = TimelineRecord{}
+		wrap.Value[2].StartTime = "2021-05-22T00:00:00"
 		wrap.Value[2].Id = uuid.NewString()
 		wrap.Value[2].RefName = "running"
 		wrap.Value[2].Name = "Running"
@@ -869,7 +876,7 @@ func main() {
 		wrap.Value[2].WorkerName = "golang-go"
 		wrap.Value[2].ParentId = jobreq.JobId
 		wrap.Value[2].State = "InProgress"
-		wrap.Value[2].LastModified = "0001-01-01T00:00:00"
+		wrap.Value[2].LastModified = "2021-05-22T00:00:00"
 		wrap.Value[2].Order = 2
 
 		for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
@@ -981,6 +988,68 @@ func main() {
 			}
 			time.Sleep(time.Second)
 		}
+		wrap.Value[0].Result = &suc
+		wrap.Value[0].State = "completed"
+		wrap.Value[0].PercentComplete = 100
+
+		wrap.Value[1].PercentComplete = 100
+		t := "2021-05-22T00:01:00"
+		wrap.Value[0].FinishTime = &t
+		wrap.Value[0].LastModified = t
+		wrap.Value[2].FinishTime = &t
+		wrap.Value[2].LastModified = t
+		wrap.Value[2].Result = &suc
+		wrap.Value[2].State = "completed"
+		wrap.Value[2].PercentComplete = 100
+		wrap.Value[1].PercentComplete = 100
+		for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
+			if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "8893bc5b-35b2-4be7-83cb-99e683551db4" {
+				url2, _ := url.Parse(req.TenantUrl)
+				url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
+				url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
+				url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
+				url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
+				url = strings.ReplaceAll(url, "{sessionId}", session.SessionId)
+				url = strings.ReplaceAll(url, "{scopeIdentifier}", jobreq.Plan.ScopeIdentifier)
+				url = strings.ReplaceAll(url, "{planId}", jobreq.Plan.PlanId)
+				url = strings.ReplaceAll(url, "{hubName}", jobreq.Plan.PlanType)
+				url = strings.ReplaceAll(url, "{timelineId}", jobreq.Timeline.Id)
+
+				q := url2.Query()
+				q.Add("sessionId", session.SessionId)
+				url2.RawQuery = q.Encode()
+				re := regexp.MustCompile(`/*\{[^\}]+\}`)
+				url = re.ReplaceAllString(url, "")
+				url2.Path = path.Join(url2.Path, url)
+				buf := new(bytes.Buffer)
+				enc := json.NewEncoder(buf)
+				enc.Encode(wrap)
+
+				poolsreq, _ := http.NewRequest("PATCH", url2.String(), buf)
+				poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
+				poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
+				poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
+				poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
+				poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
+				poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+				poolsresp, _ := c.Do(poolsreq)
+
+				if poolsresp.StatusCode != 200 {
+					bytes, _ := ioutil.ReadAll(poolsresp.Body)
+					fmt.Println(string(bytes))
+					fmt.Println(buf.String())
+				} else {
+					success = true
+					// dec := json.NewDecoder(poolsresp.Body)
+					// dec.Decode(message)
+					bytes, _ := ioutil.ReadAll(poolsresp.Body)
+					fmt.Println(string(bytes))
+					fmt.Println(buf.String())
+				}
+
+				break
+			}
+		}
 		{
 			type JobEvent struct {
 				Name               string
@@ -994,7 +1063,8 @@ func main() {
 				Name:      "JobCompleted",
 				JobId:     jobreq.JobId,
 				RequestId: jobreq.RequestId,
-				Result:    "Failed",
+				// Result:    "Failed",
+				Result: "Succeeded",
 			}
 			serv := connectionData_.GetServiceDefinition("557624af-b29e-4c20-8ab0-0399d2204f3f")
 			url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
