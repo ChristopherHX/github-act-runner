@@ -169,8 +169,8 @@ type TaskOrchestrationPlanReference struct {
 }
 
 type MapEntry struct {
-	Key   string
-	Value TemplateToken
+	Key   *TemplateToken
+	Value *TemplateToken
 }
 
 type TemplateToken struct {
@@ -188,16 +188,22 @@ type TemplateToken struct {
 }
 
 func (token *TemplateToken) UnmarshalJSON(data []byte) error {
-	if json.Unmarshal(data, token.Bool) == nil {
+	if json.Unmarshal(data, &token.Bool) == nil {
+		token.Type = 5
+		return nil
+	} else if json.Unmarshal(data, &token.Num) == nil {
+		token.Bool = nil
+		token.Type = 6
+		return nil
+	} else if json.Unmarshal(data, &token.Lit) == nil {
+		token.Bool = nil
+		token.Num = nil
 		token.Type = 0
 		return nil
-	} else if json.Unmarshal(data, token.Num) == nil {
-		token.Type = 1
-		return nil
-	} else if json.Unmarshal(data, token.Lit) == nil {
-		token.Type = 2
-		return nil
 	} else {
+		token.Bool = nil
+		token.Num = nil
+		token.Lit = nil
 		type TemplateToken2 TemplateToken
 		return json.Unmarshal(data, (*TemplateToken2)(token))
 	}
@@ -221,10 +227,47 @@ type JobResources struct {
 	Endpoints []JobEndpoint
 }
 
+type DictionaryContextDataPair struct {
+	Key   string              `json:"k"`
+	Value PipelineContextData `json:"v"`
+}
+
 type PipelineContextData struct {
+	Type            *int32                       `json:"t,omitempty"`
+	BoolValue       *bool                        `json:"b,omitempty"`
+	NumberValue     *float64                     `json:"n,omitempty"`
+	StringValue     *string                      `json:"s,omitempty"`
+	ArrayValue      *[]PipelineContextData       `json:"a,omitempty"`
+	DictionaryValue *[]DictionaryContextDataPair `json:"d,omitempty"`
+}
+
+func (ctx *PipelineContextData) UnmarshalJSON(data []byte) error {
+	if json.Unmarshal(data, &ctx.BoolValue) == nil {
+		var typ int32 = 3
+		ctx.Type = &typ
+		return nil
+	} else if json.Unmarshal(data, &ctx.NumberValue) == nil {
+		ctx.BoolValue = nil
+		var typ int32 = 4
+		ctx.Type = &typ
+		return nil
+	} else if json.Unmarshal(data, &ctx.StringValue) == nil {
+		ctx.BoolValue = nil
+		ctx.NumberValue = nil
+		var typ int32 = 0
+		ctx.Type = &typ
+		return nil
+	} else {
+		ctx.BoolValue = nil
+		ctx.NumberValue = nil
+		ctx.StringValue = nil
+		type PipelineContextData2 PipelineContextData
+		return json.Unmarshal(data, (*PipelineContextData2)(ctx))
+	}
 }
 
 type WorkspaceOptions struct {
+	Clean *string `json:"Clean,omitempty"`
 }
 
 type MaskHint struct {
@@ -233,10 +276,12 @@ type MaskHint struct {
 }
 
 type ActionsEnvironmentReference struct {
+	Name *string `json:"Name,omitempty"`
+	Url  *string `json:"Url,omitempty"`
 }
 
 type ActionStepDefinitionReference struct {
-	Type           int
+	Type           string
 	Image          string
 	Name           string
 	Ref            string
@@ -245,36 +290,36 @@ type ActionStepDefinitionReference struct {
 }
 
 type ActionStep struct {
-	Type             int
+	Type             string
 	Reference        ActionStepDefinitionReference
-	DisplayNameToken TemplateToken
+	DisplayNameToken *TemplateToken
 	ContextName      string
-	Environment      TemplateToken
-	// Inputs           TemplateToken
+	Environment      *TemplateToken
+	Inputs           *TemplateToken
 	Condition        string
-	ContinueOnError  TemplateToken
-	TimeoutInMinutes TemplateToken
+	ContinueOnError  *TemplateToken
+	TimeoutInMinutes *TemplateToken
 }
 
 type AgentJobRequestMessage struct {
 	MessageType          string
-	Plan                 TaskOrchestrationPlanReference
-	Timeline             TimeLineReference
+	Plan                 *TaskOrchestrationPlanReference
+	Timeline             *TimeLineReference
 	JobId                string
 	JobDisplayName       string
 	JobName              string
-	JobContainer         TemplateToken
-	JobServiceContainers TemplateToken
-	JobOutputs           TemplateToken
+	JobContainer         *TemplateToken
+	JobServiceContainers *TemplateToken
+	JobOutputs           *TemplateToken
 	RequestId            int64
 	LockedUntil          string
-	Resources            JobResources
+	Resources            *JobResources
 	ContextData          map[string]PipelineContextData
-	Workspace            WorkspaceOptions
-	MaskHints            []MaskHint
+	Workspace            *WorkspaceOptions
+	MaskHints            []MaskHint `json:"mask"`
 	EnvironmentVariables []TemplateToken
 	Defaults             []TemplateToken
-	ActionsEnvironment   ActionsEnvironmentReference
+	ActionsEnvironment   *ActionsEnvironmentReference
 	Variables            map[string]VariableValue
 	Steps                []ActionStep
 	FileTable            []string
@@ -362,6 +407,14 @@ func (connectionData *ConnectionData) GetServiceDefinition(id string) *ServiceDe
 }
 
 func main() {
+	c, _ := ioutil.ReadFile("jobreq2.json")
+	// var rqt *AgentJobRequestMessage
+	rqt := &AgentJobRequestMessage{}
+	err := json.Unmarshal(c, rqt)
+	if err != nil {
+		return
+	}
+
 	buf := new(bytes.Buffer)
 	req := &RunnerAddRemove{}
 	req.Url = "https://github.com/ChristopherHX/ghat2"
