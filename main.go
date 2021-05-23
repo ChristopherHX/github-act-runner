@@ -451,11 +451,8 @@ func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *ht
 
 	poolsreq, _ := http.NewRequest("POST", url, buf)
 	poolsreq.Header["Authorization"] = []string{"bearer " + token}
-	poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview"}
-	poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
-	poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
-	poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
-	poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+	AddContentType(poolsreq.Header, "6.0-preview")
+	AddHeaders(poolsreq.Header)
 	poolsresp, _ := c.Do(poolsreq)
 
 	dec := json.NewDecoder(poolsresp.Body)
@@ -480,16 +477,28 @@ func (session *TaskAgentSession) Delete(connectionData_ *ConnectionData, c *http
 
 	poolsreq, _ := http.NewRequest("DELETE", url, nil)
 	poolsreq.Header["Authorization"] = []string{"bearer " + token}
-	poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview"}
-	poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
-	poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
-	poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
-	poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+	AddContentType(poolsreq.Header, "6.0-preview")
+	AddHeaders(poolsreq.Header)
 	poolsresp, _ := c.Do(poolsreq)
 	if poolsresp.StatusCode != 200 {
 		return errors.New("failed to delete session")
 	}
 	return nil
+}
+
+func AddHeaders(header http.Header) {
+	header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
+	header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
+	header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+}
+
+func AddContentType(header http.Header, apiversion string) {
+	header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=" + apiversion}
+	header["Accept"] = []string{"application/json; api-version=" + apiversion}
+}
+
+func AddBearer(header http.Header, token string) {
+	header["Authorization"] = []string{"bearer " + token}
 }
 
 func main() {
@@ -622,9 +631,7 @@ func main() {
 				poolsreq.Header["Authorization"] = []string{"bearer " + req.Token}
 				poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
 				poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview.2"}
-				poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
-				poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
-				poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+				AddHeaders(poolsreq.Header)
 				poolsresp, _ := c.Do(poolsreq)
 
 				if poolsresp.StatusCode != 200 {
@@ -722,11 +729,8 @@ func main() {
 					//TODO lastMessageId=
 					poolsreq, _ := http.NewRequest("GET", url2.String(), buf)
 					poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
-					poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
-					poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
-					poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
-					poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
-					poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+					AddContentType(poolsreq.Header, "6.0-preview")
+					AddHeaders(poolsreq.Header)
 					poolsresp, _ := c.Do(poolsreq)
 
 					if poolsresp.StatusCode != 200 {
@@ -748,11 +752,8 @@ func main() {
 						})
 						poolsreq, _ := http.NewRequest("DELETE", url, buf)
 						poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
-						poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
-						poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
-						poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
-						poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
-						poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+						AddContentType(poolsreq.Header, "6.0-preview")
+						AddHeaders(poolsreq.Header)
 						poolsresp, _ := c.Do(poolsreq)
 						if poolsresp.StatusCode != 200 {
 							return
@@ -851,11 +852,8 @@ func main() {
 
 						poolsreq, _ := http.NewRequest("POST", url2.String(), buf)
 						poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
-						poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
-						poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
-						poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
-						poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
-						poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+						AddContentType(poolsreq.Header, "6.0-preview")
+						AddHeaders(poolsreq.Header)
 						poolsresp, _ := c.Do(poolsreq)
 
 						if poolsresp.StatusCode != 200 {
@@ -895,11 +893,8 @@ func main() {
 
 						poolsreq, _ := http.NewRequest("POST", url2.String(), buf)
 						poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
-						poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
-						poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
-						poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
-						poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
-						poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+						AddContentType(poolsreq.Header, "6.0-preview")
+						AddHeaders(poolsreq.Header)
 						poolsresp, _ := c.Do(poolsreq)
 
 						if poolsresp.StatusCode != 200 {
@@ -951,11 +946,8 @@ func main() {
 
 				poolsreq, _ := http.NewRequest("PATCH", url2.String(), buf)
 				poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
-				poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
-				poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
-				poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
-				poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
-				poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+				AddContentType(poolsreq.Header, "6.0-preview")
+				AddHeaders(poolsreq.Header)
 				poolsresp, _ := c.Do(poolsreq)
 
 				if poolsresp.StatusCode != 200 {
@@ -1004,11 +996,8 @@ func main() {
 					enc.Encode(lines)
 					poolsreq, _ := http.NewRequest("POST", url2.String(), buf)
 					poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
-					poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
-					poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
-					poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
-					poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
-					poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+					AddContentType(poolsreq.Header, "6.0-preview")
+					AddHeaders(poolsreq.Header)
 					poolsresp, _ := c.Do(poolsreq)
 
 					// bytes, _ := ioutil.ReadAll(poolsresp.Body)
@@ -1068,11 +1057,8 @@ func main() {
 
 				poolsreq, _ := http.NewRequest("PATCH", url2.String(), buf)
 				poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
-				poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
-				poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
-				poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
-				poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
-				poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+				AddContentType(poolsreq.Header, "6.0-preview")
+				AddHeaders(poolsreq.Header)
 				poolsresp, _ := c.Do(poolsreq)
 
 				if poolsresp.StatusCode != 200 {
@@ -1119,14 +1105,12 @@ func main() {
 			enc := json.NewEncoder(buf)
 			enc.Encode(finish)
 			poolsreq, _ := http.NewRequest("POST", url, buf)
-			poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
-			poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
-			poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
-			poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
-			poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
-			poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+			AddBearer(poolsreq.Header, tokenresp.AccessToken)
+			AddContentType(poolsreq.Header, "6.0-preview")
+			AddHeaders(poolsreq.Header)
 			poolsresp, _ := c.Do(poolsreq)
 			if poolsresp.StatusCode != 200 {
+				session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken)
 				return
 			}
 		}
