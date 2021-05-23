@@ -501,6 +501,39 @@ func AddBearer(header http.Header, token string) {
 	header["Authorization"] = []string{"bearer " + token}
 }
 
+func UpdateTimeLine(con *ConnectionData, c *http.Client, tenantUrl string, timelineId string, jobreq *AgentJobRequestMessage, wrap *TimelineRecordWrapper, token string) {
+	serv := con.GetServiceDefinition("8893bc5b-35b2-4be7-83cb-99e683551db4")
+	url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
+		"area":            serv.ServiceType,
+		"resource":        serv.DisplayName,
+		"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
+		"planId":          jobreq.Plan.PlanId,
+		"hubName":         jobreq.Plan.PlanType,
+		"timelineId":      timelineId,
+	}, map[string]string{})
+	buf := new(bytes.Buffer)
+	enc := json.NewEncoder(buf)
+	enc.Encode(wrap)
+
+	poolsreq, _ := http.NewRequest("PATCH", url, buf)
+	poolsreq.Header["Authorization"] = []string{"bearer " + token}
+	AddContentType(poolsreq.Header, "6.0-preview")
+	AddHeaders(poolsreq.Header)
+	poolsresp, _ := c.Do(poolsreq)
+
+	if poolsresp.StatusCode != 200 {
+		bytes, _ := ioutil.ReadAll(poolsresp.Body)
+		fmt.Println(string(bytes))
+		fmt.Println(buf.String())
+	} else {
+		// dec := json.NewDecoder(poolsresp.Body)
+		// dec.Decode(message)
+		bytes, _ := ioutil.ReadAll(poolsresp.Body)
+		fmt.Println(string(bytes))
+		fmt.Println(buf.String())
+	}
+}
+
 func main() {
 	c, _ := ioutil.ReadFile("jobreq2.json")
 	// var rqt *AgentJobRequestMessage
@@ -924,48 +957,7 @@ func main() {
 		wrap.Value[2].LastModified = "2021-05-22T00:00:00"
 		wrap.Value[2].Order = 2
 
-		for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
-			if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "8893bc5b-35b2-4be7-83cb-99e683551db4" {
-				url2, _ := url.Parse(req.TenantUrl)
-				url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
-				url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
-				url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
-				url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
-				url = strings.ReplaceAll(url, "{sessionId}", session.SessionId)
-				url = strings.ReplaceAll(url, "{scopeIdentifier}", jobreq.Plan.ScopeIdentifier)
-				url = strings.ReplaceAll(url, "{planId}", jobreq.Plan.PlanId)
-				url = strings.ReplaceAll(url, "{hubName}", jobreq.Plan.PlanType)
-				url = strings.ReplaceAll(url, "{timelineId}", jobreq.Timeline.Id)
-
-				re := regexp.MustCompile(`/*\{[^\}]+\}`)
-				url = re.ReplaceAllString(url, "")
-				url2.Path = path.Join(url2.Path, url)
-				buf := new(bytes.Buffer)
-				enc := json.NewEncoder(buf)
-				enc.Encode(wrap)
-
-				poolsreq, _ := http.NewRequest("PATCH", url2.String(), buf)
-				poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
-				AddContentType(poolsreq.Header, "6.0-preview")
-				AddHeaders(poolsreq.Header)
-				poolsresp, _ := c.Do(poolsreq)
-
-				if poolsresp.StatusCode != 200 {
-					bytes, _ := ioutil.ReadAll(poolsresp.Body)
-					fmt.Println(string(bytes))
-					fmt.Println(buf.String())
-				} else {
-					success = true
-					// dec := json.NewDecoder(poolsresp.Body)
-					// dec.Decode(message)
-					bytes, _ := ioutil.ReadAll(poolsresp.Body)
-					fmt.Println(string(bytes))
-					fmt.Println(buf.String())
-				}
-
-				break
-			}
-		}
+		UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
 
 		for counter := 0; counter < 10; counter++ {
 			for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
@@ -1035,48 +1027,7 @@ func main() {
 		wrap.Value[2].State = "completed"
 		wrap.Value[2].PercentComplete = 100
 		wrap.Value[1].PercentComplete = 100
-		for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
-			if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "8893bc5b-35b2-4be7-83cb-99e683551db4" {
-				url2, _ := url.Parse(req.TenantUrl)
-				url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
-				url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
-				url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
-				url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
-				url = strings.ReplaceAll(url, "{sessionId}", session.SessionId)
-				url = strings.ReplaceAll(url, "{scopeIdentifier}", jobreq.Plan.ScopeIdentifier)
-				url = strings.ReplaceAll(url, "{planId}", jobreq.Plan.PlanId)
-				url = strings.ReplaceAll(url, "{hubName}", jobreq.Plan.PlanType)
-				url = strings.ReplaceAll(url, "{timelineId}", jobreq.Timeline.Id)
-
-				re := regexp.MustCompile(`/*\{[^\}]+\}`)
-				url = re.ReplaceAllString(url, "")
-				url2.Path = path.Join(url2.Path, url)
-				buf := new(bytes.Buffer)
-				enc := json.NewEncoder(buf)
-				enc.Encode(wrap)
-
-				poolsreq, _ := http.NewRequest("PATCH", url2.String(), buf)
-				poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
-				AddContentType(poolsreq.Header, "6.0-preview")
-				AddHeaders(poolsreq.Header)
-				poolsresp, _ := c.Do(poolsreq)
-
-				if poolsresp.StatusCode != 200 {
-					bytes, _ := ioutil.ReadAll(poolsresp.Body)
-					fmt.Println(string(bytes))
-					fmt.Println(buf.String())
-				} else {
-					success = true
-					// dec := json.NewDecoder(poolsresp.Body)
-					// dec.Decode(message)
-					bytes, _ := ioutil.ReadAll(poolsresp.Body)
-					fmt.Println(string(bytes))
-					fmt.Println(buf.String())
-				}
-
-				break
-			}
-		}
+		UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
 		{
 			type JobEvent struct {
 				Name               string
