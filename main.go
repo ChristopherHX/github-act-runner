@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -266,6 +267,33 @@ func (ctx *PipelineContextData) UnmarshalJSON(data []byte) error {
 	}
 }
 
+func (ctx PipelineContextData) ToRawObject() interface{} {
+	if ctx.Type == nil {
+		return nil
+	}
+	switch *ctx.Type {
+	case 0:
+		return ctx.StringValue
+	case 1:
+		a := make([]interface{}, 0)
+		for _, v := range *ctx.ArrayValue {
+			a = append(a, v.ToRawObject())
+		}
+		return a
+	case 2:
+		m := make(map[string]interface{})
+		for _, v := range *ctx.DictionaryValue {
+			m[v.Key] = v.Value.ToRawObject()
+		}
+		return m
+	case 3:
+		return ctx.BoolValue
+	case 4:
+		return ctx.NumberValue
+	}
+	return nil
+}
+
 type WorkspaceOptions struct {
 	Clean *string `json:"Clean,omitempty"`
 }
@@ -406,6 +434,64 @@ func (connectionData *ConnectionData) GetServiceDefinition(id string) *ServiceDe
 	return nil
 }
 
+func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *http.Client, tenantUrl string, key *rsa.PrivateKey, token string) (*TaskAgentSession, cipher.Block) {
+	session := &TaskAgentSession{}
+	session.Agent = *taskAgent
+	session.UseFipsEncryption = true
+	session.OwnerName = "RUNNER"
+	serv := connectionData_.GetServiceDefinition("134e239e-2df3-4794-a6f6-24f1f19ec8dc")
+	url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
+		"area":     serv.ServiceType,
+		"resource": serv.DisplayName,
+		"poolId":   fmt.Sprint(1),
+	}, map[string]string{})
+	buf := new(bytes.Buffer)
+	enc := json.NewEncoder(buf)
+	enc.Encode(session)
+
+	poolsreq, _ := http.NewRequest("POST", url, buf)
+	poolsreq.Header["Authorization"] = []string{"bearer " + token}
+	poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview"}
+	poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
+	poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
+	poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
+	poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+	poolsresp, _ := c.Do(poolsreq)
+
+	dec := json.NewDecoder(poolsresp.Body)
+	dec.Decode(session)
+	d, _ := base64.StdEncoding.DecodeString(session.EncryptionKey.Value)
+	sessionKey, _ := rsa.DecryptOAEP(sha256.New(), rand.Reader, key, d, []byte{})
+	if sessionKey == nil {
+		return nil, nil
+	}
+	b, _ := aes.NewCipher(sessionKey)
+	return session, b
+}
+
+func (session *TaskAgentSession) Delete(connectionData_ *ConnectionData, c *http.Client, tenantUrl string, token string) error {
+	serv := connectionData_.GetServiceDefinition("134e239e-2df3-4794-a6f6-24f1f19ec8dc")
+	url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
+		"area":      serv.ServiceType,
+		"resource":  serv.DisplayName,
+		"poolId":    fmt.Sprint(1),
+		"sessionId": session.SessionId,
+	}, map[string]string{})
+
+	poolsreq, _ := http.NewRequest("DELETE", url, nil)
+	poolsreq.Header["Authorization"] = []string{"bearer " + token}
+	poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview"}
+	poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
+	poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
+	poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
+	poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
+	poolsresp, _ := c.Do(poolsreq)
+	if poolsresp.StatusCode != 200 {
+		return errors.New("failed to delete session")
+	}
+	return nil
+}
+
 func main() {
 	c, _ := ioutil.ReadFile("jobreq2.json")
 	// var rqt *AgentJobRequestMessage
@@ -414,6 +500,9 @@ func main() {
 	if err != nil {
 		return
 	}
+	obj := rqt.ContextData["github"].ToRawObject()
+	val, _ := json.Marshal(obj)
+	fmt.Println(string(val))
 	t := &TaskAgent{}
 	m, _ := json.Marshal(t)
 	fmt.Println(string(m))
@@ -581,10 +670,6 @@ func main() {
 			json.Unmarshal(cont, req)
 		}
 
-		session := &TaskAgentSession{}
-		session.Agent = *taskAgent
-		session.UseFipsEncryption = true
-		session.OwnerName = "RUNNER"
 		tokenresp := &VssOAuthTokenResponse{}
 		{
 			now := time.Now()
@@ -614,40 +699,7 @@ func main() {
 
 		connectionData_ := GetConnectionData(c, req.TenantUrl)
 
-		for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
-			if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "134e239e-2df3-4794-a6f6-24f1f19ec8dc" {
-				url2, _ := url.Parse(req.TenantUrl)
-				url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
-				url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
-				url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
-				url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
-				re := regexp.MustCompile(`/*\{[^\}]+\}`)
-				url = re.ReplaceAllString(url, "")
-				url2.Path = path.Join(url2.Path, url)
-				buf := new(bytes.Buffer)
-				enc := json.NewEncoder(buf)
-				enc.Encode(session)
-
-				poolsreq, _ := http.NewRequest("POST", url2.String(), buf)
-				poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
-				poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview"}
-				poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview"}
-				poolsreq.Header["X-VSS-E2EID"] = []string{"7f1c293d-97ce-4c59-9e4b-0677c85b8144"}
-				poolsreq.Header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
-				poolsreq.Header["X-TFS-Session"] = []string{"0a6ba747-926b-4ba3-a852-00ab5b5b071a"}
-				poolsresp, _ := c.Do(poolsreq)
-
-				dec := json.NewDecoder(poolsresp.Body)
-				dec.Decode(session)
-				break
-			}
-		}
-		d, _ := base64.StdEncoding.DecodeString(session.EncryptionKey.Value)
-		sessionKey, _ := rsa.DecryptOAEP(sha256.New(), rand.Reader, key, d, []byte{})
-		if sessionKey == nil {
-			return
-		}
-		b, _ := aes.NewCipher(sessionKey)
+		session, b := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken)
 		message := &TaskAgentMessage{}
 		success := false
 		for !success {
@@ -658,7 +710,6 @@ func main() {
 					url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
 					url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
 					url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
-					url = strings.ReplaceAll(url, "{sessionId}", session.SessionId)
 					q := url2.Query()
 					q.Add("sessionId", session.SessionId)
 					url2.RawQuery = q.Encode()
@@ -791,9 +842,6 @@ func main() {
 						log.CreatedOn = "2021-05-22T00:00:00"
 						log.LastChangedOn = "2021-05-22T00:00:00"
 
-						q := url2.Query()
-						q.Add("sessionId", session.SessionId)
-						url2.RawQuery = q.Encode()
 						re := regexp.MustCompile(`/*\{[^\}]+\}`)
 						url = re.ReplaceAllString(url, "")
 						url2.Path = path.Join(url2.Path, url)
@@ -838,9 +886,6 @@ func main() {
 						url = strings.ReplaceAll(url, "{timelineId}", jobreq.Timeline.Id)
 						url = strings.ReplaceAll(url, "{logId}", fmt.Sprint(log.Id))
 
-						q := url2.Query()
-						q.Add("sessionId", session.SessionId)
-						url2.RawQuery = q.Encode()
 						re := regexp.MustCompile(`/*\{[^\}]+\}`)
 						url = re.ReplaceAllString(url, "")
 						url2.Path = path.Join(url2.Path, url)
@@ -897,9 +942,6 @@ func main() {
 				url = strings.ReplaceAll(url, "{hubName}", jobreq.Plan.PlanType)
 				url = strings.ReplaceAll(url, "{timelineId}", jobreq.Timeline.Id)
 
-				q := url2.Query()
-				q.Add("sessionId", session.SessionId)
-				url2.RawQuery = q.Encode()
 				re := regexp.MustCompile(`/*\{[^\}]+\}`)
 				url = re.ReplaceAllString(url, "")
 				url2.Path = path.Join(url2.Path, url)
@@ -948,9 +990,6 @@ func main() {
 					url = strings.ReplaceAll(url, "{timelineId}", jobreq.Timeline.Id)
 					url = strings.ReplaceAll(url, "{recordId}", wrap.Value[2].Id)
 
-					q := url2.Query()
-					q.Add("sessionId", session.SessionId)
-					url2.RawQuery = q.Encode()
 					re := regexp.MustCompile(`/*\{[^\}]+\}`)
 					url = re.ReplaceAllString(url, "")
 					url2.Path = path.Join(url2.Path, url)
@@ -1020,9 +1059,6 @@ func main() {
 				url = strings.ReplaceAll(url, "{hubName}", jobreq.Plan.PlanType)
 				url = strings.ReplaceAll(url, "{timelineId}", jobreq.Timeline.Id)
 
-				q := url2.Query()
-				q.Add("sessionId", session.SessionId)
-				url2.RawQuery = q.Encode()
 				re := regexp.MustCompile(`/*\{[^\}]+\}`)
 				url = re.ReplaceAllString(url, "")
 				url2.Path = path.Join(url2.Path, url)
@@ -1094,6 +1130,6 @@ func main() {
 				return
 			}
 		}
-
+		session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken)
 	}
 }
