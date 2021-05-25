@@ -926,11 +926,8 @@ func main() {
 			}, map[string]string{
 				"sessionId": session.SessionId,
 			})
-			buf := new(bytes.Buffer)
-			enc := json.NewEncoder(buf)
-			enc.Encode(session)
 			//TODO lastMessageId=
-			poolsreq, _ := http.NewRequest("GET", url, buf)
+			poolsreq, _ := http.NewRequest("GET", url, nil)
 			AddBearer(poolsreq.Header, tokenresp.AccessToken)
 			AddContentType(poolsreq.Header, "6.0-preview")
 			AddHeaders(poolsreq.Header)
@@ -939,7 +936,6 @@ func main() {
 			if poolsresp.StatusCode != 200 {
 				bytes, _ := ioutil.ReadAll(poolsresp.Body)
 				fmt.Println(string(bytes))
-				fmt.Println(buf.String())
 				fmt.Println("Failed to get message")
 				return
 			} else {
@@ -954,7 +950,7 @@ func main() {
 				}, map[string]string{
 					"sessionId": session.SessionId,
 				})
-				poolsreq, _ := http.NewRequest("DELETE", url, buf)
+				poolsreq, _ := http.NewRequest("DELETE", url, nil)
 				AddBearer(poolsreq.Header, tokenresp.AccessToken)
 				AddContentType(poolsreq.Header, "6.0-preview")
 				AddHeaders(poolsreq.Header)
