@@ -458,6 +458,15 @@ type TimelineRecordFeedLinesWrapper struct {
 	StartLine *int64
 }
 
+type JobEvent struct {
+	Name               string
+	JobId              string
+	RequestId          int64
+	Result             string
+	Outputs            *map[string]VariableValue    `json:"Outputs,omitempty"`
+	ActionsEnvironment *ActionsEnvironmentReference `json:"ActionsEnvironment,omitempty"`
+}
+
 func (rec *TimelineRecord) Start() {
 	time := time.Now().UTC().Format("2006-01-02T15:04:05")
 	rec.PercentComplete = 0
@@ -1097,14 +1106,6 @@ func main() {
 
 		UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
 		{
-			type JobEvent struct {
-				Name               string
-				JobId              string
-				RequestId          int64
-				Result             string
-				Outputs            *map[string]VariableValue    `json:"Outputs,omitempty"`
-				ActionsEnvironment *ActionsEnvironmentReference `json:"ActionsEnvironment,omitempty"`
-			}
 			finish := &JobEvent{
 				Name:      "JobCompleted",
 				JobId:     jobreq.JobId,
