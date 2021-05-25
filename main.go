@@ -886,8 +886,16 @@ func main() {
 
 		tokenresp := &VssOAuthTokenResponse{}
 		{
-			now := time.Now()
-			token2 := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{"sub": taskAgent.Authorization.ClientId, "iss": taskAgent.Authorization.ClientId, "aud": taskAgent.Authorization.AuthorizationUrl, "nbf": now, "iat": now, "exp": now.Add(time.Minute * 5), "jti": uuid.New().String()})
+			now := time.Now().UTC()
+			token2 := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.StandardClaims{
+				Subject:   taskAgent.Authorization.ClientId,
+				Issuer:    taskAgent.Authorization.ClientId,
+				Id:        uuid.New().String(),
+				Audience:  taskAgent.Authorization.AuthorizationUrl,
+				NotBefore: now.Unix(),
+				IssuedAt:  now.Unix(),
+				ExpiresAt: now.Add(time.Minute * 5).Unix(),
+			})
 			stkn, _ := token2.SignedString(key)
 			fmt.Println(stkn)
 
@@ -903,7 +911,8 @@ func main() {
 			if poolsresp.StatusCode != 200 {
 				bytes, _ := ioutil.ReadAll(poolsresp.Body)
 				fmt.Println(string(bytes))
-				fmt.Println(buf.String())
+				fmt.Println("Failed to Authorize!")
+				return
 			} else {
 				dec := json.NewDecoder(poolsresp.Body)
 				dec.Decode(tokenresp)
