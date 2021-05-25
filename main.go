@@ -458,6 +458,38 @@ type TimelineRecordFeedLinesWrapper struct {
 	StartLine *int64
 }
 
+func (rec *TimelineRecord) Start() {
+	time := time.Now().UTC().Format("2006-01-02T15:04:05")
+	rec.PercentComplete = 0
+	rec.State = "InProgress"
+	rec.StartTime = time
+	rec.FinishTime = nil
+	rec.LastModified = time
+}
+
+func (rec *TimelineRecord) Complete(res string) {
+	time := time.Now().UTC().Format("2006-01-02T15:04:05")
+	rec.PercentComplete = 100
+	rec.State = "Completed"
+	rec.FinishTime = &time
+	rec.LastModified = time
+	rec.Result = &res
+}
+
+func CreateTimelineEntry(parent string, refname string, name string) TimelineRecord {
+	record := TimelineRecord{}
+	record.Id = uuid.New().String()
+	record.RefName = refname
+	record.Name = name
+	record.Type = "Task"
+	record.WorkerName = "golang-go"
+	record.ParentId = parent
+	record.State = "Pending"
+	record.LastModified = time.Now().UTC().Format("2006-01-02T15:04:05")
+	record.Order = 1
+	return record
+}
+
 func GetConnectionData(c *http.Client, tenantUrl string) *ConnectionData {
 	_url, _ := url.Parse(tenantUrl)
 	_url.Path = path.Join(_url.Path, "_apis/connectionData")
