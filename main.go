@@ -1003,46 +1003,20 @@ func main() {
 		// jobreq.Timeline.Id
 		wrap := &TimelineRecordWrapper{}
 		wrap.Count = 3
-		wrap.Value = make([]TimelineRecord, 3)
-		wrap.Value[0] = TimelineRecord{}
+		wrap.Value = make([]TimelineRecord, wrap.Count)
+		wrap.Value[0] = CreateTimelineEntry("", jobreq.JobName, jobreq.JobDisplayName)
 		wrap.Value[0].Id = jobreq.JobId
-		wrap.Value[0].RefName = jobreq.JobName
-		wrap.Value[0].Name = jobreq.JobDisplayName
 		wrap.Value[0].Type = "Job"
-		wrap.Value[0].WorkerName = "golang-go"
-		wrap.Value[0].State = "InProgress"
-		wrap.Value[0].StartTime = "2021-05-22T00:00:00"
-		wrap.Value[0].LastModified = "2021-05-22T00:00:00"
-		// wrap.Value[0].StartTime = time.Now()
-
-		suc := "succeeded"
-		wrap.Value[1] = TimelineRecord{}
-		wrap.Value[1].StartTime = "2021-05-22T00:00:00"
-		wrap.Value[1].Result = &suc
-		wrap.Value[1].Id = uuid.NewString()
-		wrap.Value[1].RefName = "init"
-		wrap.Value[1].Name = "initializeing"
-		wrap.Value[1].Type = "Task"
-		wrap.Value[1].WorkerName = "golang-go"
-		wrap.Value[1].ParentId = jobreq.JobId
-		wrap.Value[1].State = "Completed"
-		wrap.Value[1].LastModified = "2021-05-22T00:00:00"
+		wrap.Value[0].Order = 0
+		wrap.Value[0].Start()
+		wrap.Value[1] = CreateTimelineEntry(jobreq.JobId, "__setup", "Setup Job")
 		wrap.Value[1].Order = 1
-
-		wrap.Value[1].Log = &TaskLogReference{}
-		wrap.Value[1].Log.Id = UploadLogFile(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, tokenresp.AccessToken, "just for fun!\nNext Level\nBye")
-		//
-		wrap.Value[2] = TimelineRecord{}
-		wrap.Value[2].StartTime = "2021-05-22T00:00:00"
-		wrap.Value[2].Id = uuid.NewString()
-		wrap.Value[2].RefName = "running"
-		wrap.Value[2].Name = "Running"
-		wrap.Value[2].Type = "Task"
-		wrap.Value[2].WorkerName = "golang-go"
-		wrap.Value[2].ParentId = jobreq.JobId
-		wrap.Value[2].State = "InProgress"
-		wrap.Value[2].LastModified = "2021-05-22T00:00:00"
+		wrap.Value[1].Start()
+		wrap.Value[1].Complete("Succeeded")
+		wrap.Value[1].Log = &TaskLogReference{Id: UploadLogFile(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, tokenresp.AccessToken, "just for fun!\nNext Level\nBye")}
+		wrap.Value[2] = CreateTimelineEntry(jobreq.JobId, "__test", "Testing")
 		wrap.Value[2].Order = 2
+		wrap.Value[2].Start()
 
 		UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
 
@@ -1091,20 +1065,8 @@ func main() {
 			}
 			time.Sleep(time.Second)
 		}
-		wrap.Value[0].Result = &suc
-		wrap.Value[0].State = "completed"
-		wrap.Value[0].PercentComplete = 100
-
-		wrap.Value[1].PercentComplete = 100
-		t := "2021-05-22T00:01:00"
-		wrap.Value[0].FinishTime = &t
-		wrap.Value[0].LastModified = t
-		wrap.Value[2].FinishTime = &t
-		wrap.Value[2].LastModified = t
-		wrap.Value[2].Result = &suc
-		wrap.Value[2].State = "completed"
-		wrap.Value[2].PercentComplete = 100
-		wrap.Value[1].PercentComplete = 100
+		wrap.Value[0].Complete("Succeeded")
+		wrap.Value[2].Complete("Succeeded")
 		wrap.Value[0].Log = &TaskLogReference{}
 		wrap.Value[0].Log.Id = UploadLogFile(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, tokenresp.AccessToken, "just for fun!\nNext Level\nBye\nJobLog?")
 		wrap.Value[2].Log = &TaskLogReference{}
