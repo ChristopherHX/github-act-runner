@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -23,6 +24,10 @@ import (
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/google/uuid"
+	"github.com/nektos/act/pkg/common"
+	"github.com/nektos/act/pkg/model"
+	"github.com/nektos/act/pkg/runner"
+	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
 
@@ -710,42 +715,75 @@ func UploadLogFile(con *ConnectionData, c *http.Client, tenantUrl string, timeli
 	return log.Id
 }
 
+type ghaFormatter struct {
+	rqt            *AgentJobRequestMessage
+	rc             *runner.RunContext
+	wrap           *TimelineRecordWrapper
+	current        *TimelineRecord
+	updateTimeLine func()
+	logline        func(startLine int64, recordId string, line string)
+	uploadLogFile  func(log string) int
+	startLine      int64
+	stepBuffer     *bytes.Buffer
+}
+
+func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+	b := &bytes.Buffer{}
+
+	if f.current == nil || f.current.RefName != f.rc.CurrentStep {
+		f.startLine = 1
+		if f.current != nil {
+			if f.rc.StepResults[f.current.RefName].Success {
+				f.current.Complete("Succeeded")
+			} else {
+				f.current.Complete("Failed")
+			}
+			f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
+		}
+		f.stepBuffer = &bytes.Buffer{}
+		for i := range f.wrap.Value {
+			if f.wrap.Value[i].RefName == f.rc.CurrentStep {
+				b.WriteString(f.wrap.Value[i].Name)
+				b.WriteByte(' ')
+				f.current = &f.wrap.Value[i]
+				f.current.Start()
+				break
+			}
+		}
+		f.updateTimeLine()
+	}
+
+	// b.WriteString(f.rc.CurrentStep)
+	// b.WriteString(": ")
+
+	for _, v := range f.rqt.MaskHints {
+		if strings.ToLower(v.Type) == "regex" {
+			r, _ := regexp.Compile(v.Value)
+			entry.Message = r.ReplaceAllString(entry.Message, "***")
+		}
+	}
+	for _, v := range f.rqt.Variables {
+		if v.IsSecret {
+			entry.Message = strings.ReplaceAll(entry.Message, v.Value, "***")
+		}
+	}
+
+	b.WriteString(entry.Message)
+
+	f.logline(f.startLine, f.current.Id, strings.Trim(b.String(), "\r\n"))
+	f.startLine++
+	if entry.Data["raw_output"] != true {
+		b.WriteByte('\n')
+	}
+	f.stepBuffer.Write(b.Bytes())
+	return b.Bytes(), nil
+}
+
 func main() {
-	c, _ := ioutil.ReadFile("jobreq2.json")
-	// var rqt *AgentJobRequestMessage
-	rqt := &AgentJobRequestMessage{}
-	err := json.Unmarshal(c, rqt)
-	if err != nil {
-		return
-	}
-	ymlNode := rqt.Steps[0].Inputs.ToYamlNode()
-	rawNode := rqt.Steps[0].Inputs.ToRawObject()
-	type Test struct {
-		Script string
-		Num    float64
-	}
-	test := &Test{}
-	n := &yaml.Node{}
-	yaml.Unmarshal([]byte("2.534"), n)
-	err = ymlNode.Decode(test)
-	if err != nil {
-		return
-	}
-	r, err := yaml.Marshal(rawNode)
-	if ymlNode == nil || rawNode == nil || r == nil {
-
-	}
-	obj := rqt.ContextData["github"].ToRawObject()
-	val, _ := json.Marshal(obj)
-	fmt.Println(string(val))
-	t := &TaskAgent{}
-	m, _ := json.Marshal(t)
-	fmt.Println(string(m))
-
 	buf := new(bytes.Buffer)
 	req := &RunnerAddRemove{}
-	req.Url = "https://github.com/ChristopherHX/ghat2"
-	// req.Url = "http://192.168.178.20:5000/ChristopherHX/ghat"
+	// req.Url = "https://github.com/ChristopherHX/ghat2"
+	req.Url = "http://192.168.178.20:5000/ChristopherHX/ghat"
 	req.RunnerEvent = "register"
 	enc := json.NewEncoder(buf)
 	if err := enc.Encode(req); err != nil {
@@ -754,8 +792,8 @@ func main() {
 	if false {
 		// "https://api.github.com/actions/runner-registration"
 		// "http://192.168.178.20:5000/api/v3/actions/runner-registration"
-		r, _ := http.NewRequest("POST", "https://api.github.com/actions/runner-registration", buf)
-		// r, _ := http.NewRequest("POST", "http://192.168.178.20:5000/api/v3/actions/runner-registration", buf)
+		// r, _ := http.NewRequest("POST", "https://api.github.com/actions/runner-registration", buf)
+		r, _ := http.NewRequest("POST", "http://192.168.178.20:5000/api/v3/actions/runner-registration", buf)
 		r.Header["Authorization"] = []string{"RemoteAuth AKWETFMWLIXPGXUXVVOX7BTAVA5KO"}
 		c := &http.Client{}
 		resp, err := c.Do(r)
@@ -999,80 +1037,351 @@ func main() {
 			dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
 			dec.Decode(jobreq)
 		}
-		fmt.Println(jobreq.JobName)
-		// jobreq.Timeline.Id
+		rqt := jobreq
+		githubCtx := rqt.ContextData["github"].ToRawObject()
+		secrets := map[string]string{}
+		for k, v := range rqt.Variables {
+			if v.IsSecret && k != "system.github.token" {
+				secrets[k] = v.Value
+			}
+		}
+		secrets["GITHUB_TOKEN"] = rqt.Variables["system.github.token"].Value
+		matrix, ok := rqt.ContextData["matrix"].ToRawObject().(map[string]interface{})
+		if !ok {
+			matrix = make(map[string]interface{})
+		}
+		env := make(map[string]string)
+		if rqt.EnvironmentVariables != nil {
+			for _, rawenv := range rqt.EnvironmentVariables {
+				for k, v := range rawenv.ToRawObject().(map[interface{}]interface{}) {
+					env[k.(string)] = v.(string)
+				}
+			}
+		}
+
+		defaults := model.Defaults{}
+		if rqt.Defaults != nil {
+			for _, rawenv := range rqt.Defaults {
+				b, _ := json.Marshal(rawenv.ToRawObject())
+				json.Unmarshal(b, &defaults)
+			}
+		}
+		steps := []*model.Step{}
+		for _, step := range rqt.Steps {
+			st := strings.ToLower(step.Reference.Type)
+			inputs := make(map[interface{}]interface{})
+			if step.Inputs != nil {
+				inputs = step.Inputs.ToRawObject().(map[interface{}]interface{})
+			}
+			env := make(map[string]string)
+			if step.Environment != nil {
+				for k, v := range step.Environment.ToRawObject().(map[interface{}]interface{}) {
+					env[k.(string)] = v.(string)
+				}
+			}
+
+			rawwd, haswd := inputs["workingDirectory"]
+			var wd string
+			if haswd {
+				wd = rawwd.(string)
+			} else {
+				wd = ""
+			}
+			continueOnError := false
+			if step.ContinueOnError != nil {
+				continueOnError = step.ContinueOnError.ToRawObject().(bool)
+			}
+			var timeoutMinutes int64 = 0
+			if step.TimeoutInMinutes != nil {
+				timeoutMinutes = int64(step.TimeoutInMinutes.ToRawObject().(float64))
+			}
+			var displayName string = ""
+			if step.DisplayNameToken != nil {
+				displayName = step.DisplayNameToken.ToRawObject().(string)
+			}
+			if step.ContextName == "" {
+				step.ContextName = "___" + uuid.New().String()
+			}
+
+			switch st {
+			case "script":
+				rawshell, hasshell := inputs["shell"]
+				var shell string
+				if hasshell {
+					shell = rawshell.(string)
+				} else {
+					shell = ""
+				}
+				steps = append(steps, &model.Step{
+					ID:               step.ContextName,
+					If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
+					Name:             displayName,
+					Run:              inputs["script"].(string),
+					WorkingDirectory: wd,
+					Shell:            shell,
+					ContinueOnError:  continueOnError,
+					TimeoutMinutes:   timeoutMinutes,
+					Env:              env,
+				})
+			case "containerregistry", "repository":
+				uses := ""
+				if st == "containerregistry" {
+					uses = "docker://" + step.Reference.Image
+				} else if strings.ToLower(step.Reference.RepositoryType) == "self" {
+					uses = step.Reference.Path
+				} else {
+					uses = step.Reference.Name
+					if len(step.Reference.Path) > 0 {
+						uses = uses + "/" + step.Reference.Path
+					}
+					uses = uses + "@" + step.Reference.Ref
+				}
+				with := map[string]string{}
+				for k, v := range inputs {
+					k := k.(string)
+					switch k {
+					case "workingDirectory":
+					default:
+						with[k] = v.(string)
+					}
+				}
+
+				steps = append(steps, &model.Step{
+					ID:               step.ContextName,
+					If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
+					Name:             displayName,
+					Uses:             uses,
+					WorkingDirectory: wd,
+					With:             with,
+					ContinueOnError:  continueOnError,
+					TimeoutMinutes:   timeoutMinutes,
+					Env:              env,
+				})
+			}
+		}
+		rawContainer := yaml.Node{}
+		if rqt.JobContainer != nil {
+			rawContainer = *rqt.JobContainer.ToYamlNode()
+		}
+		services := make(map[string]*model.ContainerSpec)
+		if rqt.JobServiceContainers != nil {
+			for name, rawcontainer := range rqt.JobServiceContainers.ToRawObject().(map[interface{}]interface{}) {
+				spec := &model.ContainerSpec{}
+				b, _ := json.Marshal(rawcontainer)
+				json.Unmarshal(b, &spec)
+				services[name.(string)] = spec
+			}
+		}
+		var payload string
+		{
+			e, _ := json.Marshal(githubCtx.(map[string]interface{})["event"])
+			payload = string(e)
+		}
+		rc := &runner.RunContext{
+			Config: &runner.Config{
+				Workdir: ".",
+				Secrets: secrets,
+				Platforms: map[string]string{
+					"dummy": "catthehacker/ubuntu:act-latest",
+				},
+				LogOutput:      true,
+				EventName:      githubCtx.(map[string]interface{})["event_name"].(string),
+				GitHubInstance: githubCtx.(map[string]interface{})["server_url"].(string)[8:],
+			},
+			Env: env,
+			Run: &model.Run{
+				JobID: rqt.JobId,
+				Workflow: &model.Workflow{
+					Name:     githubCtx.(map[string]interface{})["workflow"].(string),
+					Defaults: defaults,
+					Jobs: map[string]*model.Job{
+						rqt.JobId: {
+							Name:         rqt.JobDisplayName,
+							RawRunsOn:    yaml.Node{Kind: yaml.ScalarNode, Value: "dummy"},
+							Steps:        steps,
+							RawContainer: rawContainer,
+							Services:     services,
+						},
+					},
+				},
+			},
+			Matrix:      matrix,
+			StepResults: make(map[string]*runner.StepResult),
+			EventJSON:   payload,
+		}
+
+		val, _ := json.Marshal(githubCtx)
+		fmt.Println(string(val))
+		sv := string(val)
+		rc.GithubContextBase = &sv
+		rc.JobName = "beta"
+
+		ctx := context.Background()
+
+		ee := rc.NewExpressionEvaluator()
+		rc.ExprEval = ee
+		logger := logrus.New()
+
+		// logger.SetFormatter(formatter)
+		buf := new(bytes.Buffer)
+
+		formatter := new(ghaFormatter)
+		formatter.rc = rc
+		formatter.rqt = rqt
+
+		logger.SetFormatter(formatter)
+		logger.SetOutput(buf)
+		logger.SetLevel(logrus.DebugLevel)
+
+		rc.CurrentStep = "__setup"
+		rc.StepResults[rc.CurrentStep] = &runner.StepResult{Success: true}
+
 		wrap := &TimelineRecordWrapper{}
-		wrap.Count = 3
+		wrap.Count = int64(len(steps)) + 2
 		wrap.Value = make([]TimelineRecord, wrap.Count)
-		wrap.Value[0] = CreateTimelineEntry("", jobreq.JobName, jobreq.JobDisplayName)
-		wrap.Value[0].Id = jobreq.JobId
+		wrap.Value[0] = CreateTimelineEntry("", rqt.JobName, rqt.JobDisplayName)
+		wrap.Value[0].Id = rqt.JobId
 		wrap.Value[0].Type = "Job"
 		wrap.Value[0].Order = 0
 		wrap.Value[0].Start()
-		wrap.Value[1] = CreateTimelineEntry(jobreq.JobId, "__setup", "Setup Job")
+		wrap.Value[1] = CreateTimelineEntry(rqt.JobId, "__setup", "Setup Job")
 		wrap.Value[1].Order = 1
-		wrap.Value[1].Start()
-		wrap.Value[1].Complete("Succeeded")
-		wrap.Value[1].Log = &TaskLogReference{Id: UploadLogFile(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, tokenresp.AccessToken, "just for fun!\nNext Level\nBye")}
-		wrap.Value[2] = CreateTimelineEntry(jobreq.JobId, "__test", "Testing")
-		wrap.Value[2].Order = 2
-		wrap.Value[2].Start()
-
+		for i := 0; i < len(steps); i++ {
+			wrap.Value[i+2] = CreateTimelineEntry(rqt.JobId, steps[i].ID, steps[i].String())
+			wrap.Value[i+2].Order = int32(i + 2)
+		}
 		UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
-
-		for counter := 0; counter < 10; counter++ {
+		{
+			formatter.updateTimeLine = func() {
+				UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
+			}
+			formatter.uploadLogFile = func(log string) int {
+				return UploadLogFile(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, tokenresp.AccessToken, log)
+			}
+		}
+		{
 			serv := connectionData_.GetServiceDefinition("858983e4-19bd-4c5e-864c-507b59b58b12")
 			tenantUrl := req.TenantUrl
-			url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
-				"area":            serv.ServiceType,
-				"resource":        serv.DisplayName,
-				"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
-				"planId":          jobreq.Plan.PlanId,
-				"hubName":         jobreq.Plan.PlanType,
-				"timelineId":      jobreq.Timeline.Id,
-				"recordId":        wrap.Value[2].Id,
-			}, map[string]string{})
+			formatter.logline = func(startLine int64, recordId string, line string) {
+				url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
+					"area":            serv.ServiceType,
+					"resource":        serv.DisplayName,
+					"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
+					"planId":          jobreq.Plan.PlanId,
+					"hubName":         jobreq.Plan.PlanType,
+					"timelineId":      jobreq.Timeline.Id,
+					"recordId":        recordId,
+				}, map[string]string{})
 
-			buf := new(bytes.Buffer)
-			enc := json.NewEncoder(buf)
-			lines := &TimelineRecordFeedLinesWrapper{}
-			lines.Count = 1
-			sl := int64(counter)
-			lines.StartLine = &sl
-			lines.StepId = wrap.Value[2].Id
-			lines.Value = []string{"Hello World from go!: " + fmt.Sprint(counter)}
-			enc.Encode(lines)
-			poolsreq, _ := http.NewRequest("POST", url, buf)
-			AddBearer(poolsreq.Header, tokenresp.AccessToken)
-			AddContentType(poolsreq.Header, "6.0-preview")
-			AddHeaders(poolsreq.Header)
-			poolsresp, _ := c.Do(poolsreq)
-
-			// bytes, _ := ioutil.ReadAll(poolsresp.Body)
-
-			// fmt.Println(string(bytes))
-			if poolsresp.StatusCode != 200 {
-				bytes, _ := ioutil.ReadAll(poolsresp.Body)
-				fmt.Println(string(bytes))
-				fmt.Println(buf.String())
-			} else {
-				success = true
-				// dec := json.NewDecoder(poolsresp.Body)
-				// dec.Decode(message)
-				bytes, _ := ioutil.ReadAll(poolsresp.Body)
-				fmt.Println(string(bytes))
-				fmt.Println(buf.String())
+				buf := new(bytes.Buffer)
+				enc := json.NewEncoder(buf)
+				lines := &TimelineRecordFeedLinesWrapper{}
+				lines.Count = 1
+				lines.StartLine = &startLine
+				lines.StepId = recordId
+				lines.Value = []string{line}
+				enc.Encode(lines)
+				poolsreq, _ := http.NewRequest("POST", url, buf)
+				AddBearer(poolsreq.Header, tokenresp.AccessToken)
+				AddContentType(poolsreq.Header, "6.0-preview")
+				AddHeaders(poolsreq.Header)
+				c.Do(poolsreq)
 			}
-			time.Sleep(time.Second)
 		}
-		wrap.Value[0].Complete("Succeeded")
-		wrap.Value[2].Complete("Succeeded")
-		wrap.Value[0].Log = &TaskLogReference{}
-		wrap.Value[0].Log.Id = UploadLogFile(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, tokenresp.AccessToken, "just for fun!\nNext Level\nBye\nJobLog?")
-		wrap.Value[2].Log = &TaskLogReference{}
-		wrap.Value[2].Log.Id = UploadLogFile(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, tokenresp.AccessToken, "JobLog?")
+		formatter.wrap = wrap
+
+		rc.Executor()(common.WithLogger(ctx, logger))
+		jobStatus := "success"
+		for _, stepStatus := range rc.StepResults {
+			if !stepStatus.Success {
+				jobStatus = "failure"
+				break
+			}
+		}
+		if jobStatus == "success" {
+			wrap.Value[0].Complete("Succeeded")
+		} else {
+			wrap.Value[0].Complete("Failed")
+		}
+		// if formatter.current != nil {
+		// 	if rc.StepResults[formatter.current.RefName].Success {
+		// 		formatter.current.Complete("Succeeded")
+		// 	} else {
+		// 		formatter.current.Complete("Failed")
+		// 	}
+		// }
+		{
+			f := formatter
+			f.startLine = 1
+			if f.current != nil {
+				if f.rc.StepResults[f.current.RefName].Success {
+					f.current.Complete("Succeeded")
+				} else {
+					f.current.Complete("Failed")
+				}
+				f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
+			}
+			// f.updateTimeLine()
+		}
+
+		str := buf.String()
+		print(str)
 
 		UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
+
+		// for counter := 0; counter < 10; counter++ {
+		// 	serv := connectionData_.GetServiceDefinition("858983e4-19bd-4c5e-864c-507b59b58b12")
+		// 	tenantUrl := req.TenantUrl
+		// 	url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
+		// 		"area":            serv.ServiceType,
+		// 		"resource":        serv.DisplayName,
+		// 		"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
+		// 		"planId":          jobreq.Plan.PlanId,
+		// 		"hubName":         jobreq.Plan.PlanType,
+		// 		"timelineId":      jobreq.Timeline.Id,
+		// 		"recordId":        wrap.Value[2].Id,
+		// 	}, map[string]string{})
+
+		// 	buf := new(bytes.Buffer)
+		// 	enc := json.NewEncoder(buf)
+		// 	lines := &TimelineRecordFeedLinesWrapper{}
+		// 	lines.Count = 1
+		// 	sl := int64(counter)
+		// 	lines.StartLine = &sl
+		// 	lines.StepId = wrap.Value[2].Id
+		// 	lines.Value = []string{"Hello World from go!: " + fmt.Sprint(counter)}
+		// 	enc.Encode(lines)
+		// 	poolsreq, _ := http.NewRequest("POST", url, buf)
+		// 	AddBearer(poolsreq.Header, tokenresp.AccessToken)
+		// 	AddContentType(poolsreq.Header, "6.0-preview")
+		// 	AddHeaders(poolsreq.Header)
+		// 	poolsresp, _ := c.Do(poolsreq)
+
+		// 	// bytes, _ := ioutil.ReadAll(poolsresp.Body)
+
+		// 	// fmt.Println(string(bytes))
+		// 	if poolsresp.StatusCode != 200 {
+		// 		bytes, _ := ioutil.ReadAll(poolsresp.Body)
+		// 		fmt.Println(string(bytes))
+		// 		fmt.Println(buf.String())
+		// 	} else {
+		// 		success = true
+		// 		// dec := json.NewDecoder(poolsresp.Body)
+		// 		// dec.Decode(message)
+		// 		bytes, _ := ioutil.ReadAll(poolsresp.Body)
+		// 		fmt.Println(string(bytes))
+		// 		fmt.Println(buf.String())
+		// 	}
+		// 	time.Sleep(time.Second)
+		// }
+		// wrap.Value[0].Complete("Succeeded")
+		// wrap.Value[2].Complete("Succeeded")
+		// wrap.Value[0].Log = &TaskLogReference{}
+		// wrap.Value[0].Log.Id = UploadLogFile(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, tokenresp.AccessToken, "just for fun!\nNext Level\nBye\nJobLog?")
+		// wrap.Value[2].Log = &TaskLogReference{}
+		// wrap.Value[2].Log.Id = UploadLogFile(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, tokenresp.AccessToken, "JobLog?")
+
+		// UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
 		{
 			finish := &JobEvent{
 				Name:      "JobCompleted",
