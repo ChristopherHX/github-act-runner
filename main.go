@@ -23,6 +23,7 @@ import (
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 )
 
 type RunnerAddRemove struct {
@@ -208,6 +209,68 @@ func (token *TemplateToken) UnmarshalJSON(data []byte) error {
 		type TemplateToken2 TemplateToken
 		return json.Unmarshal(data, (*TemplateToken2)(token))
 	}
+}
+
+func (token *TemplateToken) ToRawObject() interface{} {
+	switch token.Type {
+	case 0:
+		return token.Lit
+	case 1:
+		a := make([]interface{}, 0)
+		for _, v := range *token.Seq {
+
+			a = append(a, v.ToRawObject())
+		}
+		return a
+	case 2:
+		m := make(map[interface{}]interface{})
+		for _, v := range *token.Map {
+			m[v.Key.ToRawObject()] = v.Value.ToRawObject()
+		}
+		return m
+	case 3:
+		return "${{" + *token.Expr + "}}"
+	case 4:
+		return token.Directive
+	case 5:
+		return token.Bool
+	case 6:
+		return token.Num
+	}
+	return nil
+}
+
+func (token *TemplateToken) ToYamlNode() *yaml.Node {
+	switch token.Type {
+	case 0:
+		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: *token.Lit}
+	case 1:
+		a := make([]*yaml.Node, 0)
+		for _, v := range *token.Seq {
+
+			a = append(a, v.ToYamlNode())
+		}
+		return &yaml.Node{Kind: yaml.SequenceNode, Content: a}
+	case 2:
+		a := make([]*yaml.Node, 0)
+		for _, v := range *token.Map {
+			a = append(a, v.Key.ToYamlNode(), v.Value.ToYamlNode())
+		}
+		return &yaml.Node{Kind: yaml.MappingNode, Content: a}
+	case 3:
+		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: "${{" + *token.Expr + "}}"}
+	case 4:
+		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: *token.Directive}
+	case 5:
+		val, _ := yaml.Marshal(token.Bool)
+		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.FlowStyle, Value: string(val[:len(val)-1])}
+	case 6:
+		val, _ := yaml.Marshal(token.Num)
+		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.FlowStyle, Value: string(val[:len(val)-1])}
+	case 7:
+		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.FlowStyle, Value: "null"}
+	}
+	return nil
 }
 
 type JobAuthorization struct {
@@ -610,6 +673,23 @@ func main() {
 	if err != nil {
 		return
 	}
+	ymlNode := rqt.Steps[0].Inputs.ToYamlNode()
+	rawNode := rqt.Steps[0].Inputs.ToRawObject()
+	type Test struct {
+		Script string
+		Num    float64
+	}
+	test := &Test{}
+	n := &yaml.Node{}
+	yaml.Unmarshal([]byte("2.534"), n)
+	err = ymlNode.Decode(test)
+	if err != nil {
+		return
+	}
+	r, err := yaml.Marshal(rawNode)
+	if ymlNode == nil || rawNode == nil || r == nil {
+
+	}
 	obj := rqt.ContextData["github"].ToRawObject()
 	val, _ := json.Marshal(obj)
 	fmt.Println(string(val))
@@ -650,26 +730,21 @@ func main() {
 		}
 		connectionData_ := GetConnectionData(c, req.TenantUrl)
 
-		poolId := 1
+		{
+			serv := connectionData_.GetServiceDefinition("a8c47e17-4d56-4a56-92bb-de7ea7dc65be")
+			tenantUrl := req.TenantUrl
+			url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
+				"area":     serv.ServiceType,
+				"resource": serv.DisplayName,
+			}, map[string]string{})
 
-		for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
-			if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "a8c47e17-4d56-4a56-92bb-de7ea7dc65be" {
-				url2, _ := url.Parse(req.TenantUrl)
-				url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
-				url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
-				url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
-				re := regexp.MustCompile(`/*\{[^\}]+\}`)
-				url = re.ReplaceAllString(url, "")
-				url2.Path = path.Join(url2.Path, url)
-				poolsreq, _ := http.NewRequest("GET", url2.String(), nil)
-				poolsreq.Header["Authorization"] = []string{"bearer " + req.Token}
-				poolsresp, _ := c.Do(poolsreq)
+			poolsreq, _ := http.NewRequest("GET", url, nil)
+			AddBearer(poolsreq.Header, req.Token)
+			poolsresp, _ := c.Do(poolsreq)
 
-				bytes, _ := ioutil.ReadAll(poolsresp.Body)
+			bytes, _ := ioutil.ReadAll(poolsresp.Body)
 
-				fmt.Println(string(bytes))
-				break
-			}
+			fmt.Println(string(bytes))
 		}
 		key, _ := rsa.GenerateKey(rand.Reader, 2048)
 		ioutil.WriteFile("cred.pkcs1", x509.MarshalPKCS1PrivateKey(key), 0777)
@@ -693,45 +768,32 @@ func main() {
 		taskAgent.Name = "golang_" + uuid.NewString()
 		taskAgent.ProvisioningState = "Provisioned"
 		taskAgent.CreatedOn = "2021-05-22T00:00:00"
-		for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
-			if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "e298ef32-5878-4cab-993c-043836571f42" {
-				url2, _ := url.Parse(req.TenantUrl)
-				url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
-				url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
-				url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
-				url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
-				re := regexp.MustCompile(`/*\{[^\}]+\}`)
-				url = re.ReplaceAllString(url, "")
-				url2.Path = path.Join(url2.Path, url)
-				poolsreq, _ := http.NewRequest("GET", url2.String(), nil)
-				poolsreq.Header["Authorization"] = []string{"bearer " + req.Token}
-				poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview.2"}
+		{
+			serv := connectionData_.GetServiceDefinition("e298ef32-5878-4cab-993c-043836571f42")
+			tenantUrl := req.TenantUrl
+			url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
+				"area":     serv.ServiceType,
+				"resource": serv.DisplayName,
+				"poolId":   fmt.Sprint(1),
+			}, map[string]string{})
+			{
+				poolsreq, _ := http.NewRequest("GET", url, nil)
+				AddBearer(poolsreq.Header, req.Token)
+				AddContentType(poolsreq.Header, "6.0-preview.2")
 				poolsresp, _ := c.Do(poolsreq)
 
 				bytes, _ := ioutil.ReadAll(poolsresp.Body)
 
 				fmt.Println(string(bytes))
-				break
 			}
-		}
-		for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
-			if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "e298ef32-5878-4cab-993c-043836571f42" {
-				url2, _ := url.Parse(req.TenantUrl)
-				url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
-				url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
-				url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
-				url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
-				re := regexp.MustCompile(`/*\{[^\}]+\}`)
-				url = re.ReplaceAllString(url, "")
-				url2.Path = path.Join(url2.Path, url)
+			{
 				buf := new(bytes.Buffer)
 				enc := json.NewEncoder(buf)
 				enc.Encode(taskAgent)
 
-				poolsreq, _ := http.NewRequest("POST", url2.String(), buf)
-				poolsreq.Header["Authorization"] = []string{"bearer " + req.Token}
-				poolsreq.Header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=6.0-preview.2"}
-				poolsreq.Header["Accept"] = []string{"application/json; api-version=6.0-preview.2"}
+				poolsreq, _ := http.NewRequest("POST", url, buf)
+				AddBearer(poolsreq.Header, req.Token)
+				AddContentType(poolsreq.Header, "6.0-preview.2")
 				AddHeaders(poolsreq.Header)
 				poolsresp, _ := c.Do(poolsreq)
 
@@ -743,7 +805,6 @@ func main() {
 					dec := json.NewDecoder(poolsresp.Body)
 					dec.Decode(taskAgent)
 				}
-				break
 			}
 		}
 		b, _ := json.MarshalIndent(taskAgent, "", "    ")
@@ -811,57 +872,50 @@ func main() {
 		message := &TaskAgentMessage{}
 		success := false
 		for !success {
-			for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
-				if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7" {
-					url2, _ := url.Parse(req.TenantUrl)
-					url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
-					url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
-					url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
-					url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
-					q := url2.Query()
-					q.Add("sessionId", session.SessionId)
-					url2.RawQuery = q.Encode()
-					re := regexp.MustCompile(`/*\{[^\}]+\}`)
-					url = re.ReplaceAllString(url, "")
-					url2.Path = path.Join(url2.Path, url)
-					buf := new(bytes.Buffer)
-					enc := json.NewEncoder(buf)
-					enc.Encode(session)
-					//TODO lastMessageId=
-					poolsreq, _ := http.NewRequest("GET", url2.String(), buf)
-					poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
-					AddContentType(poolsreq.Header, "6.0-preview")
-					AddHeaders(poolsreq.Header)
-					poolsresp, _ := c.Do(poolsreq)
+			serv := connectionData_.GetServiceDefinition("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7")
+			url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
+				"area":     serv.ServiceType,
+				"resource": serv.DisplayName,
+				"poolId":   fmt.Sprint(poolId),
+			}, map[string]string{
+				"sessionId": session.SessionId,
+			})
+			buf := new(bytes.Buffer)
+			enc := json.NewEncoder(buf)
+			enc.Encode(session)
+			//TODO lastMessageId=
+			poolsreq, _ := http.NewRequest("GET", url, buf)
+			AddBearer(poolsreq.Header, tokenresp.AccessToken)
+			AddContentType(poolsreq.Header, "6.0-preview")
+			AddHeaders(poolsreq.Header)
+			poolsresp, _ := c.Do(poolsreq)
 
-					if poolsresp.StatusCode != 200 {
-						bytes, _ := ioutil.ReadAll(poolsresp.Body)
-						fmt.Println(string(bytes))
-						fmt.Println(buf.String())
-					} else {
-						success = true
-						dec := json.NewDecoder(poolsresp.Body)
-						dec.Decode(message)
-						serv := connectionData_.LocationServiceData.ServiceDefinitions[i]
-						url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
-							"area":      serv.ServiceType,
-							"resource":  serv.DisplayName,
-							"poolId":    fmt.Sprint(poolId),
-							"messageId": fmt.Sprint(message.MessageId),
-						}, map[string]string{
-							"sessionId": session.SessionId,
-						})
-						poolsreq, _ := http.NewRequest("DELETE", url, buf)
-						poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
-						AddContentType(poolsreq.Header, "6.0-preview")
-						AddHeaders(poolsreq.Header)
-						poolsresp, _ := c.Do(poolsreq)
-						if poolsresp.StatusCode != 200 {
-							return
-						}
-					}
-
-					break
+			if poolsresp.StatusCode != 200 {
+				bytes, _ := ioutil.ReadAll(poolsresp.Body)
+				fmt.Println(string(bytes))
+				fmt.Println(buf.String())
+				fmt.Println("Failed to get message")
+				return
+			} else {
+				success = true
+				dec := json.NewDecoder(poolsresp.Body)
+				dec.Decode(message)
+				url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
+					"area":      serv.ServiceType,
+					"resource":  serv.DisplayName,
+					"poolId":    fmt.Sprint(poolId),
+					"messageId": fmt.Sprint(message.MessageId),
+				}, map[string]string{
+					"sessionId": session.SessionId,
+				})
+				poolsreq, _ := http.NewRequest("DELETE", url, buf)
+				AddBearer(poolsreq.Header, tokenresp.AccessToken)
+				AddContentType(poolsreq.Header, "6.0-preview")
+				AddHeaders(poolsreq.Header)
+				poolsresp, _ := c.Do(poolsreq)
+				if poolsresp.StatusCode != 200 {
+					fmt.Println("Failed to delete message")
+					return
 				}
 			}
 		}
@@ -942,56 +996,47 @@ func main() {
 		UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
 
 		for counter := 0; counter < 10; counter++ {
-			for i := 0; i < len(connectionData_.LocationServiceData.ServiceDefinitions); i++ {
-				if connectionData_.LocationServiceData.ServiceDefinitions[i].Identifier == "858983e4-19bd-4c5e-864c-507b59b58b12" {
-					url2, _ := url.Parse(req.TenantUrl)
-					url := connectionData_.LocationServiceData.ServiceDefinitions[i].RelativePath
-					url = strings.ReplaceAll(url, "{area}", connectionData_.LocationServiceData.ServiceDefinitions[i].ServiceType)
-					url = strings.ReplaceAll(url, "{resource}", connectionData_.LocationServiceData.ServiceDefinitions[i].DisplayName)
-					url = strings.ReplaceAll(url, "{poolId}", fmt.Sprint(poolId))
-					url = strings.ReplaceAll(url, "{sessionId}", session.SessionId)
-					url = strings.ReplaceAll(url, "{scopeIdentifier}", jobreq.Plan.ScopeIdentifier)
-					url = strings.ReplaceAll(url, "{planId}", jobreq.Plan.PlanId)
-					url = strings.ReplaceAll(url, "{hubName}", jobreq.Plan.PlanType)
-					url = strings.ReplaceAll(url, "{timelineId}", jobreq.Timeline.Id)
-					url = strings.ReplaceAll(url, "{recordId}", wrap.Value[2].Id)
+			serv := connectionData_.GetServiceDefinition("858983e4-19bd-4c5e-864c-507b59b58b12")
+			tenantUrl := req.TenantUrl
+			url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
+				"area":            serv.ServiceType,
+				"resource":        serv.DisplayName,
+				"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
+				"planId":          jobreq.Plan.PlanId,
+				"hubName":         jobreq.Plan.PlanType,
+				"timelineId":      jobreq.Timeline.Id,
+				"recordId":        wrap.Value[2].Id,
+			}, map[string]string{})
 
-					re := regexp.MustCompile(`/*\{[^\}]+\}`)
-					url = re.ReplaceAllString(url, "")
-					url2.Path = path.Join(url2.Path, url)
-					buf := new(bytes.Buffer)
-					enc := json.NewEncoder(buf)
-					lines := &TimelineRecordFeedLinesWrapper{}
-					lines.Count = 1
-					sl := int64(counter)
-					lines.StartLine = &sl
-					lines.StepId = wrap.Value[2].Id
-					lines.Value = []string{"Hello World from go!: " + fmt.Sprint(counter)}
-					enc.Encode(lines)
-					poolsreq, _ := http.NewRequest("POST", url2.String(), buf)
-					poolsreq.Header["Authorization"] = []string{"bearer " + tokenresp.AccessToken}
-					AddContentType(poolsreq.Header, "6.0-preview")
-					AddHeaders(poolsreq.Header)
-					poolsresp, _ := c.Do(poolsreq)
+			buf := new(bytes.Buffer)
+			enc := json.NewEncoder(buf)
+			lines := &TimelineRecordFeedLinesWrapper{}
+			lines.Count = 1
+			sl := int64(counter)
+			lines.StartLine = &sl
+			lines.StepId = wrap.Value[2].Id
+			lines.Value = []string{"Hello World from go!: " + fmt.Sprint(counter)}
+			enc.Encode(lines)
+			poolsreq, _ := http.NewRequest("POST", url, buf)
+			AddBearer(poolsreq.Header, tokenresp.AccessToken)
+			AddContentType(poolsreq.Header, "6.0-preview")
+			AddHeaders(poolsreq.Header)
+			poolsresp, _ := c.Do(poolsreq)
 
-					// bytes, _ := ioutil.ReadAll(poolsresp.Body)
+			// bytes, _ := ioutil.ReadAll(poolsresp.Body)
 
-					// fmt.Println(string(bytes))
-					if poolsresp.StatusCode != 200 {
-						bytes, _ := ioutil.ReadAll(poolsresp.Body)
-						fmt.Println(string(bytes))
-						fmt.Println(buf.String())
-					} else {
-						success = true
-						// dec := json.NewDecoder(poolsresp.Body)
-						// dec.Decode(message)
-						bytes, _ := ioutil.ReadAll(poolsresp.Body)
-						fmt.Println(string(bytes))
-						fmt.Println(buf.String())
-					}
-
-					break
-				}
+			// fmt.Println(string(bytes))
+			if poolsresp.StatusCode != 200 {
+				bytes, _ := ioutil.ReadAll(poolsresp.Body)
+				fmt.Println(string(bytes))
+				fmt.Println(buf.String())
+			} else {
+				success = true
+				// dec := json.NewDecoder(poolsresp.Body)
+				// dec.Decode(message)
+				bytes, _ := ioutil.ReadAll(poolsresp.Body)
+				fmt.Println(string(bytes))
+				fmt.Println(buf.String())
 			}
 			time.Sleep(time.Second)
 		}
