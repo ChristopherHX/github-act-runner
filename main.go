@@ -914,6 +914,7 @@ func main() {
 		connectionData_ := GetConnectionData(c, req.TenantUrl)
 
 		session, b := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken)
+		defer session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken)
 		message := &TaskAgentMessage{}
 		success := false
 		for !success {
@@ -1130,10 +1131,9 @@ func main() {
 			AddHeaders(poolsreq.Header)
 			poolsresp, _ := c.Do(poolsreq)
 			if poolsresp.StatusCode != 200 {
-				session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken)
+				fmt.Println("Failed to send finish job event")
 				return
 			}
 		}
-		session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken)
 	}
 }
