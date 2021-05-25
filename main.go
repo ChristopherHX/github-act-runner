@@ -214,7 +214,7 @@ func (token *TemplateToken) UnmarshalJSON(data []byte) error {
 func (token *TemplateToken) ToRawObject() interface{} {
 	switch token.Type {
 	case 0:
-		return token.Lit
+		return *token.Lit
 	case 1:
 		a := make([]interface{}, 0)
 		for _, v := range *token.Seq {
@@ -231,11 +231,11 @@ func (token *TemplateToken) ToRawObject() interface{} {
 	case 3:
 		return "${{" + *token.Expr + "}}"
 	case 4:
-		return token.Directive
+		return *token.Directive
 	case 5:
-		return token.Bool
+		return *token.Bool
 	case 6:
-		return token.Num
+		return *token.Num
 	}
 	return nil
 }
@@ -307,8 +307,12 @@ type PipelineContextData struct {
 
 func (ctx *PipelineContextData) UnmarshalJSON(data []byte) error {
 	if json.Unmarshal(data, &ctx.BoolValue) == nil {
-		var typ int32 = 3
-		ctx.Type = &typ
+		if ctx.BoolValue == nil {
+			ctx = nil
+		} else {
+			var typ int32 = 3
+			ctx.Type = &typ
+		}
 		return nil
 	} else if json.Unmarshal(data, &ctx.NumberValue) == nil {
 		ctx.BoolValue = nil
@@ -336,7 +340,7 @@ func (ctx PipelineContextData) ToRawObject() interface{} {
 	}
 	switch *ctx.Type {
 	case 0:
-		return ctx.StringValue
+		return *ctx.StringValue
 	case 1:
 		a := make([]interface{}, 0)
 		for _, v := range *ctx.ArrayValue {
@@ -350,9 +354,9 @@ func (ctx PipelineContextData) ToRawObject() interface{} {
 		}
 		return m
 	case 3:
-		return ctx.BoolValue
+		return *ctx.BoolValue
 	case 4:
-		return ctx.NumberValue
+		return *ctx.NumberValue
 	}
 	return nil
 }
