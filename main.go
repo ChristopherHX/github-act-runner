@@ -17,6 +17,8 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
+	"os/signal"
 	"path"
 	"regexp"
 	"strings"
@@ -926,6 +928,12 @@ type RunRunner struct {
 }
 
 func (run *RunRunner) Run() {
+	// trap Ctrl+C
+	channel := make(chan os.Signal, 1)
+	signal.Notify(channel, os.Interrupt)
+	defer func() {
+		signal.Stop(channel)
+	}()
 	poolId := 1
 	c := &http.Client{}
 	taskAgent := &TaskAgent{}
@@ -1015,6 +1023,12 @@ func (run *RunRunner) Run() {
 
 			if poolsresp.StatusCode != 200 {
 				if poolsresp.StatusCode >= 200 && poolsresp.StatusCode < 300 {
+					select {
+					case <-channel:
+						fmt.Print("CTRL+C received, stopping")
+						return
+					default:
+					}
 					continue
 				}
 				bytes, _ := ioutil.ReadAll(poolsresp.Body)
