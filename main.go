@@ -1418,7 +1418,7 @@ func main() {
 
 	cmdConfigure.Flags().StringVar(&config.Url, "url", "", "url of your repository or enterprise")
 	cmdConfigure.Flags().StringVar(&config.Token, "token", "", "runner registration token")
-	cmdConfigure.Flags().StringSliceVarP(&config.Labels, "label", "l", []string{"self-hosted"}, "label for your new runner")
+	cmdConfigure.Flags().StringSliceVarP(&config.Labels, "label", "l", []string{}, "label for your new runner")
 	cmdConfigure.Flags().StringVar(&config.Name, "name", "", "custom runner name")
 
 	var cmdRun = &cobra.Command{
