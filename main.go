@@ -784,6 +784,7 @@ type ConfigureRunner struct {
 	Url    string
 	Token  string
 	Labels []string
+	Name   string
 }
 
 func (config *ConfigureRunner) Configure() {
@@ -870,7 +871,11 @@ func (config *ConfigureRunner) Configure() {
 		taskAgent.Labels[i] = AgentLabel{Name: config.Labels[i-1], Type: "user"}
 	}
 	taskAgent.MaxParallelism = 1
-	taskAgent.Name = "golang_" + uuid.NewString()
+	if config.Name != "" {
+		taskAgent.Name = config.Name
+	} else {
+		taskAgent.Name = "golang_" + uuid.NewString()
+	}
 	taskAgent.ProvisioningState = "Provisioned"
 	taskAgent.CreatedOn = "2021-05-22T00:00:00"
 	{
@@ -1398,6 +1403,7 @@ func main() {
 	cmdConfigure.Flags().StringVar(&config.Url, "url", "", "url of your repository or enterprise")
 	cmdConfigure.Flags().StringVar(&config.Token, "token", "", "runner registration token")
 	cmdConfigure.Flags().StringSliceVarP(&config.Labels, "label", "l", []string{"self-hosted"}, "label for your new runner")
+	cmdConfigure.Flags().StringVar(&config.Name, "name", "", "custom runner name")
 
 	var cmdRun = &cobra.Command{
 		Use:   "Run",
