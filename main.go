@@ -28,6 +28,7 @@ import (
 	"github.com/nektos/act/pkg/model"
 	"github.com/nektos/act/pkg/runner"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
@@ -779,637 +780,637 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func main() {
+type ConfigureRunner struct {
+	Url    string
+	Token  string
+	Labels []string
+}
+
+func (config *ConfigureRunner) Configure() {
 	buf := new(bytes.Buffer)
 	req := &RunnerAddRemove{}
-	// req.Url = "https://github.com/ChristopherHX/ghat2"
-	req.Url = "http://192.168.178.20:5000/ChristopherHX/ghat"
+	req.Url = config.Url
 	req.RunnerEvent = "register"
 	enc := json.NewEncoder(buf)
 	if err := enc.Encode(req); err != nil {
 		return
 	}
-	if false {
-		// "https://api.github.com/actions/runner-registration"
-		// "http://192.168.178.20:5000/api/v3/actions/runner-registration"
-		// r, _ := http.NewRequest("POST", "https://api.github.com/actions/runner-registration", buf)
-		r, _ := http.NewRequest("POST", "http://192.168.178.20:5000/api/v3/actions/runner-registration", buf)
-		r.Header["Authorization"] = []string{"RemoteAuth AKWETFMWLIXPGXUXVVOX7BTAVA5KO"}
-		c := &http.Client{}
-		resp, err := c.Do(r)
-		if err != nil {
-			fmt.Printf("error req: %v\n", err)
-		}
+	registerUrl, err := url.Parse(config.Url)
+	if err != nil {
+		fmt.Printf("Invalid Url: %v\n", config.Url)
+		return
+	}
+	if strings.ToLower(registerUrl.Host) == "github.com" {
+		registerUrl.Host = "api." + registerUrl.Host
+		registerUrl.Path = "actions/runner-registration"
+	} else {
+		registerUrl.Path = "api/v3/actions/runner-registration"
+	}
+	finalregisterUrl := registerUrl.String()
+	fmt.Printf("Try to register runner with url: %v\n", finalregisterUrl)
+	r, _ := http.NewRequest("POST", finalregisterUrl, buf)
+	r.Header["Authorization"] = []string{"RemoteAuth " + config.Token}
+	c := &http.Client{}
+	resp, err := c.Do(r)
+	if err != nil {
+		fmt.Printf("Failed to register Runner: %v\n", err)
+		return
+	}
+	if resp.StatusCode != 200 {
+		fmt.Printf("Failed to register Runner with status code: %v\n", resp.StatusCode)
+		return
+	}
 
-		req := &GitHubAuthResult{}
-		dec := json.NewDecoder(resp.Body)
-		if err := dec.Decode(req); err != nil {
-			fmt.Printf("error decoding struct from JSON: %v\n", err)
-		}
+	res := &GitHubAuthResult{}
+	dec := json.NewDecoder(resp.Body)
+	if err := dec.Decode(res); err != nil {
+		fmt.Printf("error decoding struct from JSON: %v\n", err)
+		return
+	}
 
+	{
+		b, _ := json.MarshalIndent(res, "", "    ")
+		ioutil.WriteFile("auth.json", b, 0777)
+	}
+	connectionData_ := GetConnectionData(c, res.TenantUrl)
+
+	{
+		serv := connectionData_.GetServiceDefinition("a8c47e17-4d56-4a56-92bb-de7ea7dc65be")
+		tenantUrl := res.TenantUrl
+		url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
+			"area":     serv.ServiceType,
+			"resource": serv.DisplayName,
+		}, map[string]string{})
+
+		poolsreq, _ := http.NewRequest("GET", url, nil)
+		AddBearer(poolsreq.Header, res.Token)
+		poolsresp, _ := c.Do(poolsreq)
+
+		bytes, _ := ioutil.ReadAll(poolsresp.Body)
+
+		fmt.Println(string(bytes))
+	}
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	ioutil.WriteFile("cred.pkcs1", x509.MarshalPKCS1PrivateKey(key), 0777)
+
+	taskAgent := &TaskAgent{}
+	taskAgent.Authorization = TaskAgentAuthorization{}
+	bs := make([]byte, 4)
+	ui := uint32(key.E)
+	binary.BigEndian.PutUint32(bs, ui)
+	expof := 0
+	for ; expof < 3 && bs[expof] == 0; expof++ {
+	}
+	taskAgent.Authorization.PublicKey = TaskAgentPublicKey{Exponent: base64.StdEncoding.EncodeToString(bs[expof:]), Modulus: base64.StdEncoding.EncodeToString(key.N.Bytes())}
+	taskAgent.Version = "3.0.0"
+	taskAgent.OSDescription = "golang"
+	taskAgent.Labels = make([]AgentLabel, 1+len(config.Labels))
+	taskAgent.Labels[0] = AgentLabel{Name: "self-hosted", Type: "system"}
+	for i := 1; i <= len(config.Labels); i++ {
+		taskAgent.Labels[i] = AgentLabel{Name: "self-hosted", Type: "user"}
+	}
+	taskAgent.MaxParallelism = 1
+	taskAgent.Name = "golang_" + uuid.NewString()
+	taskAgent.ProvisioningState = "Provisioned"
+	taskAgent.CreatedOn = "2021-05-22T00:00:00"
+	{
+		serv := connectionData_.GetServiceDefinition("e298ef32-5878-4cab-993c-043836571f42")
+		tenantUrl := res.TenantUrl
+		url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
+			"area":     serv.ServiceType,
+			"resource": serv.DisplayName,
+			"poolId":   fmt.Sprint(1),
+		}, map[string]string{})
 		{
-			b, _ := json.MarshalIndent(req, "", "    ")
-			ioutil.WriteFile("auth.json", b, 0777)
-		}
-		connectionData_ := GetConnectionData(c, req.TenantUrl)
-
-		{
-			serv := connectionData_.GetServiceDefinition("a8c47e17-4d56-4a56-92bb-de7ea7dc65be")
-			tenantUrl := req.TenantUrl
-			url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
-				"area":     serv.ServiceType,
-				"resource": serv.DisplayName,
-			}, map[string]string{})
-
 			poolsreq, _ := http.NewRequest("GET", url, nil)
-			AddBearer(poolsreq.Header, req.Token)
+			AddBearer(poolsreq.Header, res.Token)
+			AddContentType(poolsreq.Header, "6.0-preview.2")
 			poolsresp, _ := c.Do(poolsreq)
 
 			bytes, _ := ioutil.ReadAll(poolsresp.Body)
 
 			fmt.Println(string(bytes))
 		}
-		key, _ := rsa.GenerateKey(rand.Reader, 2048)
-		ioutil.WriteFile("cred.pkcs1", x509.MarshalPKCS1PrivateKey(key), 0777)
-
-		taskAgent := &TaskAgent{}
-		taskAgent.Authorization = TaskAgentAuthorization{}
-		bs := make([]byte, 4)
-		ui := uint32(key.E)
-		binary.BigEndian.PutUint32(bs, ui)
-		expof := 0
-		for ; expof < 3 && bs[expof] == 0; expof++ {
-		}
-		taskAgent.Authorization.PublicKey = TaskAgentPublicKey{Exponent: base64.StdEncoding.EncodeToString(bs[expof:]), Modulus: base64.StdEncoding.EncodeToString(key.N.Bytes())}
-		taskAgent.Version = "3.0.0"
-		taskAgent.OSDescription = "golang"
-		taskAgent.Labels = make([]AgentLabel, 3)
-		taskAgent.Labels[0] = AgentLabel{Name: "self-hosted", Type: "system"}
-		taskAgent.Labels[1] = AgentLabel{Name: "scratch", Type: "system"}
-		taskAgent.Labels[2] = AgentLabel{Name: "golang", Type: "system"}
-		taskAgent.MaxParallelism = 1
-		taskAgent.Name = "golang_" + uuid.NewString()
-		taskAgent.ProvisioningState = "Provisioned"
-		taskAgent.CreatedOn = "2021-05-22T00:00:00"
 		{
-			serv := connectionData_.GetServiceDefinition("e298ef32-5878-4cab-993c-043836571f42")
-			tenantUrl := req.TenantUrl
-			url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
-				"area":     serv.ServiceType,
-				"resource": serv.DisplayName,
-				"poolId":   fmt.Sprint(1),
-			}, map[string]string{})
-			{
-				poolsreq, _ := http.NewRequest("GET", url, nil)
-				AddBearer(poolsreq.Header, req.Token)
-				AddContentType(poolsreq.Header, "6.0-preview.2")
-				poolsresp, _ := c.Do(poolsreq)
+			buf := new(bytes.Buffer)
+			enc := json.NewEncoder(buf)
+			enc.Encode(taskAgent)
 
-				bytes, _ := ioutil.ReadAll(poolsresp.Body)
-
-				fmt.Println(string(bytes))
-			}
-			{
-				buf := new(bytes.Buffer)
-				enc := json.NewEncoder(buf)
-				enc.Encode(taskAgent)
-
-				poolsreq, _ := http.NewRequest("POST", url, buf)
-				AddBearer(poolsreq.Header, req.Token)
-				AddContentType(poolsreq.Header, "6.0-preview.2")
-				AddHeaders(poolsreq.Header)
-				poolsresp, _ := c.Do(poolsreq)
-
-				if poolsresp.StatusCode != 200 {
-					bytes, _ := ioutil.ReadAll(poolsresp.Body)
-					fmt.Println(string(bytes))
-					fmt.Println(buf.String())
-				} else {
-					dec := json.NewDecoder(poolsresp.Body)
-					dec.Decode(taskAgent)
-				}
-			}
-		}
-		b, _ := json.MarshalIndent(taskAgent, "", "    ")
-		ioutil.WriteFile("agent.json", b, 0777)
-	}
-	{
-		poolId := 1
-		c := &http.Client{}
-		taskAgent := &TaskAgent{}
-		var key *rsa.PrivateKey
-		var err error
-		req := &GitHubAuthResult{}
-		{
-			cont, _ := ioutil.ReadFile("agent.json")
-			json.Unmarshal(cont, taskAgent)
-		}
-		{
-			cont, err := ioutil.ReadFile("cred.pkcs1")
-			if err != nil {
-				return
-			}
-			key, err = x509.ParsePKCS1PrivateKey(cont)
-			if err != nil {
-				return
-			}
-		}
-		if err != nil {
-			return
-		}
-		{
-			cont, _ := ioutil.ReadFile("auth.json")
-			json.Unmarshal(cont, req)
-		}
-
-		tokenresp := &VssOAuthTokenResponse{}
-		{
-			now := time.Now().UTC()
-			token2 := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.StandardClaims{
-				Subject:   taskAgent.Authorization.ClientId,
-				Issuer:    taskAgent.Authorization.ClientId,
-				Id:        uuid.New().String(),
-				Audience:  taskAgent.Authorization.AuthorizationUrl,
-				NotBefore: now.Unix(),
-				IssuedAt:  now.Unix(),
-				ExpiresAt: now.Add(time.Minute * 5).Unix(),
-			})
-			stkn, _ := token2.SignedString(key)
-			fmt.Println(stkn)
-
-			data := url.Values{}
-			data.Set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
-			data.Set("client_assertion", stkn)
-			data.Set("grant_type", "client_credentials")
-
-			poolsreq, _ := http.NewRequest("POST", taskAgent.Authorization.AuthorizationUrl, bytes.NewBufferString(data.Encode()))
-			poolsreq.Header["Content-Type"] = []string{"application/x-www-form-urlencoded; charset=utf-8"}
-			poolsreq.Header["Accept"] = []string{"application/json"}
-			poolsresp, _ := c.Do(poolsreq)
-			if poolsresp.StatusCode != 200 {
-				bytes, _ := ioutil.ReadAll(poolsresp.Body)
-				fmt.Println(string(bytes))
-				fmt.Println("Failed to Authorize!")
-				return
-			} else {
-				dec := json.NewDecoder(poolsresp.Body)
-				dec.Decode(tokenresp)
-			}
-
-		}
-
-		connectionData_ := GetConnectionData(c, req.TenantUrl)
-
-		session, b := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken)
-		defer session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken)
-		message := &TaskAgentMessage{}
-		success := false
-		for !success {
-			serv := connectionData_.GetServiceDefinition("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7")
-			url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
-				"area":     serv.ServiceType,
-				"resource": serv.DisplayName,
-				"poolId":   fmt.Sprint(poolId),
-			}, map[string]string{
-				"sessionId": session.SessionId,
-			})
-			//TODO lastMessageId=
-			poolsreq, _ := http.NewRequest("GET", url, nil)
-			AddBearer(poolsreq.Header, tokenresp.AccessToken)
-			AddContentType(poolsreq.Header, "6.0-preview")
+			poolsreq, _ := http.NewRequest("POST", url, buf)
+			AddBearer(poolsreq.Header, res.Token)
+			AddContentType(poolsreq.Header, "6.0-preview.2")
 			AddHeaders(poolsreq.Header)
 			poolsresp, _ := c.Do(poolsreq)
 
 			if poolsresp.StatusCode != 200 {
 				bytes, _ := ioutil.ReadAll(poolsresp.Body)
 				fmt.Println(string(bytes))
-				fmt.Println("Failed to get message")
-				return
+				fmt.Println(buf.String())
 			} else {
-				success = true
 				dec := json.NewDecoder(poolsresp.Body)
-				dec.Decode(message)
-				url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
-					"area":      serv.ServiceType,
-					"resource":  serv.DisplayName,
-					"poolId":    fmt.Sprint(poolId),
-					"messageId": fmt.Sprint(message.MessageId),
-				}, map[string]string{
-					"sessionId": session.SessionId,
-				})
-				poolsreq, _ := http.NewRequest("DELETE", url, nil)
-				AddBearer(poolsreq.Header, tokenresp.AccessToken)
-				AddContentType(poolsreq.Header, "6.0-preview")
-				AddHeaders(poolsreq.Header)
-				poolsresp, _ := c.Do(poolsreq)
-				if poolsresp.StatusCode != 200 {
-					fmt.Println("Failed to delete message")
-					return
-				}
+				dec.Decode(taskAgent)
 			}
 		}
-		iv, _ := base64.StdEncoding.DecodeString(message.IV)
-		src, _ := base64.StdEncoding.DecodeString(message.Body)
-		cbcdec := cipher.NewCBCDecrypter(b, iv)
-		cbcdec.CryptBlocks(src, src)
-		maxlen := b.BlockSize()
-		validlen := len(src)
-		if int(src[len(src)-1]) < maxlen {
-			ok := true
-			for i := 2; i <= int(src[len(src)-1]); i++ {
-				if src[len(src)-i] != src[len(src)-1] {
-					ok = false
-					break
-				}
-			}
-			if ok {
-				validlen -= int(src[len(src)-1])
-			}
+	}
+	b, _ := json.MarshalIndent(taskAgent, "", "    ")
+	ioutil.WriteFile("agent.json", b, 0777)
+}
+
+type RunRunner struct {
+	Once bool
+}
+
+func (run *RunRunner) Run() {
+	poolId := 1
+	c := &http.Client{}
+	taskAgent := &TaskAgent{}
+	var key *rsa.PrivateKey
+	var err error
+	req := &GitHubAuthResult{}
+	{
+		cont, _ := ioutil.ReadFile("agent.json")
+		json.Unmarshal(cont, taskAgent)
+	}
+	{
+		cont, err := ioutil.ReadFile("cred.pkcs1")
+		if err != nil {
+			return
 		}
-		off := 0
-		// skip utf8 bom, c# cryptostream uses it for utf8
-		if src[0] == 239 && src[1] == 187 && src[2] == 191 {
-			off = 3
+		key, err = x509.ParsePKCS1PrivateKey(cont)
+		if err != nil {
+			return
 		}
-		fmt.Println(string(src[off:validlen]))
-		jobreq := &AgentJobRequestMessage{}
-		{
-			dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
-			dec.Decode(jobreq)
-		}
-		rqt := jobreq
-		githubCtx := rqt.ContextData["github"].ToRawObject()
-		secrets := map[string]string{}
-		for k, v := range rqt.Variables {
-			if v.IsSecret && k != "system.github.token" {
-				secrets[k] = v.Value
-			}
-		}
-		secrets["GITHUB_TOKEN"] = rqt.Variables["system.github.token"].Value
-		matrix, ok := rqt.ContextData["matrix"].ToRawObject().(map[string]interface{})
-		if !ok {
-			matrix = make(map[string]interface{})
-		}
-		env := make(map[string]string)
-		if rqt.EnvironmentVariables != nil {
-			for _, rawenv := range rqt.EnvironmentVariables {
-				for k, v := range rawenv.ToRawObject().(map[interface{}]interface{}) {
-					env[k.(string)] = v.(string)
-				}
-			}
+	}
+	if err != nil {
+		return
+	}
+	{
+		cont, _ := ioutil.ReadFile("auth.json")
+		json.Unmarshal(cont, req)
+	}
+
+	tokenresp := &VssOAuthTokenResponse{}
+	{
+		now := time.Now().UTC()
+		token2 := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.StandardClaims{
+			Subject:   taskAgent.Authorization.ClientId,
+			Issuer:    taskAgent.Authorization.ClientId,
+			Id:        uuid.New().String(),
+			Audience:  taskAgent.Authorization.AuthorizationUrl,
+			NotBefore: now.Unix(),
+			IssuedAt:  now.Unix(),
+			ExpiresAt: now.Add(time.Minute * 5).Unix(),
+		})
+		stkn, _ := token2.SignedString(key)
+		fmt.Println(stkn)
+
+		data := url.Values{}
+		data.Set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
+		data.Set("client_assertion", stkn)
+		data.Set("grant_type", "client_credentials")
+
+		poolsreq, _ := http.NewRequest("POST", taskAgent.Authorization.AuthorizationUrl, bytes.NewBufferString(data.Encode()))
+		poolsreq.Header["Content-Type"] = []string{"application/x-www-form-urlencoded; charset=utf-8"}
+		poolsreq.Header["Accept"] = []string{"application/json"}
+		poolsresp, _ := c.Do(poolsreq)
+		if poolsresp.StatusCode != 200 {
+			bytes, _ := ioutil.ReadAll(poolsresp.Body)
+			fmt.Println(string(bytes))
+			fmt.Println("Failed to Authorize!")
+			return
+		} else {
+			dec := json.NewDecoder(poolsresp.Body)
+			dec.Decode(tokenresp)
 		}
 
-		defaults := model.Defaults{}
-		if rqt.Defaults != nil {
-			for _, rawenv := range rqt.Defaults {
-				b, _ := json.Marshal(rawenv.ToRawObject())
-				json.Unmarshal(b, &defaults)
+	}
+
+	connectionData_ := GetConnectionData(c, req.TenantUrl)
+
+	session, b := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken)
+	defer session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken)
+	message := &TaskAgentMessage{}
+	success := false
+	for !success {
+		serv := connectionData_.GetServiceDefinition("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7")
+		url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
+			"area":     serv.ServiceType,
+			"resource": serv.DisplayName,
+			"poolId":   fmt.Sprint(poolId),
+		}, map[string]string{
+			"sessionId": session.SessionId,
+		})
+		//TODO lastMessageId=
+		poolsreq, _ := http.NewRequest("GET", url, nil)
+		AddBearer(poolsreq.Header, tokenresp.AccessToken)
+		AddContentType(poolsreq.Header, "6.0-preview")
+		AddHeaders(poolsreq.Header)
+		poolsresp, _ := c.Do(poolsreq)
+
+		if poolsresp.StatusCode != 200 {
+			if poolsresp.StatusCode >= 200 && poolsresp.StatusCode < 300 {
+				continue
+			}
+			bytes, _ := ioutil.ReadAll(poolsresp.Body)
+			fmt.Println(string(bytes))
+			fmt.Printf("Failed to get message: %v", poolsresp.StatusCode)
+			return
+		} else {
+			success = true
+			dec := json.NewDecoder(poolsresp.Body)
+			dec.Decode(message)
+			url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
+				"area":      serv.ServiceType,
+				"resource":  serv.DisplayName,
+				"poolId":    fmt.Sprint(poolId),
+				"messageId": fmt.Sprint(message.MessageId),
+			}, map[string]string{
+				"sessionId": session.SessionId,
+			})
+			poolsreq, _ := http.NewRequest("DELETE", url, nil)
+			AddBearer(poolsreq.Header, tokenresp.AccessToken)
+			AddContentType(poolsreq.Header, "6.0-preview")
+			AddHeaders(poolsreq.Header)
+			poolsresp, _ := c.Do(poolsreq)
+			if poolsresp.StatusCode != 200 {
+				fmt.Println("Failed to delete message")
+				return
 			}
 		}
-		steps := []*model.Step{}
-		for _, step := range rqt.Steps {
-			st := strings.ToLower(step.Reference.Type)
-			inputs := make(map[interface{}]interface{})
-			if step.Inputs != nil {
-				inputs = step.Inputs.ToRawObject().(map[interface{}]interface{})
-			}
-			env := make(map[string]string)
-			if step.Environment != nil {
-				for k, v := range step.Environment.ToRawObject().(map[interface{}]interface{}) {
-					env[k.(string)] = v.(string)
-				}
-			}
-
-			rawwd, haswd := inputs["workingDirectory"]
-			var wd string
-			if haswd {
-				wd = rawwd.(string)
-			} else {
-				wd = ""
-			}
-			continueOnError := false
-			if step.ContinueOnError != nil {
-				continueOnError = step.ContinueOnError.ToRawObject().(bool)
-			}
-			var timeoutMinutes int64 = 0
-			if step.TimeoutInMinutes != nil {
-				timeoutMinutes = int64(step.TimeoutInMinutes.ToRawObject().(float64))
-			}
-			var displayName string = ""
-			if step.DisplayNameToken != nil {
-				displayName = step.DisplayNameToken.ToRawObject().(string)
-			}
-			if step.ContextName == "" {
-				step.ContextName = "___" + uuid.New().String()
-			}
-
-			switch st {
-			case "script":
-				rawshell, hasshell := inputs["shell"]
-				var shell string
-				if hasshell {
-					shell = rawshell.(string)
-				} else {
-					shell = ""
-				}
-				steps = append(steps, &model.Step{
-					ID:               step.ContextName,
-					If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
-					Name:             displayName,
-					Run:              inputs["script"].(string),
-					WorkingDirectory: wd,
-					Shell:            shell,
-					ContinueOnError:  continueOnError,
-					TimeoutMinutes:   timeoutMinutes,
-					Env:              env,
-				})
-			case "containerregistry", "repository":
-				uses := ""
-				if st == "containerregistry" {
-					uses = "docker://" + step.Reference.Image
-				} else if strings.ToLower(step.Reference.RepositoryType) == "self" {
-					uses = step.Reference.Path
-				} else {
-					uses = step.Reference.Name
-					if len(step.Reference.Path) > 0 {
-						uses = uses + "/" + step.Reference.Path
-					}
-					uses = uses + "@" + step.Reference.Ref
-				}
-				with := map[string]string{}
-				for k, v := range inputs {
-					k := k.(string)
-					switch k {
-					case "workingDirectory":
-					default:
-						with[k] = v.(string)
-					}
-				}
-
-				steps = append(steps, &model.Step{
-					ID:               step.ContextName,
-					If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
-					Name:             displayName,
-					Uses:             uses,
-					WorkingDirectory: wd,
-					With:             with,
-					ContinueOnError:  continueOnError,
-					TimeoutMinutes:   timeoutMinutes,
-					Env:              env,
-				})
-			}
-		}
-		rawContainer := yaml.Node{}
-		if rqt.JobContainer != nil {
-			rawContainer = *rqt.JobContainer.ToYamlNode()
-		}
-		services := make(map[string]*model.ContainerSpec)
-		if rqt.JobServiceContainers != nil {
-			for name, rawcontainer := range rqt.JobServiceContainers.ToRawObject().(map[interface{}]interface{}) {
-				spec := &model.ContainerSpec{}
-				b, _ := json.Marshal(rawcontainer)
-				json.Unmarshal(b, &spec)
-				services[name.(string)] = spec
-			}
-		}
-		var payload string
-		{
-			e, _ := json.Marshal(githubCtx.(map[string]interface{})["event"])
-			payload = string(e)
-		}
-		rc := &runner.RunContext{
-			Config: &runner.Config{
-				Workdir: ".",
-				Secrets: secrets,
-				Platforms: map[string]string{
-					"dummy": "catthehacker/ubuntu:act-latest",
-				},
-				LogOutput:      true,
-				EventName:      githubCtx.(map[string]interface{})["event_name"].(string),
-				GitHubInstance: githubCtx.(map[string]interface{})["server_url"].(string)[8:],
-			},
-			Env: env,
-			Run: &model.Run{
-				JobID: rqt.JobId,
-				Workflow: &model.Workflow{
-					Name:     githubCtx.(map[string]interface{})["workflow"].(string),
-					Defaults: defaults,
-					Jobs: map[string]*model.Job{
-						rqt.JobId: {
-							Name:         rqt.JobDisplayName,
-							RawRunsOn:    yaml.Node{Kind: yaml.ScalarNode, Value: "dummy"},
-							Steps:        steps,
-							RawContainer: rawContainer,
-							Services:     services,
-						},
-					},
-				},
-			},
-			Matrix:      matrix,
-			StepResults: make(map[string]*runner.StepResult),
-			EventJSON:   payload,
-		}
-
-		val, _ := json.Marshal(githubCtx)
-		fmt.Println(string(val))
-		sv := string(val)
-		rc.GithubContextBase = &sv
-		rc.JobName = "beta"
-
-		ctx := context.Background()
-
-		ee := rc.NewExpressionEvaluator()
-		rc.ExprEval = ee
-		logger := logrus.New()
-
-		// logger.SetFormatter(formatter)
-		buf := new(bytes.Buffer)
-
-		formatter := new(ghaFormatter)
-		formatter.rc = rc
-		formatter.rqt = rqt
-
-		logger.SetFormatter(formatter)
-		logger.SetOutput(buf)
-		logger.SetLevel(logrus.DebugLevel)
-
-		rc.CurrentStep = "__setup"
-		rc.StepResults[rc.CurrentStep] = &runner.StepResult{Success: true}
-
-		wrap := &TimelineRecordWrapper{}
-		wrap.Count = int64(len(steps)) + 2
-		wrap.Value = make([]TimelineRecord, wrap.Count)
-		wrap.Value[0] = CreateTimelineEntry("", rqt.JobName, rqt.JobDisplayName)
-		wrap.Value[0].Id = rqt.JobId
-		wrap.Value[0].Type = "Job"
-		wrap.Value[0].Order = 0
-		wrap.Value[0].Start()
-		wrap.Value[1] = CreateTimelineEntry(rqt.JobId, "__setup", "Setup Job")
-		wrap.Value[1].Order = 1
-		for i := 0; i < len(steps); i++ {
-			wrap.Value[i+2] = CreateTimelineEntry(rqt.JobId, steps[i].ID, steps[i].String())
-			wrap.Value[i+2].Order = int32(i + 2)
-		}
-		UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
-		{
-			formatter.updateTimeLine = func() {
-				UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
-			}
-			formatter.uploadLogFile = func(log string) int {
-				return UploadLogFile(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, tokenresp.AccessToken, log)
-			}
-		}
-		{
-			serv := connectionData_.GetServiceDefinition("858983e4-19bd-4c5e-864c-507b59b58b12")
-			tenantUrl := req.TenantUrl
-			formatter.logline = func(startLine int64, recordId string, line string) {
-				url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
-					"area":            serv.ServiceType,
-					"resource":        serv.DisplayName,
-					"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
-					"planId":          jobreq.Plan.PlanId,
-					"hubName":         jobreq.Plan.PlanType,
-					"timelineId":      jobreq.Timeline.Id,
-					"recordId":        recordId,
-				}, map[string]string{})
-
-				buf := new(bytes.Buffer)
-				enc := json.NewEncoder(buf)
-				lines := &TimelineRecordFeedLinesWrapper{}
-				lines.Count = 1
-				lines.StartLine = &startLine
-				lines.StepId = recordId
-				lines.Value = []string{line}
-				enc.Encode(lines)
-				poolsreq, _ := http.NewRequest("POST", url, buf)
-				AddBearer(poolsreq.Header, tokenresp.AccessToken)
-				AddContentType(poolsreq.Header, "6.0-preview")
-				AddHeaders(poolsreq.Header)
-				c.Do(poolsreq)
-			}
-		}
-		formatter.wrap = wrap
-
-		rc.Executor()(common.WithLogger(ctx, logger))
-		jobStatus := "success"
-		for _, stepStatus := range rc.StepResults {
-			if !stepStatus.Success {
-				jobStatus = "failure"
+	}
+	iv, _ := base64.StdEncoding.DecodeString(message.IV)
+	src, _ := base64.StdEncoding.DecodeString(message.Body)
+	cbcdec := cipher.NewCBCDecrypter(b, iv)
+	cbcdec.CryptBlocks(src, src)
+	maxlen := b.BlockSize()
+	validlen := len(src)
+	if int(src[len(src)-1]) < maxlen {
+		ok := true
+		for i := 2; i <= int(src[len(src)-1]); i++ {
+			if src[len(src)-i] != src[len(src)-1] {
+				ok = false
 				break
 			}
 		}
-		if jobStatus == "success" {
-			wrap.Value[0].Complete("Succeeded")
+		if ok {
+			validlen -= int(src[len(src)-1])
+		}
+	}
+	off := 0
+	// skip utf8 bom, c# cryptostream uses it for utf8
+	if src[0] == 239 && src[1] == 187 && src[2] == 191 {
+		off = 3
+	}
+	fmt.Println(string(src[off:validlen]))
+	jobreq := &AgentJobRequestMessage{}
+	{
+		dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
+		dec.Decode(jobreq)
+	}
+	rqt := jobreq
+	githubCtx := rqt.ContextData["github"].ToRawObject()
+	secrets := map[string]string{}
+	for k, v := range rqt.Variables {
+		if v.IsSecret && k != "system.github.token" {
+			secrets[k] = v.Value
+		}
+	}
+	secrets["GITHUB_TOKEN"] = rqt.Variables["system.github.token"].Value
+	matrix, ok := rqt.ContextData["matrix"].ToRawObject().(map[string]interface{})
+	if !ok {
+		matrix = make(map[string]interface{})
+	}
+	env := make(map[string]string)
+	if rqt.EnvironmentVariables != nil {
+		for _, rawenv := range rqt.EnvironmentVariables {
+			for k, v := range rawenv.ToRawObject().(map[interface{}]interface{}) {
+				env[k.(string)] = v.(string)
+			}
+		}
+	}
+
+	defaults := model.Defaults{}
+	if rqt.Defaults != nil {
+		for _, rawenv := range rqt.Defaults {
+			b, _ := json.Marshal(rawenv.ToRawObject())
+			json.Unmarshal(b, &defaults)
+		}
+	}
+	steps := []*model.Step{}
+	for _, step := range rqt.Steps {
+		st := strings.ToLower(step.Reference.Type)
+		inputs := make(map[interface{}]interface{})
+		if step.Inputs != nil {
+			inputs = step.Inputs.ToRawObject().(map[interface{}]interface{})
+		}
+		env := make(map[string]string)
+		if step.Environment != nil {
+			for k, v := range step.Environment.ToRawObject().(map[interface{}]interface{}) {
+				env[k.(string)] = v.(string)
+			}
+		}
+
+		rawwd, haswd := inputs["workingDirectory"]
+		var wd string
+		if haswd {
+			wd = rawwd.(string)
 		} else {
-			wrap.Value[0].Complete("Failed")
+			wd = ""
 		}
-		// if formatter.current != nil {
-		// 	if rc.StepResults[formatter.current.RefName].Success {
-		// 		formatter.current.Complete("Succeeded")
-		// 	} else {
-		// 		formatter.current.Complete("Failed")
-		// 	}
-		// }
-		{
-			f := formatter
-			f.startLine = 1
-			if f.current != nil {
-				if f.rc.StepResults[f.current.RefName].Success {
-					f.current.Complete("Succeeded")
-				} else {
-					f.current.Complete("Failed")
+		continueOnError := false
+		if step.ContinueOnError != nil {
+			continueOnError = step.ContinueOnError.ToRawObject().(bool)
+		}
+		var timeoutMinutes int64 = 0
+		if step.TimeoutInMinutes != nil {
+			timeoutMinutes = int64(step.TimeoutInMinutes.ToRawObject().(float64))
+		}
+		var displayName string = ""
+		if step.DisplayNameToken != nil {
+			displayName = step.DisplayNameToken.ToRawObject().(string)
+		}
+		if step.ContextName == "" {
+			step.ContextName = "___" + uuid.New().String()
+		}
+
+		switch st {
+		case "script":
+			rawshell, hasshell := inputs["shell"]
+			var shell string
+			if hasshell {
+				shell = rawshell.(string)
+			} else {
+				shell = ""
+			}
+			steps = append(steps, &model.Step{
+				ID:               step.ContextName,
+				If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
+				Name:             displayName,
+				Run:              inputs["script"].(string),
+				WorkingDirectory: wd,
+				Shell:            shell,
+				ContinueOnError:  continueOnError,
+				TimeoutMinutes:   timeoutMinutes,
+				Env:              env,
+			})
+		case "containerregistry", "repository":
+			uses := ""
+			if st == "containerregistry" {
+				uses = "docker://" + step.Reference.Image
+			} else if strings.ToLower(step.Reference.RepositoryType) == "self" {
+				uses = step.Reference.Path
+			} else {
+				uses = step.Reference.Name
+				if len(step.Reference.Path) > 0 {
+					uses = uses + "/" + step.Reference.Path
 				}
-				f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
+				uses = uses + "@" + step.Reference.Ref
 			}
-			// f.updateTimeLine()
+			with := map[string]string{}
+			for k, v := range inputs {
+				k := k.(string)
+				switch k {
+				case "workingDirectory":
+				default:
+					with[k] = v.(string)
+				}
+			}
+
+			steps = append(steps, &model.Step{
+				ID:               step.ContextName,
+				If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
+				Name:             displayName,
+				Uses:             uses,
+				WorkingDirectory: wd,
+				With:             with,
+				ContinueOnError:  continueOnError,
+				TimeoutMinutes:   timeoutMinutes,
+				Env:              env,
+			})
 		}
+	}
+	rawContainer := yaml.Node{}
+	if rqt.JobContainer != nil {
+		rawContainer = *rqt.JobContainer.ToYamlNode()
+	}
+	services := make(map[string]*model.ContainerSpec)
+	if rqt.JobServiceContainers != nil {
+		for name, rawcontainer := range rqt.JobServiceContainers.ToRawObject().(map[interface{}]interface{}) {
+			spec := &model.ContainerSpec{}
+			b, _ := json.Marshal(rawcontainer)
+			json.Unmarshal(b, &spec)
+			services[name.(string)] = spec
+		}
+	}
+	var payload string
+	{
+		e, _ := json.Marshal(githubCtx.(map[string]interface{})["event"])
+		payload = string(e)
+	}
+	rc := &runner.RunContext{
+		Config: &runner.Config{
+			Workdir: ".",
+			Secrets: secrets,
+			Platforms: map[string]string{
+				"dummy": "catthehacker/ubuntu:act-latest",
+			},
+			LogOutput:      true,
+			EventName:      githubCtx.(map[string]interface{})["event_name"].(string),
+			GitHubInstance: githubCtx.(map[string]interface{})["server_url"].(string)[8:],
+		},
+		Env: env,
+		Run: &model.Run{
+			JobID: rqt.JobId,
+			Workflow: &model.Workflow{
+				Name:     githubCtx.(map[string]interface{})["workflow"].(string),
+				Defaults: defaults,
+				Jobs: map[string]*model.Job{
+					rqt.JobId: {
+						Name:         rqt.JobDisplayName,
+						RawRunsOn:    yaml.Node{Kind: yaml.ScalarNode, Value: "dummy"},
+						Steps:        steps,
+						RawContainer: rawContainer,
+						Services:     services,
+					},
+				},
+			},
+		},
+		Matrix:      matrix,
+		StepResults: make(map[string]*runner.StepResult),
+		EventJSON:   payload,
+	}
 
-		str := buf.String()
-		print(str)
+	val, _ := json.Marshal(githubCtx)
+	fmt.Println(string(val))
+	sv := string(val)
+	rc.GithubContextBase = &sv
+	rc.JobName = "beta"
 
-		UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
+	ctx := context.Background()
 
-		// for counter := 0; counter < 10; counter++ {
-		// 	serv := connectionData_.GetServiceDefinition("858983e4-19bd-4c5e-864c-507b59b58b12")
-		// 	tenantUrl := req.TenantUrl
-		// 	url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
-		// 		"area":            serv.ServiceType,
-		// 		"resource":        serv.DisplayName,
-		// 		"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
-		// 		"planId":          jobreq.Plan.PlanId,
-		// 		"hubName":         jobreq.Plan.PlanType,
-		// 		"timelineId":      jobreq.Timeline.Id,
-		// 		"recordId":        wrap.Value[2].Id,
-		// 	}, map[string]string{})
+	ee := rc.NewExpressionEvaluator()
+	rc.ExprEval = ee
+	logger := logrus.New()
 
-		// 	buf := new(bytes.Buffer)
-		// 	enc := json.NewEncoder(buf)
-		// 	lines := &TimelineRecordFeedLinesWrapper{}
-		// 	lines.Count = 1
-		// 	sl := int64(counter)
-		// 	lines.StartLine = &sl
-		// 	lines.StepId = wrap.Value[2].Id
-		// 	lines.Value = []string{"Hello World from go!: " + fmt.Sprint(counter)}
-		// 	enc.Encode(lines)
-		// 	poolsreq, _ := http.NewRequest("POST", url, buf)
-		// 	AddBearer(poolsreq.Header, tokenresp.AccessToken)
-		// 	AddContentType(poolsreq.Header, "6.0-preview")
-		// 	AddHeaders(poolsreq.Header)
-		// 	poolsresp, _ := c.Do(poolsreq)
+	buf := new(bytes.Buffer)
 
-		// 	// bytes, _ := ioutil.ReadAll(poolsresp.Body)
+	formatter := new(ghaFormatter)
+	formatter.rc = rc
+	formatter.rqt = rqt
 
-		// 	// fmt.Println(string(bytes))
-		// 	if poolsresp.StatusCode != 200 {
-		// 		bytes, _ := ioutil.ReadAll(poolsresp.Body)
-		// 		fmt.Println(string(bytes))
-		// 		fmt.Println(buf.String())
-		// 	} else {
-		// 		success = true
-		// 		// dec := json.NewDecoder(poolsresp.Body)
-		// 		// dec.Decode(message)
-		// 		bytes, _ := ioutil.ReadAll(poolsresp.Body)
-		// 		fmt.Println(string(bytes))
-		// 		fmt.Println(buf.String())
-		// 	}
-		// 	time.Sleep(time.Second)
-		// }
-		// wrap.Value[0].Complete("Succeeded")
-		// wrap.Value[2].Complete("Succeeded")
-		// wrap.Value[0].Log = &TaskLogReference{}
-		// wrap.Value[0].Log.Id = UploadLogFile(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, tokenresp.AccessToken, "just for fun!\nNext Level\nBye\nJobLog?")
-		// wrap.Value[2].Log = &TaskLogReference{}
-		// wrap.Value[2].Log.Id = UploadLogFile(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, tokenresp.AccessToken, "JobLog?")
+	logger.SetFormatter(formatter)
+	logger.SetOutput(buf)
+	logger.SetLevel(logrus.DebugLevel)
 
-		// UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
-		{
-			finish := &JobEvent{
-				Name:      "JobCompleted",
-				JobId:     jobreq.JobId,
-				RequestId: jobreq.RequestId,
-				// Result:    "Failed",
-				Result: "Succeeded",
-			}
-			serv := connectionData_.GetServiceDefinition("557624af-b29e-4c20-8ab0-0399d2204f3f")
-			url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
+	rc.CurrentStep = "__setup"
+	rc.StepResults[rc.CurrentStep] = &runner.StepResult{Success: true}
+
+	wrap := &TimelineRecordWrapper{}
+	wrap.Count = int64(len(steps)) + 2
+	wrap.Value = make([]TimelineRecord, wrap.Count)
+	wrap.Value[0] = CreateTimelineEntry("", rqt.JobName, rqt.JobDisplayName)
+	wrap.Value[0].Id = rqt.JobId
+	wrap.Value[0].Type = "Job"
+	wrap.Value[0].Order = 0
+	wrap.Value[0].Start()
+	wrap.Value[1] = CreateTimelineEntry(rqt.JobId, "__setup", "Setup Job")
+	wrap.Value[1].Order = 1
+	for i := 0; i < len(steps); i++ {
+		wrap.Value[i+2] = CreateTimelineEntry(rqt.JobId, steps[i].ID, steps[i].String())
+		wrap.Value[i+2].Order = int32(i + 2)
+	}
+	UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
+	{
+		formatter.updateTimeLine = func() {
+			UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
+		}
+		formatter.uploadLogFile = func(log string) int {
+			return UploadLogFile(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, tokenresp.AccessToken, log)
+		}
+	}
+	{
+		serv := connectionData_.GetServiceDefinition("858983e4-19bd-4c5e-864c-507b59b58b12")
+		tenantUrl := req.TenantUrl
+		formatter.logline = func(startLine int64, recordId string, line string) {
+			url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
 				"area":            serv.ServiceType,
 				"resource":        serv.DisplayName,
 				"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
 				"planId":          jobreq.Plan.PlanId,
 				"hubName":         jobreq.Plan.PlanType,
+				"timelineId":      jobreq.Timeline.Id,
+				"recordId":        recordId,
 			}, map[string]string{})
+
 			buf := new(bytes.Buffer)
 			enc := json.NewEncoder(buf)
-			enc.Encode(finish)
+			lines := &TimelineRecordFeedLinesWrapper{}
+			lines.Count = 1
+			lines.StartLine = &startLine
+			lines.StepId = recordId
+			lines.Value = []string{line}
+			enc.Encode(lines)
 			poolsreq, _ := http.NewRequest("POST", url, buf)
 			AddBearer(poolsreq.Header, tokenresp.AccessToken)
 			AddContentType(poolsreq.Header, "6.0-preview")
 			AddHeaders(poolsreq.Header)
-			poolsresp, _ := c.Do(poolsreq)
-			if poolsresp.StatusCode != 200 {
-				fmt.Println("Failed to send finish job event")
-				return
-			}
+			c.Do(poolsreq)
 		}
 	}
+	formatter.wrap = wrap
+
+	rc.Executor()(common.WithLogger(ctx, logger))
+	jobStatus := "success"
+	for _, stepStatus := range rc.StepResults {
+		if !stepStatus.Success {
+			jobStatus = "failure"
+			break
+		}
+	}
+	if jobStatus == "success" {
+		wrap.Value[0].Complete("Succeeded")
+	} else {
+		wrap.Value[0].Complete("Failed")
+	}
+	{
+		f := formatter
+		f.startLine = 1
+		if f.current != nil {
+			if f.rc.StepResults[f.current.RefName].Success {
+				f.current.Complete("Succeeded")
+			} else {
+				f.current.Complete("Failed")
+			}
+			f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
+		}
+	}
+
+	str := buf.String()
+	print(str)
+
+	UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
+
+	{
+		finish := &JobEvent{
+			Name:      "JobCompleted",
+			JobId:     jobreq.JobId,
+			RequestId: jobreq.RequestId,
+			Result:    "Failed",
+		}
+		if jobStatus == "success" {
+			finish.Result = "Succeeded"
+		}
+		serv := connectionData_.GetServiceDefinition("557624af-b29e-4c20-8ab0-0399d2204f3f")
+		url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
+			"area":            serv.ServiceType,
+			"resource":        serv.DisplayName,
+			"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
+			"planId":          jobreq.Plan.PlanId,
+			"hubName":         jobreq.Plan.PlanType,
+		}, map[string]string{})
+		buf := new(bytes.Buffer)
+		enc := json.NewEncoder(buf)
+		enc.Encode(finish)
+		poolsreq, _ := http.NewRequest("POST", url, buf)
+		AddBearer(poolsreq.Header, tokenresp.AccessToken)
+		AddContentType(poolsreq.Header, "6.0-preview")
+		AddHeaders(poolsreq.Header)
+		poolsresp, _ := c.Do(poolsreq)
+		if poolsresp.StatusCode != 200 {
+			fmt.Println("Failed to send finish job event")
+			return
+		}
+	}
+}
+
+func main() {
+	config := &ConfigureRunner{}
+	run := &RunRunner{}
+	var cmdConfigure = &cobra.Command{
+		Use:   "Configure",
+		Short: "Configure your self-hosted runner",
+		Args:  cobra.MaximumNArgs(0),
+		Run: func(cmd *cobra.Command, args []string) {
+			config.Configure()
+		},
+	}
+
+	cmdConfigure.Flags().StringVar(&config.Url, "url", "", "url of your repository or enterprise")
+	cmdConfigure.Flags().StringVar(&config.Token, "token", "", "runner registration token")
+	cmdConfigure.Flags().StringSliceVarP(&config.Labels, "label", "l", []string{"self-hosted"}, "label for your new runner")
+
+	var cmdRun = &cobra.Command{
+		Use:   "Run",
+		Short: "run your self-hosted runner",
+		Args:  cobra.MaximumNArgs(0),
+		Run: func(cmd *cobra.Command, args []string) {
+			run.Run()
+		},
+	}
+
+	cmdRun.Flags().BoolVar(&run.Once, "once", false, "only execute one job and exit")
+
+	var rootCmd = &cobra.Command{Use: "github-actions-act-runner"}
+	rootCmd.AddCommand(cmdConfigure, cmdRun)
+	rootCmd.Execute()
 }
