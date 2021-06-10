@@ -24,10 +24,10 @@ You find the token in `<your github repository url>/settings/actions/runners`, a
 E.g. `AWWWWWWWWWWWWWAWWWWWWAWWWWWWW`
 
 ### Labels
-Replace label1,label2 with a custom list of runner labels.
+Replace `label1,label2` with a custom list of runner labels.
 
 ## Run
 
 ```
-go run Run
+go run main.go Run
 ```
