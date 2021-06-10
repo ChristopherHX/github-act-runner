@@ -994,396 +994,398 @@ func (run *RunRunner) Run() {
 
 	session, b := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken)
 	defer session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken)
-	message := &TaskAgentMessage{}
-	success := false
-	for !success {
-		serv := connectionData_.GetServiceDefinition("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7")
-		url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
-			"area":     serv.ServiceType,
-			"resource": serv.DisplayName,
-			"poolId":   fmt.Sprint(poolId),
-		}, map[string]string{
-			"sessionId": session.SessionId,
-		})
-		//TODO lastMessageId=
-		poolsreq, _ := http.NewRequest("GET", url, nil)
-		AddBearer(poolsreq.Header, tokenresp.AccessToken)
-		AddContentType(poolsreq.Header, "6.0-preview")
-		AddHeaders(poolsreq.Header)
-		poolsresp, _ := c.Do(poolsreq)
-
-		if poolsresp.StatusCode != 200 {
-			if poolsresp.StatusCode >= 200 && poolsresp.StatusCode < 300 {
-				continue
-			}
-			bytes, _ := ioutil.ReadAll(poolsresp.Body)
-			fmt.Println(string(bytes))
-			fmt.Printf("Failed to get message: %v", poolsresp.StatusCode)
-			return
-		} else {
-			success = true
-			dec := json.NewDecoder(poolsresp.Body)
-			dec.Decode(message)
+	for !run.Once {
+		message := &TaskAgentMessage{}
+		success := false
+		for !success {
+			serv := connectionData_.GetServiceDefinition("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7")
 			url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
-				"area":      serv.ServiceType,
-				"resource":  serv.DisplayName,
-				"poolId":    fmt.Sprint(poolId),
-				"messageId": fmt.Sprint(message.MessageId),
+				"area":     serv.ServiceType,
+				"resource": serv.DisplayName,
+				"poolId":   fmt.Sprint(poolId),
 			}, map[string]string{
 				"sessionId": session.SessionId,
 			})
-			poolsreq, _ := http.NewRequest("DELETE", url, nil)
+			//TODO lastMessageId=
+			poolsreq, _ := http.NewRequest("GET", url, nil)
 			AddBearer(poolsreq.Header, tokenresp.AccessToken)
 			AddContentType(poolsreq.Header, "6.0-preview")
 			AddHeaders(poolsreq.Header)
 			poolsresp, _ := c.Do(poolsreq)
-			if poolsresp.StatusCode != 200 {
-				fmt.Println("Failed to delete message")
-				return
-			}
-		}
-	}
-	iv, _ := base64.StdEncoding.DecodeString(message.IV)
-	src, _ := base64.StdEncoding.DecodeString(message.Body)
-	cbcdec := cipher.NewCBCDecrypter(b, iv)
-	cbcdec.CryptBlocks(src, src)
-	maxlen := b.BlockSize()
-	validlen := len(src)
-	if int(src[len(src)-1]) < maxlen {
-		ok := true
-		for i := 2; i <= int(src[len(src)-1]); i++ {
-			if src[len(src)-i] != src[len(src)-1] {
-				ok = false
-				break
-			}
-		}
-		if ok {
-			validlen -= int(src[len(src)-1])
-		}
-	}
-	off := 0
-	// skip utf8 bom, c# cryptostream uses it for utf8
-	if src[0] == 239 && src[1] == 187 && src[2] == 191 {
-		off = 3
-	}
-	fmt.Println(string(src[off:validlen]))
-	jobreq := &AgentJobRequestMessage{}
-	{
-		dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
-		dec.Decode(jobreq)
-	}
-	rqt := jobreq
-	githubCtx := rqt.ContextData["github"].ToRawObject()
-	secrets := map[string]string{}
-	for k, v := range rqt.Variables {
-		if v.IsSecret && k != "system.github.token" {
-			secrets[k] = v.Value
-		}
-	}
-	secrets["GITHUB_TOKEN"] = rqt.Variables["system.github.token"].Value
-	matrix, ok := rqt.ContextData["matrix"].ToRawObject().(map[string]interface{})
-	if !ok {
-		matrix = make(map[string]interface{})
-	}
-	env := make(map[string]string)
-	if rqt.EnvironmentVariables != nil {
-		for _, rawenv := range rqt.EnvironmentVariables {
-			for k, v := range rawenv.ToRawObject().(map[interface{}]interface{}) {
-				env[k.(string)] = v.(string)
-			}
-		}
-	}
 
-	defaults := model.Defaults{}
-	if rqt.Defaults != nil {
-		for _, rawenv := range rqt.Defaults {
-			b, _ := json.Marshal(rawenv.ToRawObject())
-			json.Unmarshal(b, &defaults)
+			if poolsresp.StatusCode != 200 {
+				if poolsresp.StatusCode >= 200 && poolsresp.StatusCode < 300 {
+					continue
+				}
+				bytes, _ := ioutil.ReadAll(poolsresp.Body)
+				fmt.Println(string(bytes))
+				fmt.Printf("Failed to get message: %v", poolsresp.StatusCode)
+				return
+			} else {
+				success = true
+				dec := json.NewDecoder(poolsresp.Body)
+				dec.Decode(message)
+				url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
+					"area":      serv.ServiceType,
+					"resource":  serv.DisplayName,
+					"poolId":    fmt.Sprint(poolId),
+					"messageId": fmt.Sprint(message.MessageId),
+				}, map[string]string{
+					"sessionId": session.SessionId,
+				})
+				poolsreq, _ := http.NewRequest("DELETE", url, nil)
+				AddBearer(poolsreq.Header, tokenresp.AccessToken)
+				AddContentType(poolsreq.Header, "6.0-preview")
+				AddHeaders(poolsreq.Header)
+				poolsresp, _ := c.Do(poolsreq)
+				if poolsresp.StatusCode != 200 {
+					fmt.Println("Failed to delete message")
+					return
+				}
+			}
 		}
-	}
-	steps := []*model.Step{}
-	for _, step := range rqt.Steps {
-		st := strings.ToLower(step.Reference.Type)
-		inputs := make(map[interface{}]interface{})
-		if step.Inputs != nil {
-			inputs = step.Inputs.ToRawObject().(map[interface{}]interface{})
+		iv, _ := base64.StdEncoding.DecodeString(message.IV)
+		src, _ := base64.StdEncoding.DecodeString(message.Body)
+		cbcdec := cipher.NewCBCDecrypter(b, iv)
+		cbcdec.CryptBlocks(src, src)
+		maxlen := b.BlockSize()
+		validlen := len(src)
+		if int(src[len(src)-1]) < maxlen {
+			ok := true
+			for i := 2; i <= int(src[len(src)-1]); i++ {
+				if src[len(src)-i] != src[len(src)-1] {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				validlen -= int(src[len(src)-1])
+			}
+		}
+		off := 0
+		// skip utf8 bom, c# cryptostream uses it for utf8
+		if src[0] == 239 && src[1] == 187 && src[2] == 191 {
+			off = 3
+		}
+		fmt.Println(string(src[off:validlen]))
+		jobreq := &AgentJobRequestMessage{}
+		{
+			dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
+			dec.Decode(jobreq)
+		}
+		rqt := jobreq
+		githubCtx := rqt.ContextData["github"].ToRawObject()
+		secrets := map[string]string{}
+		for k, v := range rqt.Variables {
+			if v.IsSecret && k != "system.github.token" {
+				secrets[k] = v.Value
+			}
+		}
+		secrets["GITHUB_TOKEN"] = rqt.Variables["system.github.token"].Value
+		matrix, ok := rqt.ContextData["matrix"].ToRawObject().(map[string]interface{})
+		if !ok {
+			matrix = make(map[string]interface{})
 		}
 		env := make(map[string]string)
-		if step.Environment != nil {
-			for k, v := range step.Environment.ToRawObject().(map[interface{}]interface{}) {
-				env[k.(string)] = v.(string)
-			}
-		}
-
-		rawwd, haswd := inputs["workingDirectory"]
-		var wd string
-		if haswd {
-			wd = rawwd.(string)
-		} else {
-			wd = ""
-		}
-		continueOnError := false
-		if step.ContinueOnError != nil {
-			continueOnError = step.ContinueOnError.ToRawObject().(bool)
-		}
-		var timeoutMinutes int64 = 0
-		if step.TimeoutInMinutes != nil {
-			timeoutMinutes = int64(step.TimeoutInMinutes.ToRawObject().(float64))
-		}
-		var displayName string = ""
-		if step.DisplayNameToken != nil {
-			displayName = step.DisplayNameToken.ToRawObject().(string)
-		}
-		if step.ContextName == "" {
-			step.ContextName = "___" + uuid.New().String()
-		}
-
-		switch st {
-		case "script":
-			rawshell, hasshell := inputs["shell"]
-			var shell string
-			if hasshell {
-				shell = rawshell.(string)
-			} else {
-				shell = ""
-			}
-			steps = append(steps, &model.Step{
-				ID:               step.ContextName,
-				If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
-				Name:             displayName,
-				Run:              inputs["script"].(string),
-				WorkingDirectory: wd,
-				Shell:            shell,
-				ContinueOnError:  continueOnError,
-				TimeoutMinutes:   timeoutMinutes,
-				Env:              env,
-			})
-		case "containerregistry", "repository":
-			uses := ""
-			if st == "containerregistry" {
-				uses = "docker://" + step.Reference.Image
-			} else if strings.ToLower(step.Reference.RepositoryType) == "self" {
-				uses = step.Reference.Path
-			} else {
-				uses = step.Reference.Name
-				if len(step.Reference.Path) > 0 {
-					uses = uses + "/" + step.Reference.Path
+		if rqt.EnvironmentVariables != nil {
+			for _, rawenv := range rqt.EnvironmentVariables {
+				for k, v := range rawenv.ToRawObject().(map[interface{}]interface{}) {
+					env[k.(string)] = v.(string)
 				}
-				uses = uses + "@" + step.Reference.Ref
 			}
-			with := map[string]string{}
-			for k, v := range inputs {
-				k := k.(string)
-				switch k {
-				case "workingDirectory":
-				default:
-					with[k] = v.(string)
+		}
+
+		defaults := model.Defaults{}
+		if rqt.Defaults != nil {
+			for _, rawenv := range rqt.Defaults {
+				b, _ := json.Marshal(rawenv.ToRawObject())
+				json.Unmarshal(b, &defaults)
+			}
+		}
+		steps := []*model.Step{}
+		for _, step := range rqt.Steps {
+			st := strings.ToLower(step.Reference.Type)
+			inputs := make(map[interface{}]interface{})
+			if step.Inputs != nil {
+				inputs = step.Inputs.ToRawObject().(map[interface{}]interface{})
+			}
+			env := make(map[string]string)
+			if step.Environment != nil {
+				for k, v := range step.Environment.ToRawObject().(map[interface{}]interface{}) {
+					env[k.(string)] = v.(string)
 				}
 			}
 
-			steps = append(steps, &model.Step{
-				ID:               step.ContextName,
-				If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
-				Name:             displayName,
-				Uses:             uses,
-				WorkingDirectory: wd,
-				With:             with,
-				ContinueOnError:  continueOnError,
-				TimeoutMinutes:   timeoutMinutes,
-				Env:              env,
-			})
+			rawwd, haswd := inputs["workingDirectory"]
+			var wd string
+			if haswd {
+				wd = rawwd.(string)
+			} else {
+				wd = ""
+			}
+			continueOnError := false
+			if step.ContinueOnError != nil {
+				continueOnError = step.ContinueOnError.ToRawObject().(bool)
+			}
+			var timeoutMinutes int64 = 0
+			if step.TimeoutInMinutes != nil {
+				timeoutMinutes = int64(step.TimeoutInMinutes.ToRawObject().(float64))
+			}
+			var displayName string = ""
+			if step.DisplayNameToken != nil {
+				displayName = step.DisplayNameToken.ToRawObject().(string)
+			}
+			if step.ContextName == "" {
+				step.ContextName = "___" + uuid.New().String()
+			}
+
+			switch st {
+			case "script":
+				rawshell, hasshell := inputs["shell"]
+				var shell string
+				if hasshell {
+					shell = rawshell.(string)
+				} else {
+					shell = ""
+				}
+				steps = append(steps, &model.Step{
+					ID:               step.ContextName,
+					If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
+					Name:             displayName,
+					Run:              inputs["script"].(string),
+					WorkingDirectory: wd,
+					Shell:            shell,
+					ContinueOnError:  continueOnError,
+					TimeoutMinutes:   timeoutMinutes,
+					Env:              env,
+				})
+			case "containerregistry", "repository":
+				uses := ""
+				if st == "containerregistry" {
+					uses = "docker://" + step.Reference.Image
+				} else if strings.ToLower(step.Reference.RepositoryType) == "self" {
+					uses = step.Reference.Path
+				} else {
+					uses = step.Reference.Name
+					if len(step.Reference.Path) > 0 {
+						uses = uses + "/" + step.Reference.Path
+					}
+					uses = uses + "@" + step.Reference.Ref
+				}
+				with := map[string]string{}
+				for k, v := range inputs {
+					k := k.(string)
+					switch k {
+					case "workingDirectory":
+					default:
+						with[k] = v.(string)
+					}
+				}
+
+				steps = append(steps, &model.Step{
+					ID:               step.ContextName,
+					If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
+					Name:             displayName,
+					Uses:             uses,
+					WorkingDirectory: wd,
+					With:             with,
+					ContinueOnError:  continueOnError,
+					TimeoutMinutes:   timeoutMinutes,
+					Env:              env,
+				})
+			}
 		}
-	}
-	rawContainer := yaml.Node{}
-	if rqt.JobContainer != nil {
-		rawContainer = *rqt.JobContainer.ToYamlNode()
-	}
-	services := make(map[string]*model.ContainerSpec)
-	if rqt.JobServiceContainers != nil {
-		for name, rawcontainer := range rqt.JobServiceContainers.ToRawObject().(map[interface{}]interface{}) {
-			spec := &model.ContainerSpec{}
-			b, _ := json.Marshal(rawcontainer)
-			json.Unmarshal(b, &spec)
-			services[name.(string)] = spec
+		rawContainer := yaml.Node{}
+		if rqt.JobContainer != nil {
+			rawContainer = *rqt.JobContainer.ToYamlNode()
 		}
-	}
-	var payload string
-	{
-		e, _ := json.Marshal(githubCtx.(map[string]interface{})["event"])
-		payload = string(e)
-	}
-	rc := &runner.RunContext{
-		Config: &runner.Config{
-			Workdir: ".",
-			Secrets: secrets,
-			Platforms: map[string]string{
-				"dummy": "catthehacker/ubuntu:act-latest",
+		services := make(map[string]*model.ContainerSpec)
+		if rqt.JobServiceContainers != nil {
+			for name, rawcontainer := range rqt.JobServiceContainers.ToRawObject().(map[interface{}]interface{}) {
+				spec := &model.ContainerSpec{}
+				b, _ := json.Marshal(rawcontainer)
+				json.Unmarshal(b, &spec)
+				services[name.(string)] = spec
+			}
+		}
+		var payload string
+		{
+			e, _ := json.Marshal(githubCtx.(map[string]interface{})["event"])
+			payload = string(e)
+		}
+		rc := &runner.RunContext{
+			Config: &runner.Config{
+				Workdir: ".",
+				Secrets: secrets,
+				Platforms: map[string]string{
+					"dummy": "catthehacker/ubuntu:act-latest",
+				},
+				LogOutput:      true,
+				EventName:      githubCtx.(map[string]interface{})["event_name"].(string),
+				GitHubInstance: githubCtx.(map[string]interface{})["server_url"].(string)[8:],
 			},
-			LogOutput:      true,
-			EventName:      githubCtx.(map[string]interface{})["event_name"].(string),
-			GitHubInstance: githubCtx.(map[string]interface{})["server_url"].(string)[8:],
-		},
-		Env: env,
-		Run: &model.Run{
-			JobID: rqt.JobId,
-			Workflow: &model.Workflow{
-				Name:     githubCtx.(map[string]interface{})["workflow"].(string),
-				Defaults: defaults,
-				Jobs: map[string]*model.Job{
-					rqt.JobId: {
-						Name:         rqt.JobDisplayName,
-						RawRunsOn:    yaml.Node{Kind: yaml.ScalarNode, Value: "dummy"},
-						Steps:        steps,
-						RawContainer: rawContainer,
-						Services:     services,
+			Env: env,
+			Run: &model.Run{
+				JobID: rqt.JobId,
+				Workflow: &model.Workflow{
+					Name:     githubCtx.(map[string]interface{})["workflow"].(string),
+					Defaults: defaults,
+					Jobs: map[string]*model.Job{
+						rqt.JobId: {
+							Name:         rqt.JobDisplayName,
+							RawRunsOn:    yaml.Node{Kind: yaml.ScalarNode, Value: "dummy"},
+							Steps:        steps,
+							RawContainer: rawContainer,
+							Services:     services,
+						},
 					},
 				},
 			},
-		},
-		Matrix:      matrix,
-		StepResults: make(map[string]*runner.StepResult),
-		EventJSON:   payload,
-	}
-
-	val, _ := json.Marshal(githubCtx)
-	fmt.Println(string(val))
-	sv := string(val)
-	rc.GithubContextBase = &sv
-	rc.JobName = "beta"
-
-	ctx := context.Background()
-
-	ee := rc.NewExpressionEvaluator()
-	rc.ExprEval = ee
-	logger := logrus.New()
-
-	buf := new(bytes.Buffer)
-
-	formatter := new(ghaFormatter)
-	formatter.rc = rc
-	formatter.rqt = rqt
-
-	logger.SetFormatter(formatter)
-	logger.SetOutput(buf)
-	logger.SetLevel(logrus.DebugLevel)
-
-	rc.CurrentStep = "__setup"
-	rc.StepResults[rc.CurrentStep] = &runner.StepResult{Success: true}
-
-	wrap := &TimelineRecordWrapper{}
-	wrap.Count = int64(len(steps)) + 2
-	wrap.Value = make([]TimelineRecord, wrap.Count)
-	wrap.Value[0] = CreateTimelineEntry("", rqt.JobName, rqt.JobDisplayName)
-	wrap.Value[0].Id = rqt.JobId
-	wrap.Value[0].Type = "Job"
-	wrap.Value[0].Order = 0
-	wrap.Value[0].Start()
-	wrap.Value[1] = CreateTimelineEntry(rqt.JobId, "__setup", "Setup Job")
-	wrap.Value[1].Order = 1
-	for i := 0; i < len(steps); i++ {
-		wrap.Value[i+2] = CreateTimelineEntry(rqt.JobId, steps[i].ID, steps[i].String())
-		wrap.Value[i+2].Order = int32(i + 2)
-	}
-	UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
-	{
-		formatter.updateTimeLine = func() {
-			UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
+			Matrix:      matrix,
+			StepResults: make(map[string]*runner.StepResult),
+			EventJSON:   payload,
 		}
-		formatter.uploadLogFile = func(log string) int {
-			return UploadLogFile(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, tokenresp.AccessToken, log)
+
+		val, _ := json.Marshal(githubCtx)
+		fmt.Println(string(val))
+		sv := string(val)
+		rc.GithubContextBase = &sv
+		rc.JobName = "beta"
+
+		ctx := context.Background()
+
+		ee := rc.NewExpressionEvaluator()
+		rc.ExprEval = ee
+		logger := logrus.New()
+
+		buf := new(bytes.Buffer)
+
+		formatter := new(ghaFormatter)
+		formatter.rc = rc
+		formatter.rqt = rqt
+
+		logger.SetFormatter(formatter)
+		logger.SetOutput(buf)
+		logger.SetLevel(logrus.DebugLevel)
+
+		rc.CurrentStep = "__setup"
+		rc.StepResults[rc.CurrentStep] = &runner.StepResult{Success: true}
+
+		wrap := &TimelineRecordWrapper{}
+		wrap.Count = int64(len(steps)) + 2
+		wrap.Value = make([]TimelineRecord, wrap.Count)
+		wrap.Value[0] = CreateTimelineEntry("", rqt.JobName, rqt.JobDisplayName)
+		wrap.Value[0].Id = rqt.JobId
+		wrap.Value[0].Type = "Job"
+		wrap.Value[0].Order = 0
+		wrap.Value[0].Start()
+		wrap.Value[1] = CreateTimelineEntry(rqt.JobId, "__setup", "Setup Job")
+		wrap.Value[1].Order = 1
+		for i := 0; i < len(steps); i++ {
+			wrap.Value[i+2] = CreateTimelineEntry(rqt.JobId, steps[i].ID, steps[i].String())
+			wrap.Value[i+2].Order = int32(i + 2)
 		}
-	}
-	{
-		serv := connectionData_.GetServiceDefinition("858983e4-19bd-4c5e-864c-507b59b58b12")
-		tenantUrl := req.TenantUrl
-		formatter.logline = func(startLine int64, recordId string, line string) {
-			url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
+		UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
+		{
+			formatter.updateTimeLine = func() {
+				UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
+			}
+			formatter.uploadLogFile = func(log string) int {
+				return UploadLogFile(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, tokenresp.AccessToken, log)
+			}
+		}
+		{
+			serv := connectionData_.GetServiceDefinition("858983e4-19bd-4c5e-864c-507b59b58b12")
+			tenantUrl := req.TenantUrl
+			formatter.logline = func(startLine int64, recordId string, line string) {
+				url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
+					"area":            serv.ServiceType,
+					"resource":        serv.DisplayName,
+					"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
+					"planId":          jobreq.Plan.PlanId,
+					"hubName":         jobreq.Plan.PlanType,
+					"timelineId":      jobreq.Timeline.Id,
+					"recordId":        recordId,
+				}, map[string]string{})
+
+				buf := new(bytes.Buffer)
+				enc := json.NewEncoder(buf)
+				lines := &TimelineRecordFeedLinesWrapper{}
+				lines.Count = 1
+				lines.StartLine = &startLine
+				lines.StepId = recordId
+				lines.Value = []string{line}
+				enc.Encode(lines)
+				poolsreq, _ := http.NewRequest("POST", url, buf)
+				AddBearer(poolsreq.Header, tokenresp.AccessToken)
+				AddContentType(poolsreq.Header, "6.0-preview")
+				AddHeaders(poolsreq.Header)
+				c.Do(poolsreq)
+			}
+		}
+		formatter.wrap = wrap
+
+		rc.Executor()(common.WithLogger(ctx, logger))
+		jobStatus := "success"
+		for _, stepStatus := range rc.StepResults {
+			if !stepStatus.Success {
+				jobStatus = "failure"
+				break
+			}
+		}
+		if jobStatus == "success" {
+			wrap.Value[0].Complete("Succeeded")
+		} else {
+			wrap.Value[0].Complete("Failed")
+		}
+		{
+			f := formatter
+			f.startLine = 1
+			if f.current != nil {
+				if f.rc.StepResults[f.current.RefName].Success {
+					f.current.Complete("Succeeded")
+				} else {
+					f.current.Complete("Failed")
+				}
+				f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
+			}
+		}
+
+		str := buf.String()
+		print(str)
+
+		UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
+
+		{
+			finish := &JobEvent{
+				Name:      "JobCompleted",
+				JobId:     jobreq.JobId,
+				RequestId: jobreq.RequestId,
+				Result:    "Failed",
+			}
+			if jobStatus == "success" {
+				finish.Result = "Succeeded"
+			}
+			serv := connectionData_.GetServiceDefinition("557624af-b29e-4c20-8ab0-0399d2204f3f")
+			url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
 				"area":            serv.ServiceType,
 				"resource":        serv.DisplayName,
 				"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
 				"planId":          jobreq.Plan.PlanId,
 				"hubName":         jobreq.Plan.PlanType,
-				"timelineId":      jobreq.Timeline.Id,
-				"recordId":        recordId,
 			}, map[string]string{})
-
 			buf := new(bytes.Buffer)
 			enc := json.NewEncoder(buf)
-			lines := &TimelineRecordFeedLinesWrapper{}
-			lines.Count = 1
-			lines.StartLine = &startLine
-			lines.StepId = recordId
-			lines.Value = []string{line}
-			enc.Encode(lines)
+			enc.Encode(finish)
 			poolsreq, _ := http.NewRequest("POST", url, buf)
 			AddBearer(poolsreq.Header, tokenresp.AccessToken)
 			AddContentType(poolsreq.Header, "6.0-preview")
 			AddHeaders(poolsreq.Header)
-			c.Do(poolsreq)
-		}
-	}
-	formatter.wrap = wrap
-
-	rc.Executor()(common.WithLogger(ctx, logger))
-	jobStatus := "success"
-	for _, stepStatus := range rc.StepResults {
-		if !stepStatus.Success {
-			jobStatus = "failure"
-			break
-		}
-	}
-	if jobStatus == "success" {
-		wrap.Value[0].Complete("Succeeded")
-	} else {
-		wrap.Value[0].Complete("Failed")
-	}
-	{
-		f := formatter
-		f.startLine = 1
-		if f.current != nil {
-			if f.rc.StepResults[f.current.RefName].Success {
-				f.current.Complete("Succeeded")
-			} else {
-				f.current.Complete("Failed")
+			poolsresp, _ := c.Do(poolsreq)
+			if poolsresp.StatusCode != 200 {
+				fmt.Println("Failed to send finish job event")
+				return
 			}
-			f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
-		}
-	}
-
-	str := buf.String()
-	print(str)
-
-	UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
-
-	{
-		finish := &JobEvent{
-			Name:      "JobCompleted",
-			JobId:     jobreq.JobId,
-			RequestId: jobreq.RequestId,
-			Result:    "Failed",
-		}
-		if jobStatus == "success" {
-			finish.Result = "Succeeded"
-		}
-		serv := connectionData_.GetServiceDefinition("557624af-b29e-4c20-8ab0-0399d2204f3f")
-		url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
-			"area":            serv.ServiceType,
-			"resource":        serv.DisplayName,
-			"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
-			"planId":          jobreq.Plan.PlanId,
-			"hubName":         jobreq.Plan.PlanType,
-		}, map[string]string{})
-		buf := new(bytes.Buffer)
-		enc := json.NewEncoder(buf)
-		enc.Encode(finish)
-		poolsreq, _ := http.NewRequest("POST", url, buf)
-		AddBearer(poolsreq.Header, tokenresp.AccessToken)
-		AddContentType(poolsreq.Header, "6.0-preview")
-		AddHeaders(poolsreq.Header)
-		poolsresp, _ := c.Do(poolsreq)
-		if poolsresp.StatusCode != 200 {
-			fmt.Println("Failed to send finish job event")
-			return
 		}
 	}
 }
