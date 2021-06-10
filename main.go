@@ -867,7 +867,7 @@ func (config *ConfigureRunner) Configure() {
 	taskAgent.Labels = make([]AgentLabel, 1+len(config.Labels))
 	taskAgent.Labels[0] = AgentLabel{Name: "self-hosted", Type: "system"}
 	for i := 1; i <= len(config.Labels); i++ {
-		taskAgent.Labels[i] = AgentLabel{Name: "self-hosted", Type: "user"}
+		taskAgent.Labels[i] = AgentLabel{Name: config.Labels[i-1], Type: "user"}
 	}
 	taskAgent.MaxParallelism = 1
 	taskAgent.Name = "golang_" + uuid.NewString()
