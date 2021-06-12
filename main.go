@@ -351,14 +351,18 @@ func (ctx PipelineContextData) ToRawObject() interface{} {
 		return *ctx.StringValue
 	case 1:
 		a := make([]interface{}, 0)
-		for _, v := range *ctx.ArrayValue {
-			a = append(a, v.ToRawObject())
+		if ctx.ArrayValue != nil {
+			for _, v := range *ctx.ArrayValue {
+				a = append(a, v.ToRawObject())
+			}
 		}
 		return a
 	case 2:
 		m := make(map[string]interface{})
-		for _, v := range *ctx.DictionaryValue {
-			m[v.Key] = v.Value.ToRawObject()
+		if ctx.DictionaryValue != nil {
+			for _, v := range *ctx.DictionaryValue {
+				m[v.Key] = v.Value.ToRawObject()
+			}
 		}
 		return m
 	case 3:
