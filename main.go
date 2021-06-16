@@ -931,6 +931,41 @@ type RunRunner struct {
 	Once bool
 }
 
+func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAuthTokenResponse, error) {
+	tokenresp := &VssOAuthTokenResponse{}
+	now := time.Now().UTC()
+	token2 := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.StandardClaims{
+		Subject:   taskAgent.Authorization.ClientId,
+		Issuer:    taskAgent.Authorization.ClientId,
+		Id:        uuid.New().String(),
+		Audience:  taskAgent.Authorization.AuthorizationUrl,
+		NotBefore: now.Unix(),
+		IssuedAt:  now.Unix(),
+		ExpiresAt: now.Add(time.Minute * 5).Unix(),
+	})
+	stkn, _ := token2.SignedString(key)
+
+	data := url.Values{}
+	data.Set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
+	data.Set("client_assertion", stkn)
+	data.Set("grant_type", "client_credentials")
+
+	poolsreq, _ := http.NewRequest("POST", taskAgent.Authorization.AuthorizationUrl, bytes.NewBufferString(data.Encode()))
+	poolsreq.Header["Content-Type"] = []string{"application/x-www-form-urlencoded; charset=utf-8"}
+	poolsreq.Header["Accept"] = []string{"application/json"}
+	poolsresp, _ := c.Do(poolsreq)
+	if poolsresp.StatusCode != 200 {
+		bytes, _ := ioutil.ReadAll(poolsresp.Body)
+		return nil, errors.New("Failed to Authorize, service reponded with code " + fmt.Sprint(poolsresp.StatusCode) + ": " + string(bytes))
+	} else {
+		dec := json.NewDecoder(poolsresp.Body)
+		if err := dec.Decode(tokenresp); err != nil {
+			return nil, err
+		}
+		return tokenresp, nil
+	}
+}
+
 func (run *RunRunner) Run() {
 	// trap Ctrl+C
 	channel := make(chan os.Signal, 1)
@@ -966,40 +1001,10 @@ func (run *RunRunner) Run() {
 		json.Unmarshal(cont, req)
 	}
 
-	tokenresp := &VssOAuthTokenResponse{}
-	{
-		now := time.Now().UTC()
-		token2 := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.StandardClaims{
-			Subject:   taskAgent.Authorization.ClientId,
-			Issuer:    taskAgent.Authorization.ClientId,
-			Id:        uuid.New().String(),
-			Audience:  taskAgent.Authorization.AuthorizationUrl,
-			NotBefore: now.Unix(),
-			IssuedAt:  now.Unix(),
-			ExpiresAt: now.Add(time.Minute * 5).Unix(),
-		})
-		stkn, _ := token2.SignedString(key)
-		fmt.Println(stkn)
-
-		data := url.Values{}
-		data.Set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
-		data.Set("client_assertion", stkn)
-		data.Set("grant_type", "client_credentials")
-
-		poolsreq, _ := http.NewRequest("POST", taskAgent.Authorization.AuthorizationUrl, bytes.NewBufferString(data.Encode()))
-		poolsreq.Header["Content-Type"] = []string{"application/x-www-form-urlencoded; charset=utf-8"}
-		poolsreq.Header["Accept"] = []string{"application/json"}
-		poolsresp, _ := c.Do(poolsreq)
-		if poolsresp.StatusCode != 200 {
-			bytes, _ := ioutil.ReadAll(poolsresp.Body)
-			fmt.Println(string(bytes))
-			fmt.Println("Failed to Authorize!")
-			return
-		} else {
-			dec := json.NewDecoder(poolsresp.Body)
-			dec.Decode(tokenresp)
-		}
-
+	tokenresp, err := taskAgent.Authorize(c, key)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
 	}
 
 	connectionData_ := GetConnectionData(c, req.TenantUrl)
@@ -1035,6 +1040,18 @@ func (run *RunRunner) Run() {
 					}
 					continue
 				}
+				// The AccessToken expires every hour
+				if poolsresp.StatusCode == 401 {
+					tokenresp_, err := taskAgent.Authorize(c, key)
+					if err != nil {
+						fmt.Println(err.Error())
+						return
+					}
+					tokenresp.AccessToken = tokenresp_.AccessToken
+					tokenresp.ExpiresIn = tokenresp_.ExpiresIn
+					tokenresp.TokenType = tokenresp_.TokenType
+					continue
+				}
 				bytes, _ := ioutil.ReadAll(poolsresp.Body)
 				fmt.Println(string(bytes))
 				fmt.Printf("Failed to get message: %v", poolsresp.StatusCode)
@@ -1043,22 +1060,47 @@ func (run *RunRunner) Run() {
 				success = true
 				dec := json.NewDecoder(poolsresp.Body)
 				dec.Decode(message)
-				url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
-					"area":      serv.ServiceType,
-					"resource":  serv.DisplayName,
-					"poolId":    fmt.Sprint(poolId),
-					"messageId": fmt.Sprint(message.MessageId),
-				}, map[string]string{
-					"sessionId": session.SessionId,
-				})
-				poolsreq, _ := http.NewRequest("DELETE", url, nil)
-				AddBearer(poolsreq.Header, tokenresp.AccessToken)
-				AddContentType(poolsreq.Header, "6.0-preview")
-				AddHeaders(poolsreq.Header)
-				poolsresp, _ := c.Do(poolsreq)
-				if poolsresp.StatusCode != 200 {
-					fmt.Println("Failed to delete message")
-					return
+				for {
+					url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
+						"area":      serv.ServiceType,
+						"resource":  serv.DisplayName,
+						"poolId":    fmt.Sprint(poolId),
+						"messageId": fmt.Sprint(message.MessageId),
+					}, map[string]string{
+						"sessionId": session.SessionId,
+					})
+					poolsreq, _ := http.NewRequest("DELETE", url, nil)
+					AddBearer(poolsreq.Header, tokenresp.AccessToken)
+					AddContentType(poolsreq.Header, "6.0-preview")
+					AddHeaders(poolsreq.Header)
+					poolsresp, _ := c.Do(poolsreq)
+					if poolsresp.StatusCode != 200 {
+						if poolsresp.StatusCode >= 200 && poolsresp.StatusCode < 300 {
+							select {
+							case <-channel:
+								fmt.Print("CTRL+C received, stopping")
+								return
+							default:
+							}
+							break
+						}
+						// The AccessToken expires every hour
+						if poolsresp.StatusCode == 401 {
+							tokenresp_, err := taskAgent.Authorize(c, key)
+							if err != nil {
+								fmt.Println(err.Error())
+								return
+							}
+							tokenresp.AccessToken = tokenresp_.AccessToken
+							tokenresp.ExpiresIn = tokenresp_.ExpiresIn
+							tokenresp.TokenType = tokenresp_.TokenType
+							continue
+						}
+						fmt.Print("Failed to delete Message")
+						return
+					} else {
+						break
+					}
 				}
 			}
 		}
@@ -1091,6 +1133,27 @@ func (run *RunRunner) Run() {
 			dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
 			dec.Decode(jobreq)
 		}
+		if jobreq.Resources == nil {
+			fmt.Println("Missing Job Resources")
+			continue
+		}
+		if jobreq.Resources.Endpoints == nil {
+			fmt.Println("Missing Job Resources Endpoints")
+			continue
+		}
+		jobToken := tokenresp.AccessToken
+		jobTenant := req.TenantUrl
+		jobConnectionData := connectionData_
+		for _, endpoint := range jobreq.Resources.Endpoints {
+			if endpoint.Name == "SystemVssConnection" && endpoint.Authorization.Parameters != nil && endpoint.Authorization.Parameters["AccessToken"] != "" {
+				jobToken = endpoint.Authorization.Parameters["AccessToken"]
+				if jobTenant != endpoint.Url {
+					jobTenant = endpoint.Url
+					jobConnectionData = GetConnectionData(c, jobTenant)
+				}
+			}
+		}
+
 		rqt := jobreq
 		githubCtx := rqt.ContextData["github"].ToRawObject()
 		secrets := map[string]string{}
@@ -1303,18 +1366,18 @@ func (run *RunRunner) Run() {
 			wrap.Value[i+2] = CreateTimelineEntry(rqt.JobId, steps[i].ID, steps[i].String())
 			wrap.Value[i+2].Order = int32(i + 2)
 		}
-		UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
+		UpdateTimeLine(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, wrap, jobToken)
 		{
 			formatter.updateTimeLine = func() {
-				UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
+				UpdateTimeLine(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, wrap, jobToken)
 			}
 			formatter.uploadLogFile = func(log string) int {
-				return UploadLogFile(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, tokenresp.AccessToken, log)
+				return UploadLogFile(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, jobToken, log)
 			}
 		}
 		{
-			serv := connectionData_.GetServiceDefinition("858983e4-19bd-4c5e-864c-507b59b58b12")
-			tenantUrl := req.TenantUrl
+			serv := jobConnectionData.GetServiceDefinition("858983e4-19bd-4c5e-864c-507b59b58b12")
+			tenantUrl := jobTenant
 			formatter.logline = func(startLine int64, recordId string, line string) {
 				url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
 					"area":            serv.ServiceType,
@@ -1335,7 +1398,7 @@ func (run *RunRunner) Run() {
 				lines.Value = []string{line}
 				enc.Encode(lines)
 				poolsreq, _ := http.NewRequest("POST", url, buf)
-				AddBearer(poolsreq.Header, tokenresp.AccessToken)
+				AddBearer(poolsreq.Header, jobToken)
 				AddContentType(poolsreq.Header, "6.0-preview")
 				AddHeaders(poolsreq.Header)
 				c.Do(poolsreq)
@@ -1372,7 +1435,7 @@ func (run *RunRunner) Run() {
 		str := buf.String()
 		print(str)
 
-		UpdateTimeLine(connectionData_, c, req.TenantUrl, jobreq.Timeline.Id, jobreq, wrap, tokenresp.AccessToken)
+		UpdateTimeLine(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, wrap, jobToken)
 
 		{
 			finish := &JobEvent{
@@ -1384,8 +1447,8 @@ func (run *RunRunner) Run() {
 			if jobStatus == "success" {
 				finish.Result = "Succeeded"
 			}
-			serv := connectionData_.GetServiceDefinition("557624af-b29e-4c20-8ab0-0399d2204f3f")
-			url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
+			serv := jobConnectionData.GetServiceDefinition("557624af-b29e-4c20-8ab0-0399d2204f3f")
+			url := BuildUrl(jobTenant, serv.RelativePath, map[string]string{
 				"area":            serv.ServiceType,
 				"resource":        serv.DisplayName,
 				"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
@@ -1396,7 +1459,7 @@ func (run *RunRunner) Run() {
 			enc := json.NewEncoder(buf)
 			enc.Encode(finish)
 			poolsreq, _ := http.NewRequest("POST", url, buf)
-			AddBearer(poolsreq.Header, tokenresp.AccessToken)
+			AddBearer(poolsreq.Header, jobToken)
 			AddContentType(poolsreq.Header, "6.0-preview")
 			AddHeaders(poolsreq.Header)
 			poolsresp, _ := c.Do(poolsreq)
