@@ -1299,7 +1299,7 @@ func (run *RunRunner) Run() {
 				Workdir: ".",
 				Secrets: secrets,
 				Platforms: map[string]string{
-					"dummy": "catthehacker/ubuntu:act-latest",
+					"dummy": "-self-hosted",
 				},
 				LogOutput:      true,
 				EventName:      githubCtx.(map[string]interface{})["event_name"].(string),
