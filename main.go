@@ -770,7 +770,7 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		}
 	}
 	for _, v := range f.rqt.Variables {
-		if v.IsSecret {
+		if v.IsSecret && len(v.Value) > 0 {
 			entry.Message = strings.ReplaceAll(entry.Message, v.Value, "***")
 		}
 	}
