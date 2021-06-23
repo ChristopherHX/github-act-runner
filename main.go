@@ -520,9 +520,12 @@ func GetConnectionData(c *http.Client, tenantUrl string) *ConnectionData {
 	q.Add("lastChangeId64", "-1")
 	_url.RawQuery = q.Encode()
 	connectionData, _ := http.NewRequest("GET", _url.String(), nil)
-	connectionDataResp, _ := c.Do(connectionData)
+	connectionDataResp, err := c.Do(connectionData)
 	connectionData_ := &ConnectionData{}
-
+	if err != nil {
+		fmt.Println("fatal:" + err.Error())
+		return nil
+	}
 	dec2 := json.NewDecoder(connectionDataResp.Body)
 	dec2.Decode(connectionData_)
 	return connectionData_
@@ -950,11 +953,13 @@ func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAut
 	data.Set("client_assertion", stkn)
 	data.Set("grant_type", "client_credentials")
 
-	poolsreq, _ := http.NewRequest("POST", taskAgent.Authorization.AuthorizationUrl, bytes.NewBufferString(data.Encode()))
+	poolsreq, err := http.NewRequest("POST", taskAgent.Authorization.AuthorizationUrl, bytes.NewBufferString(data.Encode()))
 	poolsreq.Header["Content-Type"] = []string{"application/x-www-form-urlencoded; charset=utf-8"}
 	poolsreq.Header["Accept"] = []string{"application/json"}
 	poolsresp, _ := c.Do(poolsreq)
-	if poolsresp.StatusCode != 200 {
+	if err != nil {
+		return nil, errors.New("Failed to Authorize: " + err.Error())
+	} else if poolsresp.StatusCode != 200 {
 		bytes, _ := ioutil.ReadAll(poolsresp.Body)
 		return nil, errors.New("Failed to Authorize, service reponded with code " + fmt.Sprint(poolsresp.StatusCode) + ": " + string(bytes))
 	} else {
