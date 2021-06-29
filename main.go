@@ -1327,9 +1327,8 @@ func (run *RunRunner) Run() {
 					},
 				},
 			},
-			Matrix:      matrix,
-			StepResults: make(map[string]*runner.StepResult),
-			EventJSON:   payload,
+			Matrix:    matrix,
+			EventJSON: payload,
 		}
 
 		val, _ := json.Marshal(githubCtx)
@@ -1355,7 +1354,7 @@ func (run *RunRunner) Run() {
 		logger.SetLevel(logrus.DebugLevel)
 
 		rc.CurrentStep = "__setup"
-		rc.StepResults[rc.CurrentStep] = &runner.StepResult{Success: true}
+		rc.InitStepResults([]string{rc.CurrentStep})
 
 		wrap := &TimelineRecordWrapper{}
 		wrap.Count = int64(len(steps)) + 2
