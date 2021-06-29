@@ -1367,6 +1367,7 @@ func (run *RunRunner) Run() {
 		wrap.Value[0].Start()
 		wrap.Value[1] = CreateTimelineEntry(rqt.JobId, "__setup", "Setup Job")
 		wrap.Value[1].Order = 1
+		formatter.current = &wrap.Value[1]
 		for i := 0; i < len(steps); i++ {
 			wrap.Value[i+2] = CreateTimelineEntry(rqt.JobId, steps[i].ID, steps[i].String())
 			wrap.Value[i+2].Order = int32(i + 2)
