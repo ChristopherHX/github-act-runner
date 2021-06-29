@@ -1306,9 +1306,10 @@ func (run *RunRunner) Run() {
 				Platforms: map[string]string{
 					"dummy": "-self-hosted",
 				},
-				LogOutput:      true,
-				EventName:      githubCtx.(map[string]interface{})["event_name"].(string),
-				GitHubInstance: githubCtx.(map[string]interface{})["server_url"].(string)[8:],
+				LogOutput:           true,
+				EventName:           githubCtx.(map[string]interface{})["event_name"].(string),
+				GitHubInstance:      githubCtx.(map[string]interface{})["server_url"].(string)[8:],
+				ForceRemoteCheckout: true, // Needed to avoid copy the non exiting working dir
 			},
 			Env: env,
 			Run: &model.Run{
