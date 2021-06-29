@@ -975,7 +975,14 @@ func (run *RunRunner) Run() {
 	// trap Ctrl+C
 	channel := make(chan os.Signal, 1)
 	signal.Notify(channel, os.Interrupt)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-channel
+		cancel()
+		fmt.Println("CTRL+C received, stopping accepting new jobs")
+	}()
 	defer func() {
+		cancel()
 		signal.Stop(channel)
 	}()
 	poolId := 1
@@ -1029,20 +1036,20 @@ func (run *RunRunner) Run() {
 				"sessionId": session.SessionId,
 			})
 			//TODO lastMessageId=
-			poolsreq, _ := http.NewRequest("GET", url, nil)
+			poolsreq, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 			AddBearer(poolsreq.Header, tokenresp.AccessToken)
 			AddContentType(poolsreq.Header, "6.0-preview")
 			AddHeaders(poolsreq.Header)
-			poolsresp, _ := c.Do(poolsreq)
-
-			if poolsresp.StatusCode != 200 {
+			poolsresp, err := c.Do(poolsreq)
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					fmt.Println("Canceled stopping")
+				} else {
+					fmt.Printf("Failed to get message: %v", err.Error())
+				}
+				return
+			} else if poolsresp.StatusCode != 200 {
 				if poolsresp.StatusCode >= 200 && poolsresp.StatusCode < 300 {
-					select {
-					case <-channel:
-						fmt.Print("CTRL+C received, stopping")
-						return
-					default:
-					}
 					continue
 				}
 				// The AccessToken expires every hour
