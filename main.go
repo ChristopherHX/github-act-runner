@@ -1169,6 +1169,7 @@ func (run *RunRunner) Run() {
 							jobTenant := req.TenantUrl
 							jobConnectionData := connectionData_
 							orchid := ""
+							cacheUrl := ""
 							for _, endpoint := range jobreq.Resources.Endpoints {
 								if strings.EqualFold(endpoint.Name, "SystemVssConnection") && endpoint.Authorization.Parameters != nil && endpoint.Authorization.Parameters["AccessToken"] != "" {
 									jobToken = endpoint.Authorization.Parameters["AccessToken"]
@@ -1182,6 +1183,10 @@ func (run *RunRunner) Run() {
 									})
 									if _orchid, suc := claims["orchid"]; suc {
 										orchid = _orchid.(string)
+									}
+									_cacheUrl, ok := endpoint.Data["CacheServerUrl"]
+									if ok {
+										cacheUrl = _cacheUrl
 									}
 								}
 							}
@@ -1252,6 +1257,11 @@ func (run *RunRunner) Run() {
 										env[k.(string)] = v.(string)
 									}
 								}
+							}
+							env["ACTIONS_RUNTIME_URL"] = jobTenant
+							env["ACTIONS_RUNTIME_TOKEN"] = jobToken
+							if len(cacheUrl) > 0 {
+								env["ACTIONS_CACHE_URL"] = cacheUrl
 							}
 
 							defaults := model.Defaults{}
