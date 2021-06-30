@@ -748,7 +748,9 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 			} else {
 				f.current.Complete("Failed")
 			}
-			f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
+			if f.stepBuffer.Len() > 0 {
+				f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
+			}
 		}
 		f.stepBuffer = &bytes.Buffer{}
 		for i := range f.wrap.Value {
@@ -1557,22 +1559,33 @@ func (run *RunRunner) Run() {
 									break
 								}
 							}
-							if jobStatus == "success" {
-								wrap.Value[0].Complete("Succeeded")
-							} else {
-								wrap.Value[0].Complete("Failed")
-							}
 							{
 								f := formatter
 								f.startLine = 1
 								if f.current != nil {
-									if f.rc.StepResults[f.current.RefName].Success {
+									if f.current == &wrap.Value[1] {
+										// Workaround check for init failure, e.g. docker fails
+										jobStatus = "failure"
+										f.current.Complete("Failed")
+									} else if f.rc.StepResults[f.current.RefName].Success {
 										f.current.Complete("Succeeded")
 									} else {
 										f.current.Complete("Failed")
 									}
-									f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
+									if f.stepBuffer.Len() > 0 {
+										f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
+									}
 								}
+							}
+							for i := 2; i < len(wrap.Value); i++ {
+								if !strings.EqualFold(wrap.Value[i].State, "Completed") {
+									wrap.Value[i].Complete("Skipped")
+								}
+							}
+							if jobStatus == "success" {
+								wrap.Value[0].Complete("Succeeded")
+							} else {
+								wrap.Value[0].Complete("Failed")
 							}
 
 							UpdateTimeLine(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, wrap, jobToken)
