@@ -1516,8 +1516,14 @@ func (run *RunRunner) Run() {
 										case <-renewctx.Done():
 											return
 										case lines := <-logchan:
+											st := time.Now()
+											lp := st
 											for {
 												b := false
+												div := lp.Sub(st)
+												if div > time.Second {
+													break
+												}
 												select {
 												case line := <-logchan:
 													if line.StepId == lines.StepId {
@@ -1526,13 +1532,15 @@ func (run *RunRunner) Run() {
 													} else {
 														sendLog(lines)
 														lines = line
+														st = time.Now()
 													}
-												case <-time.After(time.Second):
+												case <-time.After(time.Second - div):
 													b = true
 												}
 												if b {
 													break
 												}
+												lp = time.Now()
 											}
 											sendLog(lines)
 										}
