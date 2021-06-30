@@ -432,6 +432,10 @@ type AgentJobRequestMessage struct {
 	FileTable            []string
 }
 
+type RenewAgent struct {
+	RequestId int64
+}
+
 type TaskAgentMessage struct {
 	MessageId   int64
 	MessageType string
@@ -642,18 +646,14 @@ func UpdateTimeLine(con *ConnectionData, c *http.Client, tenantUrl string, timel
 	poolsreq.Header["Authorization"] = []string{"bearer " + token}
 	AddContentType(poolsreq.Header, "6.0-preview")
 	AddHeaders(poolsreq.Header)
-	poolsresp, _ := c.Do(poolsreq)
-
-	if poolsresp.StatusCode != 200 {
-		bytes, _ := ioutil.ReadAll(poolsresp.Body)
-		fmt.Println(string(bytes))
-		fmt.Println(buf.String())
+	poolsresp, err := c.Do(poolsreq)
+	if err != nil {
+		fmt.Println("Failed to upload timeline: " + err.Error())
+	} else if poolsresp == nil || poolsresp.StatusCode < 200 || poolsresp.StatusCode >= 300 {
+		fmt.Println("Failed to upload timeline")
 	} else {
-		// dec := json.NewDecoder(poolsresp.Body)
-		// dec.Decode(message)
-		bytes, _ := ioutil.ReadAll(poolsresp.Body)
-		fmt.Println(string(bytes))
-		fmt.Println(buf.String())
+		defer poolsresp.Body.Close()
+		fmt.Println("Timeline Updated")
 	}
 }
 
@@ -953,10 +953,10 @@ func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAut
 	data.Set("client_assertion", stkn)
 	data.Set("grant_type", "client_credentials")
 
-	poolsreq, err := http.NewRequest("POST", taskAgent.Authorization.AuthorizationUrl, bytes.NewBufferString(data.Encode()))
+	poolsreq, _ := http.NewRequest("POST", taskAgent.Authorization.AuthorizationUrl, bytes.NewBufferString(data.Encode()))
 	poolsreq.Header["Content-Type"] = []string{"application/x-www-form-urlencoded; charset=utf-8"}
 	poolsreq.Header["Accept"] = []string{"application/json"}
-	poolsresp, _ := c.Do(poolsreq)
+	poolsresp, err := c.Do(poolsreq)
 	if err != nil {
 		return nil, errors.New("Failed to Authorize: " + err.Error())
 	} else if poolsresp.StatusCode != 200 {
@@ -1152,15 +1152,69 @@ func (run *RunRunner) Run() {
 							jobToken := tokenresp.AccessToken
 							jobTenant := req.TenantUrl
 							jobConnectionData := connectionData_
+							orchid := ""
 							for _, endpoint := range jobreq.Resources.Endpoints {
-								if endpoint.Name == "SystemVssConnection" && endpoint.Authorization.Parameters != nil && endpoint.Authorization.Parameters["AccessToken"] != "" {
+								if strings.EqualFold(endpoint.Name, "SystemVssConnection") && endpoint.Authorization.Parameters != nil && endpoint.Authorization.Parameters["AccessToken"] != "" {
 									jobToken = endpoint.Authorization.Parameters["AccessToken"]
 									if jobTenant != endpoint.Url {
 										jobTenant = endpoint.Url
 										jobConnectionData = GetConnectionData(c, jobTenant)
 									}
+									claims := jwt.MapClaims{}
+									jwt.ParseWithClaims(jobToken, claims, func(t *jwt.Token) (interface{}, error) {
+										return nil, nil
+									})
+									if _orchid, suc := claims["orchid"]; suc {
+										orchid = _orchid.(string)
+									}
 								}
 							}
+							renewctx, cancel := context.WithCancel(context.Background())
+							defer cancel()
+							go func() {
+								for {
+									serv := connectionData_.GetServiceDefinition("fc825784-c92a-4299-9221-998a02d1b54f")
+									url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
+										"area":      serv.ServiceType,
+										"resource":  serv.DisplayName,
+										"poolId":    fmt.Sprint(poolId),
+										"requestId": fmt.Sprint(jobreq.RequestId),
+									}, map[string]string{
+										"lockToken": "00000000-0000-0000-0000-000000000000",
+									})
+									buf := new(bytes.Buffer)
+									renew := &RenewAgent{RequestId: jobreq.RequestId}
+									enc := json.NewEncoder(buf)
+									if err := enc.Encode(renew); err != nil {
+										return
+									}
+									poolsreq, _ := http.NewRequestWithContext(renewctx, "PATCH", url, buf)
+									AddBearer(poolsreq.Header, tokenresp.AccessToken)
+									AddContentType(poolsreq.Header, "5.1-preview")
+									AddHeaders(poolsreq.Header)
+									if len(orchid) > 0 {
+										poolsreq.Header["X-VSS-OrchestrationId"] = []string{orchid}
+									}
+									renewresp, err := c.Do(poolsreq)
+									if err != nil {
+										if errors.Is(err, context.Canceled) {
+											return
+										} else {
+											fmt.Printf("Failed to renew job: %v", err.Error())
+										}
+									} else if renewresp != nil {
+										defer renewresp.Body.Close()
+										if renewresp.StatusCode < 200 || renewresp.StatusCode >= 300 {
+											fmt.Printf("Failed to renew job with Http Status: %v", renewresp.StatusCode)
+										}
+									}
+									select {
+									case <-renewctx.Done():
+										return
+									case <-time.After(60 * time.Second):
+									}
+								}
+							}()
 
 							rqt := jobreq
 							githubCtx := rqt.ContextData["github"].ToRawObject()
@@ -1352,6 +1406,7 @@ func (run *RunRunner) Run() {
 							formatter := new(ghaFormatter)
 							formatter.rc = rc
 							formatter.rqt = rqt
+							formatter.stepBuffer = &bytes.Buffer{}
 
 							logger.SetFormatter(formatter)
 							logger.SetOutput(buf)
@@ -1371,6 +1426,7 @@ func (run *RunRunner) Run() {
 							wrap.Value[1] = CreateTimelineEntry(rqt.JobId, "__setup", "Setup Job")
 							wrap.Value[1].Order = 1
 							formatter.current = &wrap.Value[1]
+							formatter.current.Start()
 							for i := 0; i < len(steps); i++ {
 								wrap.Value[i+2] = CreateTimelineEntry(rqt.JobId, steps[i].ID, steps[i].String())
 								wrap.Value[i+2].Order = int32(i + 2)
@@ -1410,7 +1466,12 @@ func (run *RunRunner) Run() {
 									AddBearer(poolsreq.Header, jobToken)
 									AddContentType(poolsreq.Header, "6.0-preview")
 									AddHeaders(poolsreq.Header)
-									c.Do(poolsreq)
+									resp, err := c.Do(poolsreq)
+									if err != nil {
+										fmt.Println("Failed to upload logline: " + err.Error())
+									} else if resp == nil || resp.StatusCode != 200 {
+										fmt.Println("Failed to upload logline")
+									}
 								}
 							}
 							formatter.wrap = wrap
@@ -1441,11 +1502,8 @@ func (run *RunRunner) Run() {
 								}
 							}
 
-							str := buf.String()
-							print(str)
-
 							UpdateTimeLine(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, wrap, jobToken)
-
+							fmt.Println("Finishing Job")
 							{
 								finish := &JobEvent{
 									Name:      "JobCompleted",
@@ -1477,6 +1535,7 @@ func (run *RunRunner) Run() {
 									return
 								}
 							}
+							fmt.Println("Finished Job")
 						}()
 					} else {
 						fmt.Println("Ignoring incoming message of type: " + message.MessageType)
