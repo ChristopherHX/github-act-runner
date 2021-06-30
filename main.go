@@ -1475,36 +1475,69 @@ func (run *RunRunner) Run() {
 							{
 								serv := jobConnectionData.GetServiceDefinition("858983e4-19bd-4c5e-864c-507b59b58b12")
 								tenantUrl := jobTenant
+								logchan := make(chan *TimelineRecordFeedLinesWrapper, 64)
 								formatter.logline = func(startLine int64, recordId string, line string) {
-									url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
-										"area":            serv.ServiceType,
-										"resource":        serv.DisplayName,
-										"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
-										"planId":          jobreq.Plan.PlanId,
-										"hubName":         jobreq.Plan.PlanType,
-										"timelineId":      jobreq.Timeline.Id,
-										"recordId":        recordId,
-									}, map[string]string{})
-
-									buf := new(bytes.Buffer)
-									enc := json.NewEncoder(buf)
 									lines := &TimelineRecordFeedLinesWrapper{}
 									lines.Count = 1
 									lines.StartLine = &startLine
 									lines.StepId = recordId
 									lines.Value = []string{line}
-									enc.Encode(lines)
-									poolsreq, _ := http.NewRequest("POST", url, buf)
-									AddBearer(poolsreq.Header, jobToken)
-									AddContentType(poolsreq.Header, "6.0-preview")
-									AddHeaders(poolsreq.Header)
-									resp, err := c.Do(poolsreq)
-									if err != nil {
-										fmt.Println("Failed to upload logline: " + err.Error())
-									} else if resp == nil || resp.StatusCode != 200 {
-										fmt.Println("Failed to upload logline")
-									}
+									logchan <- lines
 								}
+								go func() {
+									sendLog := func(lines *TimelineRecordFeedLinesWrapper) {
+										url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
+											"area":            serv.ServiceType,
+											"resource":        serv.DisplayName,
+											"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
+											"planId":          jobreq.Plan.PlanId,
+											"hubName":         jobreq.Plan.PlanType,
+											"timelineId":      jobreq.Timeline.Id,
+											"recordId":        lines.StepId,
+										}, map[string]string{})
+
+										buf := new(bytes.Buffer)
+										enc := json.NewEncoder(buf)
+
+										enc.Encode(lines)
+										poolsreq, _ := http.NewRequest("POST", url, buf)
+										AddBearer(poolsreq.Header, jobToken)
+										AddContentType(poolsreq.Header, "6.0-preview")
+										AddHeaders(poolsreq.Header)
+										resp, err := c.Do(poolsreq)
+										if err != nil {
+											fmt.Println("Failed to upload logline: " + err.Error())
+										} else if resp == nil || resp.StatusCode != 200 {
+											fmt.Println("Failed to upload logline")
+										}
+									}
+									for {
+										select {
+										case <-renewctx.Done():
+											return
+										case lines := <-logchan:
+											for {
+												b := false
+												select {
+												case line := <-logchan:
+													if line.StepId == lines.StepId {
+														lines.Count++
+														lines.Value = append(lines.Value, line.Value[0])
+													} else {
+														sendLog(lines)
+														lines = line
+													}
+												case <-time.After(time.Second):
+													b = true
+												}
+												if b {
+													break
+												}
+											}
+											sendLog(lines)
+										}
+									}
+								}()
 							}
 							formatter.wrap = wrap
 
