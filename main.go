@@ -971,6 +971,18 @@ func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAut
 	}
 }
 
+func ToStringMap(src interface{}) interface{} {
+	bi, ok := src.(map[interface{}]interface{})
+	if ok {
+		res := make(map[string]interface{})
+		for k, v := range bi {
+			res[k.(string)] = ToStringMap(v)
+		}
+		return res
+	}
+	return src
+}
+
 func (run *RunRunner) Run() {
 	// trap Ctrl+C
 	channel := make(chan os.Signal, 1)
@@ -1022,6 +1034,10 @@ func (run *RunRunner) Run() {
 	connectionData_ := GetConnectionData(c, req.TenantUrl)
 
 	session, b := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken)
+	if session == nil {
+		fmt.Println("Failed to create Session")
+		return
+	}
 	defer session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken)
 	for !run.Once {
 		message := &TaskAgentMessage{}
@@ -1241,7 +1257,13 @@ func (run *RunRunner) Run() {
 							defaults := model.Defaults{}
 							if rqt.Defaults != nil {
 								for _, rawenv := range rqt.Defaults {
-									b, _ := json.Marshal(rawenv.ToRawObject())
+									rawobj := rawenv.ToRawObject()
+									rawobj = ToStringMap(rawobj)
+									b, err := json.Marshal(rawobj)
+									if err != nil {
+										fmt.Println("Failed to eval def")
+										b, _ = json.Marshal(&rawobj)
+									}
 									json.Unmarshal(b, &defaults)
 								}
 							}
@@ -1346,7 +1368,7 @@ func (run *RunRunner) Run() {
 							if rqt.JobServiceContainers != nil {
 								for name, rawcontainer := range rqt.JobServiceContainers.ToRawObject().(map[interface{}]interface{}) {
 									spec := &model.ContainerSpec{}
-									b, _ := json.Marshal(rawcontainer)
+									b, _ := json.Marshal(ToStringMap(rawcontainer))
 									json.Unmarshal(b, &spec)
 									services[name.(string)] = spec
 								}
