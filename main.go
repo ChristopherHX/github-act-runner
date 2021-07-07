@@ -21,6 +21,7 @@ import (
 	"os/signal"
 	"path"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -767,16 +768,19 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 
 	// b.WriteString(f.rc.CurrentStep)
 	// b.WriteString(": ")
-
-	for _, v := range f.rqt.MaskHints {
-		if strings.ToLower(v.Type) == "regex" {
-			r, _ := regexp.Compile(v.Value)
-			entry.Message = r.ReplaceAllString(entry.Message, "***")
+	if f.rqt.MaskHints != nil {
+		for _, v := range f.rqt.MaskHints {
+			if strings.ToLower(v.Type) == "regex" {
+				r, _ := regexp.Compile(v.Value)
+				entry.Message = r.ReplaceAllString(entry.Message, "***")
+			}
 		}
 	}
-	for _, v := range f.rqt.Variables {
-		if v.IsSecret && len(v.Value) > 0 {
-			entry.Message = strings.ReplaceAll(entry.Message, v.Value, "***")
+	if f.rqt.Variables != nil {
+		for _, v := range f.rqt.Variables {
+			if v.IsSecret && len(v.Value) > 0 {
+				entry.Message = strings.ReplaceAll(entry.Message, v.Value, "***")
+			}
 		}
 	}
 
@@ -1153,23 +1157,76 @@ func (run *RunRunner) Run() {
 							if src[0] == 239 && src[1] == 187 && src[2] == 191 {
 								off = 3
 							}
-							fmt.Println(string(src[off:validlen]))
 							jobreq := &AgentJobRequestMessage{}
 							{
 								dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
 								dec.Decode(jobreq)
 							}
-							if jobreq.Resources == nil {
-								fmt.Println("Missing Job Resources")
-								return
-							}
-							if jobreq.Resources.Endpoints == nil {
-								fmt.Println("Missing Job Resources Endpoints")
-								return
-							}
 							jobToken := tokenresp.AccessToken
 							jobTenant := req.TenantUrl
 							jobConnectionData := connectionData_
+							finishJob := func(result string) {
+								finish := &JobEvent{
+									Name:      "JobCompleted",
+									JobId:     jobreq.JobId,
+									RequestId: jobreq.RequestId,
+									Result:    result,
+								}
+								serv := jobConnectionData.GetServiceDefinition("557624af-b29e-4c20-8ab0-0399d2204f3f")
+								url := BuildUrl(jobTenant, serv.RelativePath, map[string]string{
+									"area":            serv.ServiceType,
+									"resource":        serv.DisplayName,
+									"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
+									"planId":          jobreq.Plan.PlanId,
+									"hubName":         jobreq.Plan.PlanType,
+								}, map[string]string{})
+								buf := new(bytes.Buffer)
+								enc := json.NewEncoder(buf)
+								enc.Encode(finish)
+								poolsreq, _ := http.NewRequest("POST", url, buf)
+								AddBearer(poolsreq.Header, jobToken)
+								AddContentType(poolsreq.Header, "6.0-preview")
+								AddHeaders(poolsreq.Header)
+								poolsresp, _ := c.Do(poolsreq)
+								if poolsresp.StatusCode != 200 {
+									fmt.Println("Failed to send finish job event")
+									return
+								}
+							}
+							rqt := jobreq
+							wrap := &TimelineRecordWrapper{}
+							wrap.Count = 2
+							wrap.Value = make([]TimelineRecord, wrap.Count)
+							wrap.Value[0] = CreateTimelineEntry("", rqt.JobName, rqt.JobDisplayName)
+							wrap.Value[0].Id = rqt.JobId
+							wrap.Value[0].Type = "Job"
+							wrap.Value[0].Order = 0
+							wrap.Value[0].Start()
+							wrap.Value[1] = CreateTimelineEntry(rqt.JobId, "__setup", "Setup Job")
+							wrap.Value[1].Order = 1
+							wrap.Value[1].Start()
+							UpdateTimeLine(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, wrap, jobToken)
+							failInitJob := func(message string) {
+								wrap.Value[1].Log = &TaskLogReference{Id: UploadLogFile(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, jobToken, message)}
+								wrap.Value[1].Complete("Failed")
+								wrap.Value[0].Complete("Failed")
+								UpdateTimeLine(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, wrap, jobToken)
+								fmt.Println(message)
+								finishJob("Failed")
+							}
+							defer func() {
+								if err := recover(); err != nil {
+									failInitJob("The worker panicked with message: " + fmt.Sprint(err) + "\n" + string(debug.Stack()))
+								}
+							}()
+							if jobreq.Resources == nil {
+								failInitJob("Missing Job Resources")
+								return
+							}
+							if jobreq.Resources.Endpoints == nil {
+								failInitJob("Missing Job Resources Endpoints")
+								return
+							}
 							orchid := ""
 							cacheUrl := ""
 							for _, endpoint := range jobreq.Resources.Endpoints {
@@ -1239,24 +1296,54 @@ func (run *RunRunner) Run() {
 								}
 							}()
 
-							rqt := jobreq
-							githubCtx := rqt.ContextData["github"].ToRawObject()
+							rawGithubCtx, ok := rqt.ContextData["github"]
+							if !ok {
+								fmt.Println("missing github context in ContextData")
+								finishJob("Failed")
+								return
+							}
+							githubCtx := rawGithubCtx.ToRawObject()
 							secrets := map[string]string{}
-							for k, v := range rqt.Variables {
-								if v.IsSecret && k != "system.github.token" {
-									secrets[k] = v.Value
+							if rqt.Variables != nil {
+								for k, v := range rqt.Variables {
+									if v.IsSecret && k != "system.github.token" {
+										secrets[k] = v.Value
+									}
+								}
+								if rawGithubToken, ok := rqt.Variables["system.github.token"]; ok {
+									secrets["GITHUB_TOKEN"] = rawGithubToken.Value
 								}
 							}
-							secrets["GITHUB_TOKEN"] = rqt.Variables["system.github.token"].Value
-							matrix, ok := rqt.ContextData["matrix"].ToRawObject().(map[string]interface{})
-							if !ok {
-								matrix = make(map[string]interface{})
+							matrix := make(map[string]interface{})
+							if rawMatrix, ok := rqt.ContextData["matrix"]; ok {
+								rawobj := rawMatrix.ToRawObject()
+								if tmpmatrix, ok := rawobj.(map[string]interface{}); ok {
+									matrix = tmpmatrix
+								} else if rawobj != nil {
+									failInitJob("matrix: not a map")
+									return
+								}
 							}
 							env := make(map[string]string)
 							if rqt.EnvironmentVariables != nil {
 								for _, rawenv := range rqt.EnvironmentVariables {
-									for k, v := range rawenv.ToRawObject().(map[interface{}]interface{}) {
-										env[k.(string)] = v.(string)
+									if tmpenv, ok := rawenv.ToRawObject().(map[interface{}]interface{}); ok {
+										for k, v := range tmpenv {
+											key, ok := k.(string)
+											if !ok {
+												failInitJob("env key: act doesn't support non strings")
+												return
+											}
+											value, ok := v.(string)
+											if !ok {
+												failInitJob("env value: act doesn't support non strings")
+												return
+											}
+											env[key] = value
+										}
+									} else {
+										failInitJob("env: not a map")
+										return
 									}
 								}
 							}
@@ -1273,8 +1360,8 @@ func (run *RunRunner) Run() {
 									rawobj = ToStringMap(rawobj)
 									b, err := json.Marshal(rawobj)
 									if err != nil {
-										fmt.Println("Failed to eval def")
-										b, _ = json.Marshal(&rawobj)
+										failInitJob("Failed to eval defaults")
+										return
 									}
 									json.Unmarshal(b, &defaults)
 								}
@@ -1284,33 +1371,73 @@ func (run *RunRunner) Run() {
 								st := strings.ToLower(step.Reference.Type)
 								inputs := make(map[interface{}]interface{})
 								if step.Inputs != nil {
-									inputs = step.Inputs.ToRawObject().(map[interface{}]interface{})
+									if tmpinputs, ok := step.Inputs.ToRawObject().(map[interface{}]interface{}); ok {
+										inputs = tmpinputs
+									} else {
+										failInitJob("step.Inputs: not a map")
+										return
+									}
 								}
 								env := make(map[string]string)
 								if step.Environment != nil {
-									for k, v := range step.Environment.ToRawObject().(map[interface{}]interface{}) {
-										env[k.(string)] = v.(string)
+									if tmpenvs, ok := step.Environment.ToRawObject().(map[interface{}]interface{}); ok {
+										for k, v := range tmpenvs {
+											key, ok := k.(string)
+											if !ok {
+												failInitJob("env key: act doesn't support non strings")
+												return
+											}
+											value, ok := v.(string)
+											if !ok {
+												failInitJob("env value: act doesn't support non strings")
+												return
+											}
+											env[key] = value
+										}
+									} else {
+										failInitJob("step.Inputs: not a map")
+										return
 									}
 								}
 
 								rawwd, haswd := inputs["workingDirectory"]
 								var wd string
 								if haswd {
-									wd = rawwd.(string)
+									tmpwd, ok := rawwd.(string)
+									if !ok {
+										failInitJob("workingDirectory: act doesn't support non strings")
+										return
+									}
+									wd = tmpwd
 								} else {
 									wd = ""
 								}
 								continueOnError := false
 								if step.ContinueOnError != nil {
-									continueOnError = step.ContinueOnError.ToRawObject().(bool)
+									tmpcontinueOnError, ok := step.ContinueOnError.ToRawObject().(bool)
+									if !ok {
+										failInitJob("ContinueOnError: act doesn't support expressions here")
+										return
+									}
+									continueOnError = tmpcontinueOnError
 								}
 								var timeoutMinutes int64 = 0
 								if step.TimeoutInMinutes != nil {
-									timeoutMinutes = int64(step.TimeoutInMinutes.ToRawObject().(float64))
+									rawTimeout, ok := step.TimeoutInMinutes.ToRawObject().(float64)
+									if !ok {
+										failInitJob("TimeoutInMinutes: act doesn't support expressions here")
+										return
+									}
+									timeoutMinutes = int64(rawTimeout)
 								}
 								var displayName string = ""
 								if step.DisplayNameToken != nil {
-									displayName = step.DisplayNameToken.ToRawObject().(string)
+									rawDisplayName, ok := step.DisplayNameToken.ToRawObject().(string)
+									if !ok {
+										failInitJob("DisplayNameToken: act doesn't support no strings")
+										return
+									}
+									displayName = rawDisplayName
 								}
 								if step.ContextName == "" {
 									step.ContextName = "___" + uuid.New().String()
@@ -1319,23 +1446,33 @@ func (run *RunRunner) Run() {
 								switch st {
 								case "script":
 									rawshell, hasshell := inputs["shell"]
-									var shell string
+									shell := ""
 									if hasshell {
-										shell = rawshell.(string)
-									} else {
-										shell = ""
+										sshell, ok := rawshell.(string)
+										if ok {
+											shell = sshell
+										} else {
+											failInitJob("shell is not a script")
+											return
+										}
 									}
-									steps = append(steps, &model.Step{
-										ID:               step.ContextName,
-										If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
-										Name:             displayName,
-										Run:              inputs["script"].(string),
-										WorkingDirectory: wd,
-										Shell:            shell,
-										ContinueOnError:  continueOnError,
-										TimeoutMinutes:   timeoutMinutes,
-										Env:              env,
-									})
+									scriptContent, ok := inputs["script"].(string)
+									if ok {
+										steps = append(steps, &model.Step{
+											ID:               step.ContextName,
+											If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
+											Name:             displayName,
+											Run:              scriptContent,
+											WorkingDirectory: wd,
+											Shell:            shell,
+											ContinueOnError:  continueOnError,
+											TimeoutMinutes:   timeoutMinutes,
+											Env:              env,
+										})
+									} else {
+										failInitJob("Missing script")
+										return
+									}
 								case "containerregistry", "repository":
 									uses := ""
 									if st == "containerregistry" {
@@ -1351,11 +1488,20 @@ func (run *RunRunner) Run() {
 									}
 									with := map[string]string{}
 									for k, v := range inputs {
-										k := k.(string)
+										k, ok := k.(string)
+										if !ok {
+											failInitJob("with input key is not a string")
+											return
+										}
 										switch k {
 										case "workingDirectory":
 										default:
-											with[k] = v.(string)
+											val, ok := v.(string)
+											if !ok {
+												fmt.Println("with input value is not a string")
+												return
+											}
+											with[k] = val
 										}
 									}
 
@@ -1378,16 +1524,39 @@ func (run *RunRunner) Run() {
 							}
 							services := make(map[string]*model.ContainerSpec)
 							if rqt.JobServiceContainers != nil {
-								for name, rawcontainer := range rqt.JobServiceContainers.ToRawObject().(map[interface{}]interface{}) {
-									spec := &model.ContainerSpec{}
-									b, _ := json.Marshal(ToStringMap(rawcontainer))
-									json.Unmarshal(b, &spec)
-									services[name.(string)] = spec
+								rawServiceContainer, ok := rqt.JobServiceContainers.ToRawObject().(map[interface{}]interface{})
+								if !ok {
+									failInitJob("Job service container is not nil, but also not a map")
+									return
 								}
+								for name, rawcontainer := range rawServiceContainer {
+									containerName, ok := name.(string)
+									if !ok {
+										failInitJob("containername is not a string")
+										return
+									}
+									spec := &model.ContainerSpec{}
+									b, err := json.Marshal(ToStringMap(rawcontainer))
+									if err != nil {
+										failInitJob("Failed to serialize ContainerSpec")
+										return
+									}
+									err = json.Unmarshal(b, &spec)
+									if err != nil {
+										failInitJob("Failed to deserialize ContainerSpec")
+										return
+									}
+									services[containerName] = spec
+								}
+							}
+							githubCtxMap, ok := githubCtx.(map[string]interface{})
+							if !ok {
+								failInitJob("Github ctx is not a map")
+								return
 							}
 							var payload string
 							{
-								e, _ := json.Marshal(githubCtx.(map[string]interface{})["event"])
+								e, _ := json.Marshal(githubCtxMap["event"])
 								payload = string(e)
 							}
 							rc := &runner.RunContext{
@@ -1398,15 +1567,15 @@ func (run *RunRunner) Run() {
 										"dummy": "-self-hosted",
 									},
 									LogOutput:           true,
-									EventName:           githubCtx.(map[string]interface{})["event_name"].(string),
-									GitHubInstance:      githubCtx.(map[string]interface{})["server_url"].(string)[8:],
+									EventName:           githubCtxMap["event_name"].(string),
+									GitHubInstance:      githubCtxMap["server_url"].(string)[8:],
 									ForceRemoteCheckout: true, // Needed to avoid copy the non exiting working dir
 								},
 								Env: env,
 								Run: &model.Run{
 									JobID: rqt.JobId,
 									Workflow: &model.Workflow{
-										Name:     githubCtx.(map[string]interface{})["workflow"].(string),
+										Name:     githubCtxMap["workflow"].(string),
 										Defaults: defaults,
 										Jobs: map[string]*model.Job{
 											rqt.JobId: {
@@ -1424,7 +1593,6 @@ func (run *RunRunner) Run() {
 							}
 
 							val, _ := json.Marshal(githubCtx)
-							fmt.Println(string(val))
 							sv := string(val)
 							rc.GithubContextBase = &sv
 							rc.JobName = "beta"
@@ -1449,22 +1617,12 @@ func (run *RunRunner) Run() {
 							rc.CurrentStep = "__setup"
 							rc.InitStepResults([]string{rc.CurrentStep})
 
-							wrap := &TimelineRecordWrapper{}
-							wrap.Count = int64(len(steps)) + 2
-							wrap.Value = make([]TimelineRecord, wrap.Count)
-							wrap.Value[0] = CreateTimelineEntry("", rqt.JobName, rqt.JobDisplayName)
-							wrap.Value[0].Id = rqt.JobId
-							wrap.Value[0].Type = "Job"
-							wrap.Value[0].Order = 0
-							wrap.Value[0].Start()
-							wrap.Value[1] = CreateTimelineEntry(rqt.JobId, "__setup", "Setup Job")
-							wrap.Value[1].Order = 1
-							formatter.current = &wrap.Value[1]
-							formatter.current.Start()
 							for i := 0; i < len(steps); i++ {
-								wrap.Value[i+2] = CreateTimelineEntry(rqt.JobId, steps[i].ID, steps[i].String())
+								wrap.Value = append(wrap.Value, CreateTimelineEntry(rqt.JobId, steps[i].ID, steps[i].String()))
 								wrap.Value[i+2].Order = int32(i + 2)
 							}
+							formatter.current = &wrap.Value[1]
+							wrap.Count = int64(len(wrap.Value))
 							UpdateTimeLine(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, wrap, jobToken)
 							{
 								formatter.updateTimeLine = func() {
@@ -1590,37 +1748,11 @@ func (run *RunRunner) Run() {
 
 							UpdateTimeLine(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, wrap, jobToken)
 							fmt.Println("Finishing Job")
-							{
-								finish := &JobEvent{
-									Name:      "JobCompleted",
-									JobId:     jobreq.JobId,
-									RequestId: jobreq.RequestId,
-									Result:    "Failed",
-								}
-								if jobStatus == "success" {
-									finish.Result = "Succeeded"
-								}
-								serv := jobConnectionData.GetServiceDefinition("557624af-b29e-4c20-8ab0-0399d2204f3f")
-								url := BuildUrl(jobTenant, serv.RelativePath, map[string]string{
-									"area":            serv.ServiceType,
-									"resource":        serv.DisplayName,
-									"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
-									"planId":          jobreq.Plan.PlanId,
-									"hubName":         jobreq.Plan.PlanType,
-								}, map[string]string{})
-								buf := new(bytes.Buffer)
-								enc := json.NewEncoder(buf)
-								enc.Encode(finish)
-								poolsreq, _ := http.NewRequest("POST", url, buf)
-								AddBearer(poolsreq.Header, jobToken)
-								AddContentType(poolsreq.Header, "6.0-preview")
-								AddHeaders(poolsreq.Header)
-								poolsresp, _ := c.Do(poolsreq)
-								if poolsresp.StatusCode != 200 {
-									fmt.Println("Failed to send finish job event")
-									return
-								}
+							result := "Failed"
+							if jobStatus == "success" {
+								result = "Succeeded"
 							}
+							finishJob(result)
 							fmt.Println("Finished Job")
 						}()
 					} else {
