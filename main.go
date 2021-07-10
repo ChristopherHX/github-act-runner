@@ -1045,7 +1045,8 @@ func (run *RunRunner) Run() {
 		return
 	}
 	defer session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken)
-	for !run.Once {
+	firstJobReceived := false
+	for {
 		message := &TaskAgentMessage{}
 		success := false
 		for !success {
@@ -1093,6 +1094,12 @@ func (run *RunRunner) Run() {
 				fmt.Printf("Failed to get message: %v\n", poolsresp.StatusCode)
 				return
 			} else {
+				if firstJobReceived && strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
+					// It seems run once isn't supported by the backend, do the same as the official runner
+					// Skip deleting the job message and cancel earlier
+					fmt.Println("Received a second job, but running in run once mode abort")
+					return
+				}
 				success = true
 				dec := json.NewDecoder(poolsresp.Body)
 				message.MessageType = ""
@@ -1135,7 +1142,18 @@ func (run *RunRunner) Run() {
 				}
 				if success {
 					if strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
+						if run.Once {
+							fmt.Println("First job received")
+							firstJobReceived = true
+						}
 						go func() {
+							defer func() {
+								if run.Once {
+									// cancel Message Loop
+									fmt.Println("First job finished, cancel Message loop")
+									cancel()
+								}
+							}()
 							iv, _ := base64.StdEncoding.DecodeString(message.IV)
 							src, _ := base64.StdEncoding.DecodeString(message.Body)
 							cbcdec := cipher.NewCBCDecrypter(b, iv)
@@ -1254,8 +1272,8 @@ func (run *RunRunner) Run() {
 									}
 								}
 							}
-							renewctx, cancel := context.WithCancel(context.Background())
-							defer cancel()
+							renewctx, cancelRenew := context.WithCancel(context.Background())
+							defer cancelRenew()
 							go func() {
 								for {
 									serv := connectionData_.GetServiceDefinition("fc825784-c92a-4299-9221-998a02d1b54f")
