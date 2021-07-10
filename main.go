@@ -1066,10 +1066,12 @@ func (run *RunRunner) Run() {
 			if err != nil {
 				if errors.Is(err, context.Canceled) {
 					fmt.Println("Canceled stopping")
+					return
 				} else {
 					fmt.Printf("Failed to get message: %v", err.Error())
 				}
-				return
+			} else if poolsresp == nil {
+				fmt.Printf("Failed to get message: Failed without errormessage")
 			} else if poolsresp.StatusCode != 200 {
 				if poolsresp.StatusCode >= 200 && poolsresp.StatusCode < 300 {
 					continue
