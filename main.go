@@ -1068,7 +1068,7 @@ func (run *RunRunner) Run() {
 					fmt.Println("Canceled stopping")
 					return
 				} else {
-					fmt.Printf("Failed to get message: %v", err.Error())
+					fmt.Printf("Failed to get message: %v\n", err.Error())
 				}
 			} else if poolsresp == nil {
 				fmt.Printf("Failed to get message: Failed without errormessage")
@@ -1090,7 +1090,7 @@ func (run *RunRunner) Run() {
 				}
 				bytes, _ := ioutil.ReadAll(poolsresp.Body)
 				fmt.Println(string(bytes))
-				fmt.Printf("Failed to get message: %v", poolsresp.StatusCode)
+				fmt.Printf("Failed to get message: %v\n", poolsresp.StatusCode)
 				return
 			} else {
 				success = true
@@ -1189,10 +1189,13 @@ func (run *RunRunner) Run() {
 								AddBearer(poolsreq.Header, jobToken)
 								AddContentType(poolsreq.Header, "6.0-preview")
 								AddHeaders(poolsreq.Header)
-								poolsresp, _ := c.Do(poolsreq)
-								if poolsresp.StatusCode != 200 {
-									fmt.Println("Failed to send finish job event")
-									return
+								poolsresp, err := c.Do(poolsreq)
+								if err != nil {
+									fmt.Printf("Failed to send finish job event: %v\n", err.Error())
+								} else if poolsresp == nil {
+									fmt.Printf("Failed to send finish job event: Failed without errormessage")
+								} else if poolsresp.StatusCode != 200 {
+									fmt.Println("Failed to send finish job event with status: " + fmt.Sprint(poolsresp.StatusCode))
 								}
 							}
 							rqt := jobreq
@@ -1282,12 +1285,12 @@ func (run *RunRunner) Run() {
 										if errors.Is(err, context.Canceled) {
 											return
 										} else {
-											fmt.Printf("Failed to renew job: %v", err.Error())
+											fmt.Printf("Failed to renew job: %v\n", err.Error())
 										}
 									} else if renewresp != nil {
 										defer renewresp.Body.Close()
 										if renewresp.StatusCode < 200 || renewresp.StatusCode >= 300 {
-											fmt.Printf("Failed to renew job with Http Status: %v", renewresp.StatusCode)
+											fmt.Printf("Failed to renew job with Http Status: %v\n", renewresp.StatusCode)
 										}
 									}
 									select {
@@ -1495,16 +1498,12 @@ func (run *RunRunner) Run() {
 											failInitJob("with input key is not a string")
 											return
 										}
-										switch k {
-										case "workingDirectory":
-										default:
-											val, ok := v.(string)
-											if !ok {
-												fmt.Println("with input value is not a string")
-												return
-											}
-											with[k] = val
+										val, ok := v.(string)
+										if !ok {
+											fmt.Println("with input value is not a string")
+											return
 										}
+										with[k] = val
 									}
 
 									steps = append(steps, &model.Step{
@@ -1512,7 +1511,7 @@ func (run *RunRunner) Run() {
 										If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
 										Name:             displayName,
 										Uses:             uses,
-										WorkingDirectory: wd,
+										WorkingDirectory: "",
 										With:             with,
 										ContinueOnError:  continueOnError,
 										TimeoutMinutes:   timeoutMinutes,
