@@ -94,14 +94,14 @@ jobs:
       with:
         go-version: '^1.16.0'
     - name: Build
-      run: go build -o github-actions-act-runner${{matrix.suffix}}
+      run: go build -o github-actions-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
       env:
         GOOS: ${{matrix.GOOS}}
         GOARCH: ${{matrix.GOARCH}}
     - uses: actions/upload-artifact@v2
       with:
         name: binary-${{matrix.GOOS}}-${{matrix.GOARCH}}
-        path: github-actions-act-runner${{matrix.suffix}}
+        path: github-actions-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
   publish:
     runs-on: ubuntu-latest
     needs: build
