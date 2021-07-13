@@ -1,10 +1,14 @@
-on: push
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version of the Release'  
+  
 jobs:
   build:
     runs-on: ubuntu-latest
-    continue-on-error: true
     strategy:
-      fail-fast: false
       matrix:
         include:
         - GOOS: darwin
@@ -98,3 +102,17 @@ jobs:
       with:
         name: binary-${{matrix.GOOS}}-${{matrix.GOARCH}}
         path: github-actions-act-runner${{matrix.suffix}}
+  publish:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.version }}
+    continue-on-error: true
+    steps:
+    - uses: actions/download-artifact@v2
+      with:
+        path: "artifacts"
+    - uses: ncipollo/release-action@v1
+      with:
+        artifacts: "artifacts/**/*"
+        token: ${{ secrets.GITHUB_TOKEN }}
+        tag: ${{ github.event.inputs.version }}
+        commit: ${{ github.sha }}
