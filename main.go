@@ -220,6 +220,45 @@ func (token *TemplateToken) UnmarshalJSON(data []byte) error {
 	}
 }
 
+func (token *TemplateToken) FromRawObject(value interface{}) {
+	switch val := value.(type) {
+	case string:
+		// TODO: We may need to restore expressions "${{abc}}" to expression objects
+		token.Type = 0
+		token.Lit = &val
+	case []interface{}:
+		token.Type = 1
+		a := val
+		seq := make([]TemplateToken, len(a))
+		token.Seq = &seq
+		for i, v := range a {
+			e := TemplateToken{}
+			e.FromRawObject(v)
+			(*token.Seq)[i] = e
+		}
+	case map[interface{}]interface{}:
+		token.Type = 2
+		_map := make([]MapEntry, 0)
+		token.Map = &_map
+		for k, v := range val {
+			key := &TemplateToken{}
+			key.FromRawObject(k)
+			value := &TemplateToken{}
+			value.FromRawObject(v)
+			_map = append(_map, MapEntry{
+				Key:   key,
+				Value: value,
+			})
+		}
+	case bool:
+		token.Type = 5
+		token.Bool = &val
+	case float64:
+		token.Type = 6
+		token.Num = &val
+	}
+}
+
 func (token *TemplateToken) ToRawObject() interface{} {
 	switch token.Type {
 	case 0:
@@ -1185,12 +1224,13 @@ func (run *RunRunner) Run() {
 							jobToken := tokenresp.AccessToken
 							jobTenant := req.TenantUrl
 							jobConnectionData := connectionData_
-							finishJob := func(result string) {
+							finishJob2 := func(result string, outputs *map[string]VariableValue) {
 								finish := &JobEvent{
 									Name:      "JobCompleted",
 									JobId:     jobreq.JobId,
 									RequestId: jobreq.RequestId,
 									Result:    result,
+									Outputs:   outputs,
 								}
 								serv := jobConnectionData.GetServiceDefinition("557624af-b29e-4c20-8ab0-0399d2204f3f")
 								url := BuildUrl(jobTenant, serv.RelativePath, map[string]string{
@@ -1215,6 +1255,9 @@ func (run *RunRunner) Run() {
 								} else if poolsresp.StatusCode != 200 {
 									fmt.Println("Failed to send finish job event with status: " + fmt.Sprint(poolsresp.StatusCode))
 								}
+							}
+							finishJob := func(result string) {
+								finishJob2(result, nil)
 							}
 							rqt := jobreq
 							wrap := &TimelineRecordWrapper{}
@@ -1603,12 +1646,53 @@ func (run *RunRunner) Run() {
 												Steps:        steps,
 												RawContainer: rawContainer,
 												Services:     services,
+												Outputs:      make(map[string]string),
 											},
 										},
 									},
 								},
 								Matrix:    matrix,
 								EventJSON: payload,
+							}
+
+							// Prepare act to fill previous job outputs
+							if rawNeedstx, ok := rqt.ContextData["needs"]; ok {
+								needsCtx := rawNeedstx.ToRawObject()
+								if needsCtxMap, ok := needsCtx.(map[string]interface{}); ok {
+									a := make([]*yaml.Node, 0)
+									for k, v := range needsCtxMap {
+										a = append(a, &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: k})
+										outputs := make(map[string]string)
+										if jobMap, ok := v.(map[string]interface{}); ok {
+											if jobOutputs, ok := jobMap["outputs"]; ok {
+												if outputMap, ok := jobOutputs.(map[string]interface{}); ok {
+													for k, v := range outputMap {
+														if sv, ok := v.(string); ok {
+															outputs[k] = sv
+														}
+													}
+												}
+											}
+										}
+										rc.Run.Workflow.Jobs[k] = &model.Job{
+											Outputs: outputs,
+										}
+									}
+									rc.Run.Workflow.Jobs[rqt.JobId].RawNeeds = yaml.Node{Kind: yaml.SequenceNode, Content: a}
+								}
+							}
+							// Prepare act to add job outputs to current job
+							if rqt.JobOutputs != nil {
+								o := rqt.JobOutputs.ToRawObject()
+								if m, ok := o.(map[interface{}]interface{}); ok {
+									for k, v := range m {
+										if kv, ok := k.(string); ok {
+											if sv, ok := v.(string); ok {
+												rc.Run.Workflow.Jobs[rqt.JobId].Outputs[kv] = sv
+											}
+										}
+									}
+								}
 							}
 
 							val, _ := json.Marshal(githubCtx)
@@ -1729,6 +1813,17 @@ func (run *RunRunner) Run() {
 							formatter.wrap = wrap
 
 							rc.Executor()(common.WithLogger(ctx, logger))
+
+							// Prepare results for github server
+							var outputMap *map[string]VariableValue
+							if rqt.JobOutputs != nil {
+								m := make(map[string]VariableValue)
+								outputMap = &m
+								for k, v := range rc.Run.Workflow.Jobs[rqt.JobId].Outputs {
+									m[k] = VariableValue{Value: v}
+								}
+							}
+
 							jobStatus := "success"
 							for _, stepStatus := range rc.StepResults {
 								if !stepStatus.Success {
@@ -1771,7 +1866,7 @@ func (run *RunRunner) Run() {
 							if jobStatus == "success" {
 								result = "Succeeded"
 							}
-							finishJob(result)
+							finishJob2(result, outputMap)
 							fmt.Println("Finished Job")
 						}()
 					} else {
