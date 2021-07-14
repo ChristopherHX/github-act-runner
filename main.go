@@ -1735,6 +1735,8 @@ func (run *RunRunner) Run() {
 									return UploadLogFile(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, jobToken, log)
 								}
 							}
+							jobDone := make(chan int)
+							logsDone := make(chan int)
 							{
 								serv := jobConnectionData.GetServiceDefinition("858983e4-19bd-4c5e-864c-507b59b58b12")
 								tenantUrl := jobTenant
@@ -1781,6 +1783,7 @@ func (run *RunRunner) Run() {
 										case lines := <-logchan:
 											st := time.Now()
 											lp := st
+											logsexit := false
 											for {
 												b := false
 												div := lp.Sub(st)
@@ -1799,6 +1802,9 @@ func (run *RunRunner) Run() {
 													}
 												case <-time.After(time.Second - div):
 													b = true
+												case <-jobDone:
+													b = true
+													logsexit = true
 												}
 												if b {
 													break
@@ -1806,6 +1812,13 @@ func (run *RunRunner) Run() {
 												lp = time.Now()
 											}
 											sendLog(lines)
+											if logsexit {
+												logsDone <- 0
+												return
+											}
+										case <-jobDone:
+											logsDone <- 0
+											return
 										}
 									}
 								}()
@@ -1859,7 +1872,8 @@ func (run *RunRunner) Run() {
 							} else {
 								wrap.Value[0].Complete("Failed")
 							}
-
+							jobDone <- 0
+							<-logsDone
 							UpdateTimeLine(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, wrap, jobToken)
 							fmt.Println("Finishing Job")
 							result := "Failed"
