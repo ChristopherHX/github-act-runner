@@ -90,18 +90,11 @@ jobs:
     needs: build
     # TODO: uncomment
     # if: ${{ github.event.inputs.version }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # add more items here to deploy to different variants of debian/ubuntu
-          - {os: debian, codename: buster, image_owner: }
-          # - {os: debian, codename: buster, image_owner: i386/, labels: [i386,docker]}
-          - {os: ubuntu, codename: focal, image_owner: }
-          # - {os: debian, codename: buster, image_owner: arm32v7/, labels: [arm,docker]}
-    runs-on: ${{ (matrix.labels == '' && 'ubuntu-latest') || matrix.labels }}
-    container: ${{ matrix.image_owner }}${{ matrix.os }}:${{ matrix.codename }}
-    name: deploy deb - ${{ matrix.os }}:${{ matrix.codename }} ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    name: deploy to deb repo
+    env:
+      DEPLOY_DISTROS: "debian:buster ubuntu:focal"
+      DEPLOY_ARCHS: "amd64 i386 armhf arm64" # architectures from https://wiki.debian.org/SupportedArchitectures
     steps:
       # clone must go before downloading artifacts because it cleans up the directory before cloning
     - name: git clone
@@ -113,7 +106,7 @@ jobs:
     - name: add cppfw repo to install myci scripts from
       uses: myci-actions/add-deb-repo@master
       with:
-        repo: deb http://gagis.hopto.org/repo/cppfw/${{ matrix.os }} ${{ matrix.codename }} main
+        repo: deb http://gagis.hopto.org/repo/cppfw/$(lsb_release --id --short | tr '[:upper:]' '[:lower:]') $(lsb_release --codename --short) main
         repo-name: cppfw
         key-server: http://gagis.hopto.org/repo/cppfw/pubkey.gpg
     - name: install debian package tools
@@ -125,8 +118,17 @@ jobs:
       # this 'if:' here is for cases when job's 'if:' is commented for debugging purposes
       if: ${{ github.event.inputs.version }}
     - name: create deb package
-      run: dpkg-buildpackage
-    - name: deploy package to deb repo
+      run: |
+        for arch in $DEPLOY_ARCHS; do
+          dpkg-buildpackage --host-arch $arch
+        done
+    - name: deploy packages to deb repo
       run: |
         echo "${{ secrets.MYCI_REPO_SSH_KEY }}" > repo_key_rsa && chmod 600 repo_key_rsa
-        myci-deploy-debian-ssh-freight.sh --key repo_key_rsa --server gagis.hopto.org --user chrishx --repo chrishx/${{ matrix.os }} --distro ${{ matrix.codename }} --component main ../*.deb
+        for os_distro in $DEPLOY_DISTROS; do
+          arr=(${os_distro//:/ })
+          os=${arr[0]}
+          distro=${arr[1]}
+          echo "os = $os, distro = $distro"
+          myci-deploy-debian-ssh-freight.sh --key repo_key_rsa --server gagis.hopto.org --user chrishx --repo chrishx/$os --distro $distro --component main ../*.deb
+        done

@@ -2,9 +2,15 @@
 %:
 	dh $@
 
-this_arch := $(shell dpkg --print-architecture)
+this_arch := $(shell dpkg-architecture --query DEB_TARGET_ARCH)
 
-# map debian arch to go arch
+# check if arch is known
+this_known_archs := amd64 i386 armhf arm64
+ifeq ($(filter $(this_arch),$(this_known_archs)),)
+    $(error unknown debian architecture: $(this_arch))
+endif
+
+# map debian arch to golang arch
 ifeq ($(this_arch),armhf)
 	this_arch := arm
 else ifeq ($(this_arch),i386)
