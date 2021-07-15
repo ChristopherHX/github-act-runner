@@ -2,6 +2,16 @@
 %:
 	dh $@
 
+this_arch := $(shell dpkg --print-architecture)
+
+# map debian arch to go arch
+ifeq ($(this_arch),armhf)
+	this_arch := arm
+else ifeq ($(this_arch),i386)
+	this_arch := 386
+endif
+
 .PHONY: override_dh_auto_install
 override_dh_auto_install:
-	PREFIX=/usr dh_auto_install
+	mkdir -p debian/tmp/usr/bin
+	cp artifacts/binary-linux-${this_arch}/github-actions-act-runner-linux-${this_arch} debian/tmp/usr/bin/github-act-runner

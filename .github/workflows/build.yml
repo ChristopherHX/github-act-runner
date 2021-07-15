@@ -98,5 +98,4 @@ jobs:
       with:
         path: "artifacts"
     - name: create deb package
-      run: ls artifacts/*
-      
+      run: dpkg-buildpackage
