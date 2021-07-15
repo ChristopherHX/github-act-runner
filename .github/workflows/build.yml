@@ -96,6 +96,9 @@ jobs:
     container: ${{ matrix.image_owner }}${{ matrix.os }}:${{ matrix.codename }}
     name: deploy deb - ${{ matrix.os }}:${{ matrix.codename }} ${{ matrix.arch }}
     steps:
+    - name: git clone
+      uses: actions/checkout@v2
+      with: {submodules: false}
     - uses: actions/download-artifact@v2
       with:
         path: "artifacts"
@@ -103,9 +106,6 @@ jobs:
       run: |
         apt --quiet update
         apt --quiet install --assume-yes dpkg-dev debhelper
-    - name: git clone
-      uses: actions/checkout@v2
-      with: {submodules: false}
     - name: create deb package
       run: |
         ls artifacts/*
