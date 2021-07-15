@@ -65,6 +65,7 @@ jobs:
         name: binary-${{matrix.GOOS}}-${{matrix.GOARCH}}
         path: github-actions-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
   publish-to-github:
+    name: deploy to github
     runs-on: ubuntu-latest
     needs: build
     if: ${{ github.event.inputs.version }}
@@ -97,5 +98,9 @@ jobs:
     - uses: actions/download-artifact@v2
       with:
         path: "artifacts"
+    - name: install debian package tools
+      run: |
+        apt --quiet update
+        apt --quiet install --assume-yes dpkg-dev debhelper
     - name: create deb package
       run: dpkg-buildpackage
