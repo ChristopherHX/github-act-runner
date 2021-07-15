@@ -1078,6 +1078,7 @@ func (run *RunRunner) Run() {
 	}
 	defer session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken)
 	firstJobReceived := false
+	var cancelJob func()
 	for {
 		message := &TaskAgentMessage{}
 		success := false
@@ -1173,7 +1174,13 @@ func (run *RunRunner) Run() {
 					}
 				}
 				if success {
-					if strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
+					if strings.EqualFold(message.MessageType, "JobCancellation") && cancelJob != nil {
+						cancelJob()
+					} else if strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
+						cancelled := false
+						cancelJob = func() {
+							cancelled = true
+						}
 						if run.Once {
 							fmt.Println("First job received")
 							firstJobReceived = true
@@ -1573,6 +1580,16 @@ func (run *RunRunner) Run() {
 									})
 								}
 							}
+							steps = append(steps, &model.Step{
+								ID:               "___finish_job",
+								If:               yaml.Node{Kind: yaml.ScalarNode, Value: "false"},
+								Name:             "Finish Job",
+								Run:              "",
+								Env:              make(map[string]string),
+								ContinueOnError:  true,
+								WorkingDirectory: "",
+								Shell:            "",
+							})
 							rawContainer := yaml.Node{}
 							if rqt.JobContainer != nil {
 								rawContainer = *rqt.JobContainer.ToYamlNode()
@@ -1625,6 +1642,7 @@ func (run *RunRunner) Run() {
 									EventName:           githubCtxMap["event_name"].(string),
 									GitHubInstance:      githubCtxMap["server_url"].(string)[8:],
 									ForceRemoteCheckout: true, // Needed to avoid copy the non exiting working dir
+									AutoRemove:          true,
 								},
 								Env: env,
 								Run: &model.Run{
@@ -1693,7 +1711,11 @@ func (run *RunRunner) Run() {
 							rc.GithubContextBase = &sv
 							rc.JobName = "beta"
 
-							ctx := context.Background()
+							ctx, _cancelJob := context.WithCancel(context.Background())
+							cancelJob = func() {
+								cancelled = true
+								_cancelJob()
+							}
 
 							ee := rc.NewExpressionEvaluator()
 							rc.ExprEval = ee
@@ -1818,6 +1840,9 @@ func (run *RunRunner) Run() {
 							}
 							formatter.wrap = wrap
 
+							logger.Log(logrus.DebugLevel, "Runner Name: "+taskAgent.Name)
+							logger.Log(logrus.DebugLevel, "Runner OSDescription: "+taskAgent.OSDescription)
+							logger.Log(logrus.DebugLevel, "Runner Version: "+taskAgent.Version)
 							rc.Executor()(common.WithLogger(ctx, logger))
 
 							// Prepare results for github server
@@ -1860,7 +1885,9 @@ func (run *RunRunner) Run() {
 									wrap.Value[i].Complete("Skipped")
 								}
 							}
-							if jobStatus == "success" {
+							if cancelled {
+								wrap.Value[0].Complete("Canceled")
+							} else if jobStatus == "success" {
 								wrap.Value[0].Complete("Succeeded")
 							} else {
 								wrap.Value[0].Complete("Failed")
@@ -1889,7 +1916,7 @@ func main() {
 	config := &ConfigureRunner{}
 	run := &RunRunner{}
 	var cmdConfigure = &cobra.Command{
-		Use:   "Configure",
+		Use:   "configure",
 		Short: "Configure your self-hosted runner",
 		Args:  cobra.MaximumNArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
@@ -1903,7 +1930,7 @@ func main() {
 	cmdConfigure.Flags().StringVar(&config.Name, "name", "", "custom runner name")
 
 	var cmdRun = &cobra.Command{
-		Use:   "Run",
+		Use:   "run",
 		Short: "run your self-hosted runner",
 		Args:  cobra.MaximumNArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
