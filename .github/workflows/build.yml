@@ -129,4 +129,4 @@ jobs:
     - name: deploy package to deb repo
       run: |
         echo "${{ secrets.MYCI_REPO_SSH_KEY }}" > repo_key_rsa && chmod 600 repo_key_rsa
-        myci-deploy-debian-ssh-freight.sh --key repo_key_rsa --server gagis.hopto.org --user chrishx --repo chrishx/${{ matrix.os }} --distro ${{ matrix.codename }} --component main ../lib${PACKAGE_NAME}*_${PACKAGE_VERSION}_*.deb
+        myci-deploy-debian-ssh-freight.sh --key repo_key_rsa --server gagis.hopto.org --user chrishx --repo chrishx/${{ matrix.os }} --distro ${{ matrix.codename }} --component main ../*.deb
