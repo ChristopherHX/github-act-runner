@@ -64,6 +64,9 @@ jobs:
       with:
         name: binary-${{matrix.GOOS}}-${{matrix.GOARCH}}
         path: github-actions-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
+#######################################
+########## publish to github ##########
+#######################################
   publish-to-github:
     name: deploy to github
     runs-on: ubuntu-latest
@@ -80,8 +83,12 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: ${{ github.event.inputs.version }}
         commit: ${{ github.sha }}
+#########################################
+########## publish to deb repo ##########
+#########################################
   publish-to-deb-repo:
     needs: build
+    # TODO: uncomment
     # if: ${{ github.event.inputs.version }}
     strategy:
       fail-fast: false
@@ -96,17 +103,28 @@ jobs:
     container: ${{ matrix.image_owner }}${{ matrix.os }}:${{ matrix.codename }}
     name: deploy deb - ${{ matrix.os }}:${{ matrix.codename }} ${{ matrix.arch }}
     steps:
+      # clone must go before downloading artifacts because it cleans up the directory before cloning
     - name: git clone
       uses: actions/checkout@v2
       with: {submodules: false}
     - uses: actions/download-artifact@v2
       with:
         path: "artifacts"
+    - name: add cppfw repo to install myci scripts from
+      uses: myci-actions/add-deb-repo@master
+      with:
+        repo: deb http://gagis.hopto.org/repo/cppfw/${{ matrix.os }} ${{ matrix.codename }} main
+        repo-name: cppfw
+        key-server: http://gagis.hopto.org/repo/cppfw/pubkey.gpg
     - name: install debian package tools
       run: |
         apt --quiet update
-        apt --quiet install --assume-yes dpkg-dev debhelper
+        apt --quiet install --assume-yes dpkg-dev debhelper myci
     - name: create deb package
       run: |
         ls artifacts/*
         dpkg-buildpackage
+    - name: deploy package to deb repo
+      run: |
+        echo "${{ secrets.MYCI_REPO_SSH_KEY }}" > repo_key_rsa && chmod 600 repo_key_rsa
+        myci-deploy-debian-ssh-freight.sh --key repo_key_rsa --server gagis.hopto.org --owner chrishx --repo ${{ matrix.os }} --distro ${{ matrix.codename }} --component main ../lib${PACKAGE_NAME}*_${PACKAGE_VERSION}_*.deb
