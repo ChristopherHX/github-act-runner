@@ -120,7 +120,7 @@ jobs:
     - name: create deb package
       run: |
         for arch in $DEPLOY_ARCHS; do
-          dpkg-buildpackage --host-arch $arch
+          dpkg-buildpackage --build=binary --host-arch $arch
         done
     - name: deploy packages to deb repo
       run: |
