@@ -24,4 +24,4 @@ override_dh_auto_install:
 
 .PHONY: override_dh_strip
 override_dh_strip:
-	echo "skip stripping"
+	@echo "skip stripping"
