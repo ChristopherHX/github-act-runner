@@ -791,6 +791,10 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 			if f.stepBuffer.Len() > 0 {
 				f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
 			}
+			if sd, ok := f.rqt.Variables["ACTIONS_STEP_DEBUG"]; !ok || (sd.Value != "true" && sd.Value != "1") {
+				logrus.SetLevel(logrus.InfoLevel)
+			}
+
 		}
 		f.stepBuffer = &bytes.Buffer{}
 		for i := range f.wrap.Value {
@@ -1580,19 +1584,20 @@ func (run *RunRunner) Run() {
 									})
 								}
 							}
-							steps = append(steps, &model.Step{
-								ID:               "___finish_job",
-								If:               yaml.Node{Kind: yaml.ScalarNode, Value: "false"},
-								Name:             "Finish Job",
-								Run:              "",
-								Env:              make(map[string]string),
-								ContinueOnError:  true,
-								WorkingDirectory: "",
-								Shell:            "",
-							})
 							rawContainer := yaml.Node{}
 							if rqt.JobContainer != nil {
 								rawContainer = *rqt.JobContainer.ToYamlNode()
+								// Fake step to catch the post log
+								steps = append(steps, &model.Step{
+									ID:               "___finish_job",
+									If:               yaml.Node{Kind: yaml.ScalarNode, Value: "false"},
+									Name:             "Finish Job",
+									Run:              "",
+									Env:              make(map[string]string),
+									ContinueOnError:  true,
+									WorkingDirectory: "",
+									Shell:            "",
+								})
 							}
 							services := make(map[string]*model.ContainerSpec)
 							if rqt.JobServiceContainers != nil {
@@ -1843,6 +1848,8 @@ func (run *RunRunner) Run() {
 							logger.Log(logrus.DebugLevel, "Runner Name: "+taskAgent.Name)
 							logger.Log(logrus.DebugLevel, "Runner OSDescription: "+taskAgent.OSDescription)
 							logger.Log(logrus.DebugLevel, "Runner Version: "+taskAgent.Version)
+							logrus.SetLevel(logrus.DebugLevel)
+							logrus.SetFormatter(formatter)
 							rc.Executor()(common.WithLogger(ctx, logger))
 
 							// Prepare results for github server
