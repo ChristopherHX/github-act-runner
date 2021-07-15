@@ -89,7 +89,7 @@ jobs:
           - {os: debian, codename: buster, image_owner: }
           # - {os: debian, codename: buster, image_owner: i386/, labels: [i386,docker]}
           - {os: ubuntu, codename: focal, image_owner: }
-          - {os: debian, codename: buster, image_owner: arm32v7/, labels: [arm,docker]}
+          # - {os: debian, codename: buster, image_owner: arm32v7/, labels: [arm,docker]}
     runs-on: ${{ (matrix.labels == '' && 'ubuntu-latest') || matrix.labels }}
     container: ${{ matrix.image_owner }}${{ matrix.os }}:${{ matrix.codename }}
     name: deploy deb - ${{ matrix.os }}:${{ matrix.codename }} ${{ matrix.arch }}
@@ -98,4 +98,5 @@ jobs:
       with:
         path: "artifacts"
     - name: create deb package
-      run: echo "arch = $(arch)"
+      run: ls artifacts/*
+      
