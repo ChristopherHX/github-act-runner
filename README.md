@@ -26,8 +26,8 @@ curl -sS http://gagis.hopto.org/repo/chrishx/pubkey.gpg | sudo apt-key add -
 
 ### install the runner
 ```console
-apt update
-apt install github-act-runner
+sudo apt update
+sudo apt install github-act-runner
 ```
 
 ### configure the runner
