@@ -87,6 +87,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # add more items here to deploy to different variants of debian/ubuntu
           - {os: debian, codename: buster, image_owner: }
           # - {os: debian, codename: buster, image_owner: i386/, labels: [i386,docker]}
           - {os: ubuntu, codename: focal, image_owner: }
@@ -102,5 +103,8 @@ jobs:
       run: |
         apt --quiet update
         apt --quiet install --assume-yes dpkg-dev debhelper
+    - name: git clone
+      uses: actions/checkout@v2
+      with: {submodules: false}
     - name: create deb package
       run: dpkg-buildpackage
