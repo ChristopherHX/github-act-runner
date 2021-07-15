@@ -795,8 +795,6 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		f.stepBuffer = &bytes.Buffer{}
 		for i := range f.wrap.Value {
 			if f.wrap.Value[i].RefName == f.rc.CurrentStep {
-				b.WriteString(f.wrap.Value[i].Name)
-				b.WriteByte(' ')
 				f.current = &f.wrap.Value[i]
 				f.current.Start()
 				break
@@ -804,9 +802,6 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		}
 		f.updateTimeLine()
 	}
-
-	// b.WriteString(f.rc.CurrentStep)
-	// b.WriteString(": ")
 	if f.rqt.MaskHints != nil {
 		for _, v := range f.rqt.MaskHints {
 			if strings.ToLower(v.Type) == "regex" {
@@ -823,13 +818,11 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		}
 	}
 
+	entry.Message = strings.Trim(entry.Message, "\r\n")
 	b.WriteString(entry.Message)
-
-	f.logline(f.startLine, f.current.Id, strings.Trim(b.String(), "\r\n"))
+	b.WriteByte('\n')
+	f.logline(f.startLine, f.current.Id, entry.Message)
 	f.startLine++
-	if entry.Data["raw_output"] != true {
-		b.WriteByte('\n')
-	}
 	f.stepBuffer.Write(b.Bytes())
 	return b.Bytes(), nil
 }
