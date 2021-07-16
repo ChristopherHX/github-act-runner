@@ -81,7 +81,7 @@ jobs:
       with:
         artifacts: "artifacts/**/*"
         token: ${{ secrets.GITHUB_TOKEN }}
-        tag: ${{ github.event.inputs.version }}
+        tag: v${{ github.event.inputs.version }}
         commit: ${{ github.sha }}
 #########################################
 ########## publish to deb repo ##########
