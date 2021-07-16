@@ -833,10 +833,12 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 }
 
 type ConfigureRunner struct {
-	Url    string
-	Token  string
-	Labels []string
-	Name   string
+	Url             string
+	Token           string
+	Labels          []string
+	Name            string
+	NoDefaultLabels bool
+	SystemLabels    []string
 }
 
 func (config *ConfigureRunner) Configure() {
@@ -917,12 +919,19 @@ func (config *ConfigureRunner) Configure() {
 	taskAgent.Authorization.PublicKey = TaskAgentPublicKey{Exponent: base64.StdEncoding.EncodeToString(bs[expof:]), Modulus: base64.StdEncoding.EncodeToString(key.N.Bytes())}
 	taskAgent.Version = "3.0.0"
 	taskAgent.OSDescription = "golang act runner - " + runtime.GOOS + " - " + runtime.GOARCH
-	taskAgent.Labels = make([]AgentLabel, 3+len(config.Labels))
-	taskAgent.Labels[0] = AgentLabel{Name: "self-hosted", Type: "system"}
-	taskAgent.Labels[1] = AgentLabel{Name: runtime.GOOS, Type: "system"}
-	taskAgent.Labels[2] = AgentLabel{Name: runtime.GOARCH, Type: "system"}
-	for i := 3; i <= len(config.Labels); i++ {
-		taskAgent.Labels[i] = AgentLabel{Name: config.Labels[i-3], Type: "user"}
+	systemLabels := make([]string, 0, 3)
+	if !config.NoDefaultLabels {
+		systemLabels = append(systemLabels, "self-hosted", runtime.GOOS, runtime.GOARCH)
+	}
+	taskAgent.Labels = make([]AgentLabel, len(systemLabels)+len(config.SystemLabels)+len(config.Labels))
+	for i := 0; i < len(systemLabels); i++ {
+		taskAgent.Labels[i] = AgentLabel{Name: systemLabels[i], Type: "system"}
+	}
+	for i := 0; i < len(config.SystemLabels); i++ {
+		taskAgent.Labels[i+len(systemLabels)] = AgentLabel{Name: config.SystemLabels[i], Type: "system"}
+	}
+	for i := 0; i < len(config.Labels); i++ {
+		taskAgent.Labels[i+len(systemLabels)+len(config.SystemLabels)] = AgentLabel{Name: config.Labels[i], Type: "user"}
 	}
 	taskAgent.MaxParallelism = 1
 	if config.Name != "" {
@@ -1992,11 +2001,14 @@ func main() {
 		},
 	}
 
-	cmdConfigure.Flags().StringVar(&config.Url, "url", "", "url of your repository or enterprise")
+	cmdConfigure.Flags().StringVar(&config.Url, "url", "", "url of your repository, organization or enterprise")
 	cmdConfigure.Flags().StringVar(&config.Token, "token", "", "runner registration token")
-	cmdConfigure.Flags().StringSliceVarP(&config.Labels, "label", "l", []string{}, "label for your new runner")
+	cmdConfigure.Flags().StringSliceVarP(&config.Labels, "label", "l", []string{}, "custom user label for your new runner")
 	cmdConfigure.Flags().StringVar(&config.Name, "name", "", "custom runner name")
-
+	cmdConfigure.Flags().BoolVar(&config.NoDefaultLabels, "no-default-labels", false, "do not automatically add the following system labels: self-hosted, "+runtime.GOOS+" and "+runtime.GOARCH)
+	cmdConfigure.Flags().StringSliceVarP(&config.SystemLabels, "system-label", "", []string{}, "custom system labels for your new runner")
+	cmdConfigure.MarkFlagRequired("url")
+	cmdConfigure.MarkFlagRequired("token")
 	var cmdRun = &cobra.Command{
 		Use:   "run",
 		Short: "run your self-hosted runner",
