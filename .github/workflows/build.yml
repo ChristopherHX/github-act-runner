@@ -92,7 +92,6 @@ jobs:
     runs-on: ubuntu-latest
     name: deploy to deb repo
     env:
-      DEPLOY_DISTROS: "debian:buster ubuntu:focal raspbian:buster"
       DEPLOY_ARCHS: "amd64 i386 armhf arm64" # architectures from https://wiki.debian.org/SupportedArchitectures
     steps:
       # clone must go before downloading artifacts because it cleans up the directory before cloning
@@ -124,10 +123,4 @@ jobs:
     - name: deploy packages to deb repo
       run: |
         echo "${{ secrets.MYCI_REPO_SSH_KEY }}" > repo_key_rsa && chmod 600 repo_key_rsa
-        for os_distro in $DEPLOY_DISTROS; do
-          arr=(${os_distro//:/ })
-          os=${arr[0]}
-          distro=${arr[1]}
-          echo "os = $os, distro = $distro"
-          myci-deploy-debian-ssh-freight.sh --key repo_key_rsa --server gagis.hopto.org --user chrishx --repo chrishx/$os --distro $distro --component main ../*.deb
-        done
+        myci-deploy-debian-ssh-freight.sh --key repo_key_rsa --server gagis.hopto.org --user chrishx --repo chrishx/deb --distro all --component main ../*.deb

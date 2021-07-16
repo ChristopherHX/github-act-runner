@@ -11,12 +11,8 @@ This is a proof of concept runner prototype, which partially implements the azur
 ### add debian repository
 `/etc/apt/sources.list` entry:
 ```
-deb http://gagis.hopto.org/repo/chrishx/<distro> <release> main
+deb http://gagis.hopto.org/repo/chrishx/deb all main
 ```
-where
-  - `<distro>` is `debian`, `ubuntu` or `raspbian`
-  - `<release>` is `buster`, etc. in case `<distro>`=`debian` or `<distro>`=`raspbian`
-  - `<release>` is `focal`, etc. in case `<distro>`=`ubuntu`
 
 ### import repository public key
 ```console
