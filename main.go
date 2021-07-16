@@ -21,6 +21,7 @@ import (
 	"os/signal"
 	"path"
 	"regexp"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -915,11 +916,13 @@ func (config *ConfigureRunner) Configure() {
 	}
 	taskAgent.Authorization.PublicKey = TaskAgentPublicKey{Exponent: base64.StdEncoding.EncodeToString(bs[expof:]), Modulus: base64.StdEncoding.EncodeToString(key.N.Bytes())}
 	taskAgent.Version = "3.0.0"
-	taskAgent.OSDescription = "golang"
-	taskAgent.Labels = make([]AgentLabel, 1+len(config.Labels))
+	taskAgent.OSDescription = "golang act runner - " + runtime.GOOS + " - " + runtime.GOARCH
+	taskAgent.Labels = make([]AgentLabel, 3+len(config.Labels))
 	taskAgent.Labels[0] = AgentLabel{Name: "self-hosted", Type: "system"}
-	for i := 1; i <= len(config.Labels); i++ {
-		taskAgent.Labels[i] = AgentLabel{Name: config.Labels[i-1], Type: "user"}
+	taskAgent.Labels[1] = AgentLabel{Name: runtime.GOOS, Type: "system"}
+	taskAgent.Labels[2] = AgentLabel{Name: runtime.GOARCH, Type: "system"}
+	for i := 3; i <= len(config.Labels); i++ {
+		taskAgent.Labels[i] = AgentLabel{Name: config.Labels[i-3], Type: "user"}
 	}
 	taskAgent.MaxParallelism = 1
 	if config.Name != "" {
