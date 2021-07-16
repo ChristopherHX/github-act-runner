@@ -11,4 +11,4 @@ Section: misc
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: github actions runner.
- Open source reverce-engineered github actions runner software for self-hosted runners.
+ Open source reverse-engineered github actions runner software for self-hosted runners.
