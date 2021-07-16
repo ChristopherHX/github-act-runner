@@ -92,7 +92,7 @@ jobs:
     runs-on: ubuntu-latest
     name: deploy to deb repo
     env:
-      DEPLOY_DISTROS: "debian:buster ubuntu:focal"
+      DEPLOY_DISTROS: "debian:buster ubuntu:focal raspbian:buster"
       DEPLOY_ARCHS: "amd64 i386 armhf arm64" # architectures from https://wiki.debian.org/SupportedArchitectures
     steps:
       # clone must go before downloading artifacts because it cleans up the directory before cloning

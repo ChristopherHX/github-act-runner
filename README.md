@@ -14,8 +14,8 @@ This is a proof of concept runner prototype, which partially implements the azur
 deb http://gagis.hopto.org/repo/chrishx/<distro> <release> main
 ```
 where
-  - `<distro>` is `debian` or `ubuntu`
-  - `<release>` is `buster`, etc. in case `<distro>`=`debian`
+  - `<distro>` is `debian`, `ubuntu` or `raspbian`
+  - `<release>` is `buster`, etc. in case `<distro>`=`debian` or `<distro>`=`raspbian`
   - `<release>` is `focal`, etc. in case `<distro>`=`ubuntu`
 
 ### import repository public key
