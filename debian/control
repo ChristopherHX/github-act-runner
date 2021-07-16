@@ -1,0 +1,14 @@
+Source: github-act-runner
+Section: misc
+Priority: extra
+Maintainer: Ivan Gagis <igagis@gmail.com>
+Build-Depends: debhelper (>= 9)
+Build-Depends-Indep:
+Standards-Version: 3.9.2
+
+Package: github-act-runner
+Section: misc
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: github actions runner.
+ Open source reverse-engineered github actions runner software for self-hosted runners.

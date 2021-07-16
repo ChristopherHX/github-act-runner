@@ -1,0 +1,27 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+this_arch := $(shell dpkg-architecture --query DEB_TARGET_ARCH)
+
+# check if arch is known
+this_known_archs := amd64 i386 armhf arm64
+ifeq ($(filter $(this_arch),$(this_known_archs)),)
+    $(error unknown debian architecture: $(this_arch))
+endif
+
+# map debian arch to golang arch
+ifeq ($(this_arch),armhf)
+	this_arch := arm
+else ifeq ($(this_arch),i386)
+	this_arch := 386
+endif
+
+.PHONY: override_dh_auto_install
+override_dh_auto_install:
+	mkdir -p debian/tmp/usr/bin
+	cp artifacts/binary-linux-${this_arch}/github-actions-act-runner-linux-${this_arch} debian/tmp/usr/bin/github-act-runner
+
+.PHONY: override_dh_strip
+override_dh_strip:
+	@echo "skip stripping"
