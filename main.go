@@ -1025,7 +1025,7 @@ func ToStringMap(src interface{}) interface{} {
 	return src
 }
 
-func (run *RunRunner) Run() {
+func (run *RunRunner) Run() int {
 	// trap Ctrl+C
 	channel := make(chan os.Signal, 1)
 	signal.Notify(channel, os.Interrupt)
@@ -1043,50 +1043,82 @@ func (run *RunRunner) Run() {
 	c := &http.Client{}
 	taskAgent := &TaskAgent{}
 	var key *rsa.PrivateKey
-	var err error
 	req := &GitHubAuthResult{}
 	{
-		cont, _ := ioutil.ReadFile("agent.json")
+		cont, err := ioutil.ReadFile("agent.json")
+		if err != nil {
+			fmt.Printf("The runner needs to be configured first: %v\n", err.Error())
+			return 1
+		}
 		json.Unmarshal(cont, taskAgent)
+		if err != nil {
+			fmt.Printf("agent.json is corrupted: %v, please reconfigure the runner\n", err.Error())
+			return 1
+		}
 	}
 	{
 		cont, err := ioutil.ReadFile("cred.pkcs1")
 		if err != nil {
-			return
+			fmt.Printf("The runner needs to be configured first: %v\n", err.Error())
+			return 1
 		}
 		key, err = x509.ParsePKCS1PrivateKey(cont)
 		if err != nil {
-			return
+			fmt.Printf("cred.pkcs1 is corrupted: %v, please reconfigure the runner\n", err.Error())
+			return 1
 		}
 	}
-	if err != nil {
-		return
-	}
 	{
-		cont, _ := ioutil.ReadFile("auth.json")
-		json.Unmarshal(cont, req)
+		cont, err := ioutil.ReadFile("auth.json")
+		if err != nil {
+			fmt.Printf("The runner needs to be configured first: %v\n", err.Error())
+			return 1
+		}
+		err = json.Unmarshal(cont, req)
+		if err != nil {
+			fmt.Printf("auth.json is corrupted %v, please reconfigure the runner\n", err.Error())
+			return 1
+		}
 	}
 
 	tokenresp, err := taskAgent.Authorize(c, key)
 	if err != nil {
 		fmt.Println(err.Error())
-		return
+		return 1
 	}
 
 	connectionData_ := GetConnectionData(c, req.TenantUrl)
 
 	session, b := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken)
-	if session == nil {
+	if session == nil || b == nil {
 		fmt.Println("Failed to create Session")
-		return
+		return 1
+	} else {
+		fmt.Println("Listening for Jobs")
 	}
-	defer session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken)
+	defer func() {
+		session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken)
+	}()
 	firstJobReceived := false
 	var cancelJob func()
+	sessionErrorCount := 0
 	for {
 		message := &TaskAgentMessage{}
 		success := false
 		for !success {
+			if session == nil || b == nil {
+				session2, block2 := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken)
+				if session2 != nil && block2 != nil {
+					session = session2
+					b = block2
+					fmt.Println("Listening for Jobs")
+					sessionErrorCount = 0
+				} else {
+					fmt.Println("Failed to recreate Session, waiting 30 sec before retry")
+					time.After(30 * time.Second)
+					continue
+				}
+			}
 			serv := connectionData_.GetServiceDefinition("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7")
 			url := BuildUrl(req.TenantUrl, serv.RelativePath, map[string]string{
 				"area":     serv.ServiceType,
@@ -1104,22 +1136,53 @@ func (run *RunRunner) Run() {
 			if err != nil {
 				if errors.Is(err, context.Canceled) {
 					fmt.Println("Canceled stopping")
-					return
+					return 0
 				} else {
-					fmt.Printf("Failed to get message: %v\n", err.Error())
+					fmt.Printf("Failed to get message, waiting 10 sec before retry: %v\n", err.Error())
+					time.After(10 * time.Second)
 				}
 			} else if poolsresp == nil {
-				fmt.Printf("Failed to get message: Failed without errormessage")
+				fmt.Printf("Failed to get message without error, waiting 10 sec before retry: %v\n", poolsresp.StatusCode)
+				time.After(10 * time.Second)
 			} else if poolsresp.StatusCode != 200 {
 				if poolsresp.StatusCode >= 200 && poolsresp.StatusCode < 300 {
 					continue
+				}
+				if sessionErrorCount > 20 || session == nil || b == nil {
+					if session != nil && b != nil {
+						fmt.Println("Deleting Session, because we lost the connection too long")
+						err := session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken)
+						session = nil
+						b = nil
+						if err != nil {
+							fmt.Println("Failed to delete Session, waiting 10 sec before creating a new one")
+							time.After(10 * time.Second)
+						}
+					}
+					if session == nil || b == nil {
+						session2, block2 := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken)
+						if session2 != nil && block2 != nil {
+							session = session2
+							b = block2
+							fmt.Println("Listening for Jobs")
+							sessionErrorCount = 0
+							continue
+						} else {
+							fmt.Println("Failed to recreate Session, waiting 30 sec before retry")
+							time.After(30 * time.Second)
+							continue
+						}
+					}
+				} else {
+					sessionErrorCount++
 				}
 				// The AccessToken expires every hour
 				if poolsresp.StatusCode == 401 {
 					tokenresp_, err := taskAgent.Authorize(c, key)
 					if err != nil {
-						fmt.Println(err.Error())
-						return
+						fmt.Printf("Failed to renew auth, waiting 10 sec before retry: %v\n", err.Error())
+						time.After(10 * time.Second)
+						continue
 					}
 					tokenresp.AccessToken = tokenresp_.AccessToken
 					tokenresp.ExpiresIn = tokenresp_.ExpiresIn
@@ -1128,14 +1191,16 @@ func (run *RunRunner) Run() {
 				}
 				bytes, _ := ioutil.ReadAll(poolsresp.Body)
 				fmt.Println(string(bytes))
-				fmt.Printf("Failed to get message: %v\n", poolsresp.StatusCode)
-				return
+				fmt.Printf("Failed to get message, waiting 10 sec before retry: %v\n", poolsresp.StatusCode)
+				time.After(10 * time.Second)
+				continue
 			} else {
+				sessionErrorCount = 0
 				if firstJobReceived && strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
 					// It seems run once isn't supported by the backend, do the same as the official runner
 					// Skip deleting the job message and cancel earlier
 					fmt.Println("Received a second job, but running in run once mode abort")
-					return
+					return 1
 				}
 				success = true
 				dec := json.NewDecoder(poolsresp.Body)
@@ -1154,25 +1219,18 @@ func (run *RunRunner) Run() {
 					AddBearer(poolsreq.Header, tokenresp.AccessToken)
 					AddContentType(poolsreq.Header, "6.0-preview")
 					AddHeaders(poolsreq.Header)
-					poolsresp, _ := c.Do(poolsreq)
-					if poolsresp.StatusCode != 200 {
+					poolsresp, err := c.Do(poolsreq)
+					if err != nil || poolsresp == nil {
+						fmt.Println("Failed to delete Message")
+						success = false
+						break
+					} else if poolsresp.StatusCode != 200 {
 						if poolsresp.StatusCode >= 200 && poolsresp.StatusCode < 300 {
 							break
 						}
-						// The AccessToken expires every hour
-						if poolsresp.StatusCode == 401 {
-							tokenresp_, err := taskAgent.Authorize(c, key)
-							if err != nil {
-								fmt.Println(err.Error())
-								return
-							}
-							tokenresp.AccessToken = tokenresp_.AccessToken
-							tokenresp.ExpiresIn = tokenresp_.ExpiresIn
-							tokenresp.TokenType = tokenresp_.TokenType
-							continue
-						}
-						fmt.Print("Failed to delete Message")
-						return
+						fmt.Println("Failed to delete Message")
+						success = false
+						break
 					} else {
 						break
 					}
@@ -1941,7 +1999,7 @@ func main() {
 		Short: "run your self-hosted runner",
 		Args:  cobra.MaximumNArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
-			run.Run()
+			os.Exit(run.Run())
 		},
 	}
 
