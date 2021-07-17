@@ -4,20 +4,22 @@
 set -eo pipefail
 
 # are we running from terminal?
-is_term="test -t 1"
+is_term=$(test -t 1 && true || echo "")
 
 pkg_name="github-act-runner"
 runner_bin=/usr/bin/${pkg_name}/runner
-runners_dir=~/.config/${pkg_name}/runners
+runners_dir=~/.config/${pkg_name}/runners/
 
 systemctl_user_opt=
 if [ "$(id --user)" -eq 0 ]; then
     echo "running as root"
     systemctl_cmd=systemctl
+    systemd_units_dir=/etc/systemd/system/
 else
     echo "running as user '$(id --user --name)'"
     systemctl_user_opt=--user
     systemctl_cmd="systemctl ${systemctl_user_opt}"
+    systemd_units_dir=~/.config/systemd/user/
 fi
 
 function error {
@@ -74,6 +76,40 @@ while [[ $# > 0 ]] ; do
 done
 
 [ ! -z "$command" ] || error "command is not given"
+
+function start_runner_service {
+    local id=$1
+
+    local runner_service_name=${pkg_name}.${id}
+    local runner_service_file=${runner_service_name}.service
+    local restarter_service_file=${runner_service_name}.restarter.service
+    local restarter_path_file=${runner_service_name}.path
+
+    $systemctl_cmd enable $runner_service_file
+    $systemctl_cmd start $runner_service_file
+
+    $systemctl_cmd enable $restarter_service_file
+
+    $systemctl_cmd enable $restarter_path_file
+}
+
+function stop_runner_service {
+    local id=$1
+
+    local runner_service_name=${pkg_name}.${id}
+    local runner_service_file=${runner_service_name}.service
+    local restarter_service_file=${runner_service_name}.restarter.service
+    local restarter_path_file=${runner_service_name}.path
+
+    $systemctl_cmd stop $restarter_path_file
+    $systemctl_cmd disable $restarter_path_file
+
+    $systemctl_cmd stop $restarter_service_file
+    $systemctl_cmd disable $restarter_service_file
+
+    $systemctl_cmd stop $runner_service_file
+    $systemctl_cmd disable $runner_service_file
+}
 
 function handle_new_command {
     # define required options to empty values
@@ -138,9 +174,9 @@ function handle_new_command {
 
     local runner_id=${opts[name]}.${owner_dot}
 
-    local runner_dir="${runners_dir}/${runner_id}"
+    local runner_dir="${runners_dir}${runner_id}"
     if [ -d "$runner_dir" ]; then
-        error "unable to add runner 'id = ${runner_id}', runner already exists"
+        error "unable to create new runner: runner 'id = ${runner_id}' already exists"
     fi
 
     echo "new runner config will be placed to $runner_dir"
@@ -164,19 +200,13 @@ function handle_new_command {
         echo "\$? = $?"
     )
 
-    if [ -z "$systemctl_user_opt" ]; then
-        # root
-        local systemd_units_dir=/etc/systemd/system/
-    else
-        # user
-        local systemd_units_dir=~/.config/systemd/user/
-        mkdir --parents $systemd_units_dir
-    fi
-
     local runner_service_name=${pkg_name}.${runner_id}
     local runner_service_file=${runner_service_name}.service
     local restarter_service_file=${runner_service_name}.restarter.service
     local restarter_path_file=${runner_service_name}.path
+
+    # make sure the service units directory exists
+    mkdir --parents $systemd_units_dir
 
     [ ! -f "${systemd_units_dir}${runner_service_file}" ] || error "ASSERT(! -f ${systemd_units_dir}${runner_service_file}) failed"
 
@@ -229,19 +259,22 @@ WantedBy=multi-user.target
 
     $systemctl_cmd daemon-reload 
 
-    echo "service status ="
-    $systemctl_cmd status ${runner_service_file} || echo "\$? = $?"
-    echo "restarter status ="
-    $systemctl_cmd status ${restarter_service_file} || echo "\$? = $?"
-    echo "path status ="
-    $systemctl_cmd status ${restarter_path_file} || echo "\$? = $?"
+    start_runner_service $runner_id
 
-    echo "service start ="
-    $systemctl_cmd status ${runner_service_file} || echo "\$? = $?"
-    echo "restarter start ="
-    $systemctl_cmd status ${restarter_service_file} || echo "\$? = $?"
-    echo "path start ="
-    $systemctl_cmd status ${restarter_path_file} || echo "\$? = $?"
+    # TODO:
+    # echo "service status ="
+    # $systemctl_cmd status ${runner_service_file} || echo "\$? = $?"
+    # echo "restarter status ="
+    # $systemctl_cmd status ${restarter_service_file} || echo "\$? = $?"
+    # echo "path status ="
+    # $systemctl_cmd status ${restarter_path_file} || echo "\$? = $?"
+
+    # echo "service start ="
+    # $systemctl_cmd status ${runner_service_file} || echo "\$? = $?"
+    # echo "restarter start ="
+    # $systemctl_cmd status ${restarter_service_file} || echo "\$? = $?"
+    # echo "path start ="
+    # $systemctl_cmd status ${restarter_path_file} || echo "\$? = $?"
 
     # $systemctl_cmd enable 
 
@@ -263,7 +296,6 @@ function handle_ls_command {
         # echo "service_name = $service_name"
         local is_enabled=$($systemctl_cmd is-enabled ${service_name} || true)
         local is_active=$($systemctl_cmd is-active ${service_name} || true)
-        # local is_failed=$($systemctl_cmd is-failed ${service_name} || echo "$?")
 
         if $is_term; then
             if [ "$is_enabled" == "enabled" ]; then
@@ -283,6 +315,58 @@ function handle_ls_command {
 
         printf "$id $is_enabled $is_active\n"
     done
+}
+
+function handle_rm_command {
+    # define required options to empty values
+    declare -A local opts=( \
+        [id]= \
+    )
+
+    while [[ $# > 0 ]] ; do
+        case $1 in
+            --help)
+                echo "usage:"
+			    echo "	$(basename $0) <...> add <options>"
+                echo ""
+                echo "options:"
+                echo "  --help    show this help text and do nothing."
+                echo "  --id      runner id. See 'ls' command output."
+                exit 0
+                ;;
+            --id)
+                shift
+                opts[id]=$1
+                ;;
+            *)
+                error "unknown option: $1"
+                ;;
+        esac
+        [[ $# > 0 ]] && shift;
+    done
+
+    for opt in ${!opts[@]}; do
+        [ ! -z "${opts[$opt]}" ] || error "missing option: --$opt"
+    done
+
+    local runner_dir=${runners_dir}${opts[id]}
+
+    # check that runner exists
+    [ -d "${runner_dir}" ] || error "runner 'id = ${opts[id]}' does not exist"
+
+    stop_runner_service ${opts[id]}
+
+    local common_prefix=${pkg_name}.${opts[id]}
+
+    rm ${systemd_units_dir}${common_prefix}.service
+    rm ${systemd_units_dir}${common_prefix}.restarter.service
+    rm ${systemd_units_dir}${common_prefix}.path
+
+    rm --recursive --force ${runner_dir}
+
+    $systemctl_cmd daemon-reload
+
+    echo "runner 'id = ${opts[id]}' removed"
 }
 
 handle_${command}_command $@
