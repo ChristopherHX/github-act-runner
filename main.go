@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AlecAivazis/survey/v2"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/google/uuid"
 	"github.com/nektos/act/pkg/common"
@@ -67,17 +68,27 @@ type ConnectionData struct {
 }
 
 type TaskAgentPoolReference struct {
-	Id         string
+	Id         int64
 	Scope      string
 	PoolType   int
 	Name       string
 	IsHosted   bool
 	IsInternal bool
-	Size       int
+	Size       int64
 }
 
 type TaskAgentPool struct {
 	TaskAgentPoolReference
+}
+
+type TaskAgents struct {
+	Count int64
+	Value []TaskAgent
+}
+
+type TaskAgentPools struct {
+	Count int64
+	Value []TaskAgentPool
 }
 
 type TaskAgentPublicKey struct {
@@ -86,8 +97,8 @@ type TaskAgentPublicKey struct {
 }
 
 type TaskAgentAuthorization struct {
-	AuthorizationUrl string `json:"authorizationUrl,omitempty"`
-	ClientId         string `json:"clientId,omitempty"`
+	AuthorizationUrl string `json:",omitempty"`
+	ClientId         string `json:",omitempty"`
 	PublicKey        TaskAgentPublicKey
 }
 
@@ -98,18 +109,18 @@ type AgentLabel struct {
 }
 
 type TaskAgent struct {
-	Authorization  TaskAgentAuthorization
-	Labels         []AgentLabel
-	MaxParallelism int
-	Id             int
-	Name           string
-	Version        string
-	OSDescription  string
-	// Enabled           bool
-	Status            int
+	Authorization     TaskAgentAuthorization
+	Labels            []AgentLabel
+	MaxParallelism    int
+	Id                int
+	Name              string
+	Version           string
+	OSDescription     string
+	Enabled           *bool  `json:",omitempty"`
+	Status            string `json:",omitempty"`
 	ProvisioningState string
-	// AccessPoint       string
-	CreatedOn string
+	AccessPoint       string `json:",omitempty"`
+	CreatedOn         string
 }
 
 type TaskLogReference struct {
@@ -119,9 +130,9 @@ type TaskLogReference struct {
 
 type TaskLog struct {
 	TaskLogReference
-	IndexLocation *string `json:"IndexLocation,omitempty"`
-	Path          *string `json:"Path,omitempty"`
-	LineCount     *int64  `json:"LineCount,omitempty"`
+	IndexLocation *string `json:",omitempty"`
+	Path          *string `json:",omitempty"`
+	LineCount     *int64  `json:",omitempty"`
 	CreatedOn     string
 	LastChangedOn string
 }
@@ -424,8 +435,8 @@ type MaskHint struct {
 }
 
 type ActionsEnvironmentReference struct {
-	Name *string `json:"Name,omitempty"`
-	Url  *string `json:"Url,omitempty"`
+	Name *string `json:",omitempty"`
+	Url  *string `json:",omitempty"`
 }
 
 type ActionStepDefinitionReference struct {
@@ -490,7 +501,7 @@ type TaskAgentSessionKey struct {
 }
 
 type TaskAgentSession struct {
-	SessionId         string `json:"sessionId,omitempty"`
+	SessionId         string `json:",omitempty"`
 	EncryptionKey     TaskAgentSessionKey
 	OwnerName         string
 	Agent             TaskAgent
@@ -602,7 +613,7 @@ func (connectionData *ConnectionData) GetServiceDefinition(id string) *ServiceDe
 	return nil
 }
 
-func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *http.Client, tenantUrl string, key *rsa.PrivateKey, token string) (*TaskAgentSession, cipher.Block) {
+func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *http.Client, tenantUrl string, key *rsa.PrivateKey, token string, settings *RunnerSettings) (*TaskAgentSession, cipher.Block) {
 	session := &TaskAgentSession{}
 	session.Agent = *taskAgent
 	session.UseFipsEncryption = true
@@ -611,7 +622,7 @@ func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *ht
 	url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
 		"area":     serv.ServiceType,
 		"resource": serv.DisplayName,
-		"poolId":   fmt.Sprint(1),
+		"poolId":   fmt.Sprint(settings.PoolId),
 	}, map[string]string{})
 	buf := new(bytes.Buffer)
 	enc := json.NewEncoder(buf)
@@ -625,6 +636,10 @@ func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *ht
 
 	dec := json.NewDecoder(poolsresp.Body)
 	dec.Decode(session)
+	if !session.UseFipsEncryption {
+		fmt.Println("This runner doesn't support sessions without fips cryptography, please update your github server")
+		return nil, nil
+	}
 	d, _ := base64.StdEncoding.DecodeString(session.EncryptionKey.Value)
 	sessionKey, _ := rsa.DecryptOAEP(sha256.New(), rand.Reader, key, d, []byte{})
 	if sessionKey == nil {
@@ -634,12 +649,12 @@ func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *ht
 	return session, b
 }
 
-func (session *TaskAgentSession) Delete(connectionData_ *ConnectionData, c *http.Client, tenantUrl string, token string) error {
+func (session *TaskAgentSession) Delete(connectionData_ *ConnectionData, c *http.Client, tenantUrl string, token string, settings *RunnerSettings) error {
 	serv := connectionData_.GetServiceDefinition("134e239e-2df3-4794-a6f6-24f1f19ec8dc")
 	url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
 		"area":      serv.ServiceType,
 		"resource":  serv.DisplayName,
-		"poolId":    fmt.Sprint(1),
+		"poolId":    fmt.Sprint(settings.PoolId),
 		"sessionId": session.SessionId,
 	}, map[string]string{})
 
@@ -713,8 +728,8 @@ func UploadLogFile(con *ConnectionData, c *http.Client, tenantUrl string, timeli
 
 		p := "logs/" + uuid.NewString()
 		log.Path = &p
-		log.CreatedOn = "2021-05-22T00:00:00"
-		log.LastChangedOn = "2021-05-22T00:00:00"
+		log.CreatedOn = time.Now().UTC().Format("2006-01-02T15:04:05")
+		log.LastChangedOn = time.Now().UTC().Format("2006-01-02T15:04:05")
 
 		buf := new(bytes.Buffer)
 		enc := json.NewEncoder(buf)
@@ -839,21 +854,28 @@ type ConfigureRunner struct {
 	Name            string
 	NoDefaultLabels bool
 	SystemLabels    []string
+	Unattended      bool
+	Pool            string
 }
 
-func (config *ConfigureRunner) Configure() {
+type RunnerSettings struct {
+	PoolId          int64
+	RegistrationUrl string
+}
+
+func (config *ConfigureRunner) Configure() int {
 	buf := new(bytes.Buffer)
 	req := &RunnerAddRemove{}
 	req.Url = config.Url
 	req.RunnerEvent = "register"
 	enc := json.NewEncoder(buf)
 	if err := enc.Encode(req); err != nil {
-		return
+		return 1
 	}
 	registerUrl, err := url.Parse(config.Url)
 	if err != nil {
 		fmt.Printf("Invalid Url: %v\n", config.Url)
-		return
+		return 1
 	}
 	if strings.ToLower(registerUrl.Host) == "github.com" {
 		registerUrl.Host = "api." + registerUrl.Host
@@ -869,18 +891,18 @@ func (config *ConfigureRunner) Configure() {
 	resp, err := c.Do(r)
 	if err != nil {
 		fmt.Printf("Failed to register Runner: %v\n", err)
-		return
+		return 1
 	}
 	if resp.StatusCode != 200 {
 		fmt.Printf("Failed to register Runner with status code: %v\n", resp.StatusCode)
-		return
+		return 1
 	}
 
 	res := &GitHubAuthResult{}
 	dec := json.NewDecoder(resp.Body)
 	if err := dec.Decode(res); err != nil {
 		fmt.Printf("error decoding struct from JSON: %v\n", err)
-		return
+		return 1
 	}
 
 	{
@@ -888,7 +910,7 @@ func (config *ConfigureRunner) Configure() {
 		ioutil.WriteFile("auth.json", b, 0777)
 	}
 	connectionData_ := GetConnectionData(c, res.TenantUrl)
-
+	settings := &RunnerSettings{RegistrationUrl: config.Url}
 	{
 		serv := connectionData_.GetServiceDefinition("a8c47e17-4d56-4a56-92bb-de7ea7dc65be")
 		tenantUrl := res.TenantUrl
@@ -903,7 +925,44 @@ func (config *ConfigureRunner) Configure() {
 
 		bytes, _ := ioutil.ReadAll(poolsresp.Body)
 
-		fmt.Println(string(bytes))
+		taskAgentPool := ""
+		taskAgentPools := []string{}
+		_taskAgentPools := &TaskAgentPools{}
+		json.Unmarshal(bytes, _taskAgentPools)
+		for _, val := range _taskAgentPools.Value {
+			if !val.IsHosted {
+				taskAgentPools = append(taskAgentPools, val.Name)
+			}
+		}
+		if len(taskAgentPools) == 0 {
+			fmt.Println("Failed to configure runner, no self-hosted runner pool available")
+			return 1
+		}
+		if len(config.Pool) > 0 {
+			taskAgentPool = config.Pool
+		} else {
+			taskAgentPool = taskAgentPools[0]
+			if len(taskAgentPools) > 1 && !config.Unattended {
+				prompt := &survey.Select{
+					Message: "Choose a pool:",
+					Options: taskAgentPools,
+				}
+				err := survey.AskOne(prompt, &taskAgentPool)
+				if err != nil {
+					fmt.Println("Failed to retrieve your choice using default pool: " + taskAgentPool)
+				}
+			}
+		}
+		settings.PoolId = -1
+		for _, val := range _taskAgentPools.Value {
+			if !val.IsHosted && val.Name == taskAgentPool {
+				settings.PoolId = val.Id
+			}
+		}
+		if settings.PoolId < 0 {
+			fmt.Printf("Runner Pool %v not found\n", taskAgentPool)
+			return 1
+		}
 	}
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	ioutil.WriteFile("cred.pkcs1", x509.MarshalPKCS1PrivateKey(key), 0777)
@@ -917,8 +976,8 @@ func (config *ConfigureRunner) Configure() {
 	for ; expof < 3 && bs[expof] == 0; expof++ {
 	}
 	taskAgent.Authorization.PublicKey = TaskAgentPublicKey{Exponent: base64.StdEncoding.EncodeToString(bs[expof:]), Modulus: base64.StdEncoding.EncodeToString(key.N.Bytes())}
-	taskAgent.Version = "3.0.0"
-	taskAgent.OSDescription = "golang act runner - " + runtime.GOOS + " - " + runtime.GOARCH
+	taskAgent.Version = "3.0.0" //version, will not use fips crypto if set to 0.0.0 *
+	taskAgent.OSDescription = "github-actions-act-runner " + runtime.GOOS + "/" + runtime.GOARCH
 	systemLabels := make([]string, 0, 3)
 	if !config.NoDefaultLabels {
 		systemLabels = append(systemLabels, "self-hosted", runtime.GOOS, runtime.GOARCH)
@@ -940,25 +999,47 @@ func (config *ConfigureRunner) Configure() {
 		taskAgent.Name = "golang_" + uuid.NewString()
 	}
 	taskAgent.ProvisioningState = "Provisioned"
-	taskAgent.CreatedOn = "2021-05-22T00:00:00"
+	taskAgent.CreatedOn = time.Now().UTC().Format("2006-01-02T15:04:05")
 	{
 		serv := connectionData_.GetServiceDefinition("e298ef32-5878-4cab-993c-043836571f42")
 		tenantUrl := res.TenantUrl
 		url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
 			"area":     serv.ServiceType,
 			"resource": serv.DisplayName,
-			"poolId":   fmt.Sprint(1),
+			"poolId":   fmt.Sprint(settings.PoolId),
 		}, map[string]string{})
-		{
-			poolsreq, _ := http.NewRequest("GET", url, nil)
-			AddBearer(poolsreq.Header, res.Token)
-			AddContentType(poolsreq.Header, "6.0-preview.2")
-			poolsresp, _ := c.Do(poolsreq)
-
-			bytes, _ := ioutil.ReadAll(poolsresp.Body)
-
-			fmt.Println(string(bytes))
-		}
+		// TODO Replace Runner support
+		// {
+		// 	poolsreq, _ := http.NewRequest("GET", url, nil)
+		// 	AddBearer(poolsreq.Header, res.Token)
+		// 	AddContentType(poolsreq.Header, "6.0-preview.2")
+		// 	poolsresp, err := c.Do(poolsreq)
+		// 	if err != nil {
+		// 		fmt.Printf("Failed to create taskAgent: %v\n", err.Error())
+		// 		return 1
+		// 	} else if poolsresp.StatusCode != 200 {
+		// 		bytes, _ := ioutil.ReadAll(poolsresp.Body)
+		// 		fmt.Println(string(bytes))
+		// 		fmt.Println(buf.String())
+		// 		return 1
+		// 	} else {
+		// 		bytes, _ := ioutil.ReadAll(poolsresp.Body)
+		// 		// fmt.Println(string(bytes))
+		// 		taskAgent := ""
+		// 		taskAgents := []string{}
+		// 		// xttr := json.Unmarshal(bytes)
+		// 		_taskAgents := &TaskAgents{}
+		// 		json.Unmarshal(bytes, _taskAgents)
+		// 		for _, val := range _taskAgents.Value {
+		// 			taskAgents = append(taskAgents, val.Name)
+		// 		}
+		// 		prompt := &survey.Select{
+		// 			Message: "Choose a runner:",
+		// 			Options: taskAgents,
+		// 		}
+		// 		survey.AskOne(prompt, &taskAgent)
+		// 	}
+		// }
 		{
 			buf := new(bytes.Buffer)
 			enc := json.NewEncoder(buf)
@@ -968,20 +1049,45 @@ func (config *ConfigureRunner) Configure() {
 			AddBearer(poolsreq.Header, res.Token)
 			AddContentType(poolsreq.Header, "6.0-preview.2")
 			AddHeaders(poolsreq.Header)
-			poolsresp, _ := c.Do(poolsreq)
-
-			if poolsresp.StatusCode != 200 {
+			poolsresp, err := c.Do(poolsreq)
+			if err != nil {
+				fmt.Printf("Failed to create taskAgent: %v\n", err.Error())
+				return 1
+			} else if poolsresp.StatusCode != 200 {
 				bytes, _ := ioutil.ReadAll(poolsresp.Body)
-				fmt.Println(string(bytes))
-				fmt.Println(buf.String())
+				fmt.Printf("Failed to create taskAgent:\nStatus: %v\nPayload: %v\nResponse%v\n", poolsresp.StatusCode, buf.String(), string(bytes))
+				return 1
 			} else {
 				dec := json.NewDecoder(poolsresp.Body)
-				dec.Decode(taskAgent)
+				if err := dec.Decode(taskAgent); err != nil {
+					fmt.Printf("Failed to decode taskAgent: %v\n", err.Error())
+					return 1
+				}
 			}
 		}
 	}
-	b, _ := json.MarshalIndent(taskAgent, "", "    ")
-	ioutil.WriteFile("agent.json", b, 0777)
+	b, err := json.MarshalIndent(taskAgent, "", "    ")
+	if err != nil {
+		fmt.Printf("Failed to serialize taskAgent: %v\n", err.Error())
+		return 1
+	}
+	if err := ioutil.WriteFile("agent.json", b, 0777); err != nil {
+		fmt.Printf("Failed to save agent.json: %v\n", err.Error())
+		return 1
+	}
+	{
+		b, err := json.MarshalIndent(settings, "", "    ")
+		if err != nil {
+			fmt.Printf("Failed to serialize settings: %v\n", err.Error())
+			return 1
+		}
+		if err := ioutil.WriteFile("settings.json", b, 0777); err != nil {
+			fmt.Printf("Failed to save settings.json: %v\n", err.Error())
+			return 1
+		}
+	}
+	fmt.Println("success")
+	return 0
 }
 
 type RunRunner struct {
@@ -1051,7 +1157,6 @@ func (run *RunRunner) Run() int {
 		cancel()
 		signal.Stop(channel)
 	}()
-	poolId := 1
 	c := &http.Client{}
 	taskAgent := &TaskAgent{}
 	var key *rsa.PrivateKey
@@ -1062,12 +1167,29 @@ func (run *RunRunner) Run() int {
 			fmt.Printf("The runner needs to be configured first: %v\n", err.Error())
 			return 1
 		}
-		json.Unmarshal(cont, taskAgent)
+		err = json.Unmarshal(cont, taskAgent)
 		if err != nil {
 			fmt.Printf("agent.json is corrupted: %v, please reconfigure the runner\n", err.Error())
 			return 1
 		}
 	}
+	settings := &RunnerSettings{}
+	{
+		cont, err := ioutil.ReadFile("settings.json")
+		if err != nil {
+			// Backward compat <= 0.0.3
+			// fmt.Printf("The runner needs to be configured first: %v\n", err.Error())
+			// return 1
+			settings.PoolId = 1
+		} else {
+			err = json.Unmarshal(cont, settings)
+			if err != nil {
+				fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
+				return 1
+			}
+		}
+	}
+	poolId := settings.PoolId
 	{
 		cont, err := ioutil.ReadFile("cred.pkcs1")
 		if err != nil {
@@ -1101,7 +1223,7 @@ func (run *RunRunner) Run() int {
 
 	connectionData_ := GetConnectionData(c, req.TenantUrl)
 
-	session, b := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken)
+	session, b := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken, settings)
 	if session == nil || b == nil {
 		fmt.Println("Failed to create Session")
 		return 1
@@ -1109,7 +1231,7 @@ func (run *RunRunner) Run() int {
 		fmt.Println("Listening for Jobs")
 	}
 	defer func() {
-		session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken)
+		session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken, settings)
 	}()
 	firstJobReceived := false
 	var cancelJob func()
@@ -1119,7 +1241,16 @@ func (run *RunRunner) Run() int {
 		success := false
 		for !success {
 			if session == nil || b == nil {
-				session2, block2 := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken)
+				tokenresp_, err := taskAgent.Authorize(c, key)
+				if err != nil {
+					fmt.Printf("Failed to renew auth, waiting 10 sec before retry: %v\n", err.Error())
+					time.After(10 * time.Second)
+					continue
+				}
+				tokenresp.AccessToken = tokenresp_.AccessToken
+				tokenresp.ExpiresIn = tokenresp_.ExpiresIn
+				tokenresp.TokenType = tokenresp_.TokenType
+				session2, block2 := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken, settings)
 				if session2 != nil && block2 != nil {
 					session = session2
 					b = block2
@@ -1163,7 +1294,7 @@ func (run *RunRunner) Run() int {
 				if sessionErrorCount > 20 || session == nil || b == nil {
 					if session != nil && b != nil {
 						fmt.Println("Deleting Session, because we lost the connection too long")
-						err := session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken)
+						err := session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken, settings)
 						session = nil
 						b = nil
 						if err != nil {
@@ -1172,7 +1303,16 @@ func (run *RunRunner) Run() int {
 						}
 					}
 					if session == nil || b == nil {
-						session2, block2 := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken)
+						tokenresp_, err := taskAgent.Authorize(c, key)
+						if err != nil {
+							fmt.Printf("Failed to renew auth, waiting 10 sec before retry: %v\n", err.Error())
+							time.After(10 * time.Second)
+							continue
+						}
+						tokenresp.AccessToken = tokenresp_.AccessToken
+						tokenresp.ExpiresIn = tokenresp_.ExpiresIn
+						tokenresp.TokenType = tokenresp_.TokenType
+						session2, block2 := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken, settings)
 						if session2 != nil && block2 != nil {
 							session = session2
 							b = block2
@@ -1916,8 +2056,8 @@ func (run *RunRunner) Run() int {
 							formatter.wrap = wrap
 
 							logger.Log(logrus.DebugLevel, "Runner Name: "+taskAgent.Name)
-							logger.Log(logrus.DebugLevel, "Runner OSDescription: "+taskAgent.OSDescription)
-							logger.Log(logrus.DebugLevel, "Runner Version: "+taskAgent.Version)
+							logger.Log(logrus.DebugLevel, "Runner OSDescription: github-actions-act-runner "+runtime.GOOS+"/"+runtime.GOARCH)
+							logger.Log(logrus.DebugLevel, "Runner Version: "+version)
 							logrus.SetLevel(logrus.DebugLevel)
 							logrus.SetFormatter(formatter)
 							rc.Executor()(common.WithLogger(ctx, logger))
@@ -1945,8 +2085,12 @@ func (run *RunRunner) Run() int {
 								if f.current != nil {
 									if f.current == &wrap.Value[1] {
 										// Workaround check for init failure, e.g. docker fails
-										jobStatus = "failure"
-										f.current.Complete("Failed")
+										if cancelled {
+											f.current.Complete("Canceled")
+										} else {
+											jobStatus = "failure"
+											f.current.Complete("Failed")
+										}
 									} else if f.rc.StepResults[f.current.RefName].Success {
 										f.current.Complete("Succeeded")
 									} else {
@@ -1989,15 +2133,132 @@ func (run *RunRunner) Run() int {
 	}
 }
 
+type RemoveRunner struct {
+	Url   string
+	Token string
+}
+
+func (config *RemoveRunner) Remove() int {
+	c := &http.Client{}
+	taskAgent := &TaskAgent{}
+	{
+		cont, err := ioutil.ReadFile("agent.json")
+		if err != nil {
+			fmt.Printf("The runner needs to be configured first: %v\n", err.Error())
+			return 1
+		}
+		err = json.Unmarshal(cont, taskAgent)
+		if err != nil {
+			fmt.Printf("agent.json is corrupted: %v, please reconfigure the runner\n", err.Error())
+			return 1
+		}
+	}
+	settings := &RunnerSettings{}
+	{
+		cont, err := ioutil.ReadFile("settings.json")
+		if err != nil {
+			// Backward compat <= 0.0.3
+			// fmt.Printf("The runner needs to be configured first: %v\n", err.Error())
+			// return 1
+			settings.PoolId = 1
+			if len(config.Url) == 0 {
+				fmt.Printf("Please provide the registration url. You configured the runner in <= 0.0.3, cannot unconfigure the runner without it. Error: %v\n", err.Error())
+				return 1
+			}
+			settings.RegistrationUrl = config.Url
+		} else {
+			err = json.Unmarshal(cont, settings)
+			if err != nil {
+				fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
+				return 1
+			}
+		}
+	}
+	res := &GitHubAuthResult{}
+	req := res
+	{
+		buf := new(bytes.Buffer)
+		req := &RunnerAddRemove{}
+		req.Url = settings.RegistrationUrl
+		req.RunnerEvent = "remove"
+		enc := json.NewEncoder(buf)
+		if err := enc.Encode(req); err != nil {
+			return 1
+		}
+		registerUrl, err := url.Parse(settings.RegistrationUrl)
+		if err != nil {
+			fmt.Printf("Invalid Url: %v\n", settings.RegistrationUrl)
+			return 1
+		}
+		if strings.ToLower(registerUrl.Host) == "github.com" {
+			registerUrl.Host = "api." + registerUrl.Host
+			registerUrl.Path = "actions/runner-registration"
+		} else {
+			registerUrl.Path = "api/v3/actions/runner-registration"
+		}
+		finalregisterUrl := registerUrl.String()
+		fmt.Printf("Try to remove runner with url: %v\n", finalregisterUrl)
+		r, _ := http.NewRequest("POST", finalregisterUrl, buf)
+		r.Header["Authorization"] = []string{"RemoteAuth " + config.Token}
+		c := &http.Client{}
+		resp, err := c.Do(r)
+		if err != nil {
+			fmt.Printf("Failed to remove Runner: %v\n", err)
+			return 1
+		}
+		if resp.StatusCode != 200 {
+			fmt.Printf("Failed to remove Runner with status code: %v\n", resp.StatusCode)
+			return 1
+		}
+
+		dec := json.NewDecoder(resp.Body)
+		if err := dec.Decode(res); err != nil {
+			fmt.Printf("Failed to remove Runner:\nerror decoding struct from JSON: %v\n", err)
+			return 1
+		}
+	}
+
+	connectionData_ := GetConnectionData(c, req.TenantUrl)
+	{
+		serv := connectionData_.GetServiceDefinition("e298ef32-5878-4cab-993c-043836571f42")
+		tenantUrl := res.TenantUrl
+		url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
+			"area":     serv.ServiceType,
+			"resource": serv.DisplayName,
+			"poolId":   fmt.Sprint(settings.PoolId),
+			"agentId":  fmt.Sprint(taskAgent.Id),
+		}, map[string]string{})
+		{
+			poolsreq, _ := http.NewRequest("DELETE", url, nil)
+			AddBearer(poolsreq.Header, res.Token)
+			AddContentType(poolsreq.Header, "6.0-preview.2")
+			poolsresp, err := c.Do(poolsreq)
+			if err != nil {
+				fmt.Printf("Failed to remove runner from server: %v\n", err.Error())
+				return 1
+			} else if poolsresp.StatusCode < 200 || poolsresp.StatusCode >= 300 {
+				bytes, _ := ioutil.ReadAll(poolsresp.Body)
+				fmt.Printf("Failed to remove runner from server: [%v]\n%v\n", poolsresp.StatusCode, string(bytes))
+				return 1
+			}
+			fmt.Println("success")
+		}
+	}
+	return 0
+}
+
+var version string = "0.0.0"
+
 func main() {
 	config := &ConfigureRunner{}
 	run := &RunRunner{}
+	remove := &RemoveRunner{}
 	var cmdConfigure = &cobra.Command{
 		Use:   "configure",
 		Short: "Configure your self-hosted runner",
 		Args:  cobra.MaximumNArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
-			config.Configure()
+			os.Exit(config.Configure())
 		},
 	}
 
@@ -2007,6 +2268,8 @@ func main() {
 	cmdConfigure.Flags().StringVar(&config.Name, "name", "", "custom runner name")
 	cmdConfigure.Flags().BoolVar(&config.NoDefaultLabels, "no-default-labels", false, "do not automatically add the following system labels: self-hosted, "+runtime.GOOS+" and "+runtime.GOARCH)
 	cmdConfigure.Flags().StringSliceVarP(&config.SystemLabels, "system-label", "", []string{}, "custom system labels for your new runner")
+	cmdConfigure.Flags().StringVar(&config.Token, "pool", "", "name of the runner pool to use will ask if more than one is available")
+	cmdConfigure.Flags().BoolVar(&config.Unattended, "unattended", false, "suppress shell prompts during configure")
 	cmdConfigure.MarkFlagRequired("url")
 	cmdConfigure.MarkFlagRequired("token")
 	var cmdRun = &cobra.Command{
@@ -2019,8 +2282,23 @@ func main() {
 	}
 
 	cmdRun.Flags().BoolVar(&run.Once, "once", false, "only execute one job and exit")
+	var cmdRemove = &cobra.Command{
+		Use:   "remove",
+		Short: "remove your self-hosted runner",
+		Args:  cobra.MaximumNArgs(0),
+		Run: func(cmd *cobra.Command, args []string) {
+			os.Exit(remove.Remove())
+		},
+	}
 
-	var rootCmd = &cobra.Command{Use: "github-actions-act-runner"}
-	rootCmd.AddCommand(cmdConfigure, cmdRun)
+	cmdRemove.Flags().StringVar(&remove.Url, "url", "", "url of your repository, organization or enterprise ( required to unconfigure version <= 0.0.3 )")
+	cmdRemove.Flags().StringVar(&remove.Token, "token", "", "runner registration or remove token")
+	cmdRemove.MarkFlagRequired("token")
+
+	var rootCmd = &cobra.Command{
+		Use:     "github-actions-act-runner",
+		Version: version,
+	}
+	rootCmd.AddCommand(cmdConfigure, cmdRun, cmdRemove)
 	rootCmd.Execute()
 }

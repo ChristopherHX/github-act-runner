@@ -56,7 +56,7 @@ jobs:
       with:
         go-version: '^1.16.0'
     - name: Build
-      run: go build -o github-actions-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
+      run: go build -ldflags "-X main.version=${{ github.event.inputs.version || format('0.0.0-dev-{0}', github.sha) }}" -o github-actions-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
       env:
         GOOS: ${{matrix.GOOS}}
         GOARCH: ${{matrix.GOARCH}}
