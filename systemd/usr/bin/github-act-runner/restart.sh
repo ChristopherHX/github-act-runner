@@ -26,6 +26,7 @@ if [ -f "${script_dir}runner" ]; then
         $systemctl_cmd restart $service_name
     fi
 else
-    # file has been deleted
+    # file has been deleted, perhaps the github-act-runner package was uninstalled,
+    # no need to restart the service in this case, stop the service.
     $systemctl_cmd stop $service_name
 fi

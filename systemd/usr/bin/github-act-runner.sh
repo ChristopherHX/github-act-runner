@@ -238,6 +238,8 @@ WorkingDirectory=$runner_dir
 KillMode=process
 KillSignal=SIGINT
 TimeoutStopSec=60min
+Restart=always
+RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
