@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AlecAivazis/survey/v2"
+	// "github.com/AlecAivazis/survey/v2"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/google/uuid"
 	"github.com/nektos/act/pkg/common"
@@ -943,14 +943,17 @@ func (config *ConfigureRunner) Configure() int {
 		} else {
 			taskAgentPool = taskAgentPools[0]
 			if len(taskAgentPools) > 1 && !config.Unattended {
-				prompt := &survey.Select{
-					Message: "Choose a pool:",
-					Options: taskAgentPools,
-				}
-				err := survey.AskOne(prompt, &taskAgentPool)
-				if err != nil {
-					fmt.Println("Failed to retrieve your choice using default pool: " + taskAgentPool)
-				}
+
+				// prompt := &survey.Select{
+				// 	Message: "Choose a pool:",
+				// 	Options: taskAgentPools,
+				// }
+				// err := survey.AskOne(prompt, &taskAgentPool)
+				// if err != nil {
+				// 	fmt.Println("Failed to retrieve your choice using default pool: " + taskAgentPool)
+				// }
+				fmt.Printf("Survey disabled, due to incompatibiliy with some platforms:\nAvailable pools are [%v]", taskAgentPool)
+				return 1
 			}
 		}
 		settings.PoolId = -1
