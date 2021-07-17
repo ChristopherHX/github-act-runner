@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# this script is to be invoked by restarter systemd service to restart a runner due
+# to the runner executable file change, perhaps due to update
+
 script_dir="$(dirname $0)/"
 
 # are we root?
