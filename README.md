@@ -25,20 +25,23 @@ sudo apt update
 sudo apt install github-act-runner
 ```
 
-### configure the runner
+### add new runner
 ```console
-github-act-runner configure --url <github-repo-or-org-or-enterprise> --name <runner-name> -l <labels> --token <runner-registration-token>
+github-act-runner.sh new --owner <github-repo-or-org-or-enterprise> --name <runner-name> --labels <labels> --token <runner-registration-token>
 ```
 where
-- `<github-repo-or-org-or-enterprise>` - URL to your github repository (e.g. `https://github.com/myname/myrepo`), organization (e.g. `https://github.com/myorg`) or enterprise
+- `<github-repo-or-org-or-enterprise>` - github repository (e.g. `myname/myrepo`), organization (e.g. `myorg`) or enterprise
 - `<runner-name>` - choose a name for your runner
-- `<labels>` - comma-separated list of labels, e.g. `label1,label2`
+- `<labels>` - comma-separated list of labels, e.g. `label1,label2`. Optional.
 - `<runner-registration-token>` - you can find the token in `<your-github-repo-url>/settings/actions/runners`, after pressing `Add runner`
 
-### run the runner
+The new runner will be registered and started as background service.
+
+See help:
 ```console
-github-act-runner run
+github-act-runner.sh --help
 ```
+For more info about managing runners.
 
 </details>
 
