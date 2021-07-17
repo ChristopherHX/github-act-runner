@@ -619,7 +619,7 @@ func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *ht
 
 	poolsreq, _ := http.NewRequest("POST", url, buf)
 	poolsreq.Header["Authorization"] = []string{"bearer " + token}
-	AddContentType(poolsreq.Header, "6.0-preview")
+	AddContentType(poolsreq.Header, "5.1-preview")
 	AddHeaders(poolsreq.Header)
 	poolsresp, _ := c.Do(poolsreq)
 
@@ -645,7 +645,7 @@ func (session *TaskAgentSession) Delete(connectionData_ *ConnectionData, c *http
 
 	poolsreq, _ := http.NewRequest("DELETE", url, nil)
 	poolsreq.Header["Authorization"] = []string{"bearer " + token}
-	AddContentType(poolsreq.Header, "6.0-preview")
+	AddContentType(poolsreq.Header, "5.1-preview")
 	AddHeaders(poolsreq.Header)
 	poolsresp, _ := c.Do(poolsreq)
 	if poolsresp.StatusCode != 200 {
@@ -685,7 +685,7 @@ func UpdateTimeLine(con *ConnectionData, c *http.Client, tenantUrl string, timel
 
 	poolsreq, _ := http.NewRequest("PATCH", url, buf)
 	poolsreq.Header["Authorization"] = []string{"bearer " + token}
-	AddContentType(poolsreq.Header, "6.0-preview")
+	AddContentType(poolsreq.Header, "5.1-preview")
 	AddHeaders(poolsreq.Header)
 	poolsresp, err := c.Do(poolsreq)
 	if err != nil {
@@ -722,7 +722,7 @@ func UploadLogFile(con *ConnectionData, c *http.Client, tenantUrl string, timeli
 
 		poolsreq, _ := http.NewRequest("POST", url, buf)
 		AddBearer(poolsreq.Header, token)
-		AddContentType(poolsreq.Header, "6.0-preview")
+		AddContentType(poolsreq.Header, "5.1-preview")
 		AddHeaders(poolsreq.Header)
 		poolsresp, _ := c.Do(poolsreq)
 
@@ -751,7 +751,7 @@ func UploadLogFile(con *ConnectionData, c *http.Client, tenantUrl string, timeli
 
 		poolsreq, _ := http.NewRequest("POST", url, bytes.NewBufferString(logContent))
 		AddBearer(poolsreq.Header, token)
-		AddContentType(poolsreq.Header, "6.0-preview")
+		AddContentType(poolsreq.Header, "5.1-preview")
 		AddHeaders(poolsreq.Header)
 		poolsresp, _ := c.Do(poolsreq)
 
@@ -1142,7 +1142,7 @@ func (run *RunRunner) Run() int {
 			//TODO lastMessageId=
 			poolsreq, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 			AddBearer(poolsreq.Header, tokenresp.AccessToken)
-			AddContentType(poolsreq.Header, "6.0-preview")
+			AddContentType(poolsreq.Header, "5.1-preview")
 			AddHeaders(poolsreq.Header)
 			poolsresp, err := c.Do(poolsreq)
 			if err != nil {
@@ -1229,7 +1229,7 @@ func (run *RunRunner) Run() int {
 					})
 					poolsreq, _ := http.NewRequest("DELETE", url, nil)
 					AddBearer(poolsreq.Header, tokenresp.AccessToken)
-					AddContentType(poolsreq.Header, "6.0-preview")
+					AddContentType(poolsreq.Header, "5.1-preview")
 					AddHeaders(poolsreq.Header)
 					poolsresp, err := c.Do(poolsreq)
 					if err != nil || poolsresp == nil {
@@ -1319,7 +1319,7 @@ func (run *RunRunner) Run() int {
 								enc.Encode(finish)
 								poolsreq, _ := http.NewRequest("POST", url, buf)
 								AddBearer(poolsreq.Header, jobToken)
-								AddContentType(poolsreq.Header, "6.0-preview")
+								AddContentType(poolsreq.Header, "2.0-preview")
 								AddHeaders(poolsreq.Header)
 								poolsresp, err := c.Do(poolsreq)
 								if err != nil {
@@ -1857,7 +1857,7 @@ func (run *RunRunner) Run() int {
 										enc.Encode(lines)
 										poolsreq, _ := http.NewRequest("POST", url, buf)
 										AddBearer(poolsreq.Header, jobToken)
-										AddContentType(poolsreq.Header, "6.0-preview")
+										AddContentType(poolsreq.Header, "5.1-preview")
 										AddHeaders(poolsreq.Header)
 										resp, err := c.Do(poolsreq)
 										if err != nil {
