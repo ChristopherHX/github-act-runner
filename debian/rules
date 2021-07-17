@@ -20,7 +20,7 @@ endif
 .PHONY: override_dh_auto_install
 override_dh_auto_install:
 	mkdir -p debian/tmp/usr/bin/github-act-runner
-	cp artifacts/binary-linux-${this_arch}/github-actions-act-runner-linux-${this_arch} debian/tmp/usr/bin/github-act-runner/github-act-runner
+	cp artifacts/binary-linux-${this_arch}/github-actions-act-runner-linux-${this_arch} debian/tmp/usr/bin/github-act-runner/runner
 	cp systemd/*.sh debian/tmp/usr/bin/
 
 .PHONY: override_dh_strip

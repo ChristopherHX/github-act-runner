@@ -9,6 +9,7 @@ Standards-Version: 3.9.2
 Package: github-act-runner
 Section: misc
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends},
+    docker-ce-cli
 Description: github actions runner.
  Open source reverse-engineered github actions runner software for self-hosted runners.
