@@ -208,7 +208,7 @@ function handle_new_command {
 
     (
         cd $runner_dir &&
-        $runner_bin configure --url $url --name ${opts[name]} --token ${opts[token]} $labels
+        $runner_bin configure --unattended --url $url --name ${opts[name]} --token ${opts[token]} $labels
         echo "\$? = $?"
     )
 
