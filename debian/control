@@ -10,6 +10,6 @@ Package: github-act-runner
 Section: misc
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Suggests: docker-ce-cli
+Suggests: docker-ce
 Description: github actions runner.
  Open source reverse-engineered github actions runner software for self-hosted runners.
