@@ -3,6 +3,7 @@ module main
 go 1.13
 
 require (
+	github.com/AlecAivazis/survey/v2 v2.2.7 // indirect
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
 	github.com/google/uuid v1.2.0 // indirect
 	github.com/nektos/act v0.2.22
