@@ -4,21 +4,23 @@
 set -eo pipefail
 
 # are we running from terminal?
-is_term=$(test -t 1 && true || echo "")
+is_term="test -t 1"
+
+# are we root?
+is_root="[ $(id --user) -eq 0 ]"
 
 pkg_name="github-act-runner"
-runner_bin=/usr/bin/${pkg_name}/runner
+runner_bin_dir=/usr/bin/${pkg_name}/
+runner_bin=${runner_bin_dir}runner
 runners_dir=~/.config/${pkg_name}/runners/
 
-systemctl_user_opt=
-if [ "$(id --user)" -eq 0 ]; then
+systemctl_cmd="systemctl"
+if $is_root; then
     echo "running as root"
-    systemctl_cmd=systemctl
     systemd_units_dir=/etc/systemd/system/
 else
     echo "running as user '$(id --user --name)'"
-    systemctl_user_opt=--user
-    systemctl_cmd="systemctl ${systemctl_user_opt}"
+    systemctl_cmd="${systemctl_cmd} --user"
     systemd_units_dir=~/.config/systemd/user/
 fi
 
@@ -85,12 +87,13 @@ function start_runner_service {
     local restarter_service_file=${runner_service_name}.restarter.service
     local restarter_path_file=${runner_service_name}.path
 
-    $systemctl_cmd enable $runner_service_file
-    $systemctl_cmd start $runner_service_file
+    $systemctl_cmd --quiet enable $runner_service_file
+    $systemctl_cmd --quiet start $runner_service_file
 
-    $systemctl_cmd enable $restarter_service_file
+    $systemctl_cmd --quiet enable $restarter_service_file
 
-    $systemctl_cmd enable $restarter_path_file
+    $systemctl_cmd --quiet enable $restarter_path_file
+    $systemctl_cmd --quiet start $restarter_path_file
 }
 
 function stop_runner_service {
@@ -101,14 +104,23 @@ function stop_runner_service {
     local restarter_service_file=${runner_service_name}.restarter.service
     local restarter_path_file=${runner_service_name}.path
 
-    $systemctl_cmd stop $restarter_path_file
-    $systemctl_cmd disable $restarter_path_file
+    $systemctl_cmd --quiet stop $restarter_path_file
+    $systemctl_cmd --quiet disable $restarter_path_file
 
-    $systemctl_cmd stop $restarter_service_file
-    $systemctl_cmd disable $restarter_service_file
+    $systemctl_cmd --quiet stop $restarter_service_file
+    $systemctl_cmd --quiet disable $restarter_service_file
 
-    $systemctl_cmd stop $runner_service_file
-    $systemctl_cmd disable $runner_service_file
+    $systemctl_cmd --quiet stop $runner_service_file
+    $systemctl_cmd --quiet disable $runner_service_file
+}
+
+function assert_runner_exists {
+    local id=$1
+
+    local runner_dir=${runners_dir}${id}
+
+    # check that runner exists
+    [ -d "${runner_dir}" ] || error "runner 'id = ${id}' does not exist"
 }
 
 function handle_new_command {
@@ -160,7 +172,7 @@ function handle_new_command {
         [ ! -z "${opts[$opt]}" ] || error "missing option: --$opt"
     done
 
-    if [ ! -z "$systemctl_user_opt" ]; then
+    if ! $is_root; then
         # running as non-root user
         # check that the user is in 'docker' group"
         if [ -z "$(groups | grep docker)" ]; then
@@ -200,6 +212,11 @@ function handle_new_command {
         echo "\$? = $?"
     )
 
+    # We add 3 service files. The idea is that one service file will be running the runner service itself.
+    # Then there is a '.path' service file which watches the github-act-runner binary file for changes. When
+    # the file changes (e.g. due to upgrade or remove) it will trigger the third oneshot service, the restarter
+    # service.
+
     local runner_service_name=${pkg_name}.${runner_id}
     local runner_service_file=${runner_service_name}.service
     local restarter_service_file=${runner_service_name}.restarter.service
@@ -237,7 +254,7 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/systemctl restart ${runner_service_file}
+ExecStart=${runner_bin_dir}restart.sh ${runner_service_file}
 
 [Install]
 WantedBy=multi-user.target
@@ -250,6 +267,7 @@ WantedBy=multi-user.target
     echo "\
 [Path]
 PathModified=/usr/bin/${pkg_name}/runner
+Unit=${restarter_service_file}
 
 [Install]
 WantedBy=multi-user.target
@@ -261,25 +279,7 @@ WantedBy=multi-user.target
 
     start_runner_service $runner_id
 
-    # TODO:
-    # echo "service status ="
-    # $systemctl_cmd status ${runner_service_file} || echo "\$? = $?"
-    # echo "restarter status ="
-    # $systemctl_cmd status ${restarter_service_file} || echo "\$? = $?"
-    # echo "path status ="
-    # $systemctl_cmd status ${restarter_path_file} || echo "\$? = $?"
-
-    # echo "service start ="
-    # $systemctl_cmd status ${runner_service_file} || echo "\$? = $?"
-    # echo "restarter start ="
-    # $systemctl_cmd status ${restarter_service_file} || echo "\$? = $?"
-    # echo "path start ="
-    # $systemctl_cmd status ${restarter_path_file} || echo "\$? = $?"
-
-    # $systemctl_cmd enable 
-
-    # TODO: remove
-    # [ -z "ewf" ]
+    echo "runner 'id = ${runner_id}' created"
 }
 
 function handle_ls_command {
@@ -349,24 +349,101 @@ function handle_rm_command {
         [ ! -z "${opts[$opt]}" ] || error "missing option: --$opt"
     done
 
-    local runner_dir=${runners_dir}${opts[id]}
-
-    # check that runner exists
-    [ -d "${runner_dir}" ] || error "runner 'id = ${opts[id]}' does not exist"
+    assert_runner_exists ${opts[id]}
 
     stop_runner_service ${opts[id]}
 
     local common_prefix=${pkg_name}.${opts[id]}
 
-    rm ${systemd_units_dir}${common_prefix}.service
-    rm ${systemd_units_dir}${common_prefix}.restarter.service
-    rm ${systemd_units_dir}${common_prefix}.path
+    rm --force ${systemd_units_dir}${common_prefix}.service
+    rm --force ${systemd_units_dir}${common_prefix}.restarter.service
+    rm --force ${systemd_units_dir}${common_prefix}.path
+
+    local runner_dir=${runners_dir}${opts[id]}
 
     rm --recursive --force ${runner_dir}
 
     $systemctl_cmd daemon-reload
 
     echo "runner 'id = ${opts[id]}' removed"
+}
+
+function handle_stop_command {
+    # define required options to empty values
+    declare -A local opts=( \
+        [id]= \
+    )
+
+    while [[ $# > 0 ]] ; do
+        case $1 in
+            --help)
+                echo "usage:"
+			    echo "	$(basename $0) <...> add <options>"
+                echo ""
+                echo "options:"
+                echo "  --help    show this help text and do nothing."
+                echo "  --id      runner id. See 'ls' command output."
+                exit 0
+                ;;
+            --id)
+                shift
+                opts[id]=$1
+                ;;
+            *)
+                error "unknown option: $1"
+                ;;
+        esac
+        [[ $# > 0 ]] && shift;
+    done
+
+    for opt in ${!opts[@]}; do
+        [ ! -z "${opts[$opt]}" ] || error "missing option: --$opt"
+    done
+
+    assert_runner_exists ${opts[id]}
+
+    stop_runner_service ${opts[id]}
+
+    echo "runner 'id = ${opts[id]}' stopped"
+}
+
+function handle_start_command {
+    # define required options to empty values
+    declare -A local opts=( \
+        [id]= \
+    )
+
+    while [[ $# > 0 ]] ; do
+        case $1 in
+            --help)
+                echo "usage:"
+			    echo "	$(basename $0) <...> add <options>"
+                echo ""
+                echo "options:"
+                echo "  --help    show this help text and do nothing."
+                echo "  --id      runner id. See 'ls' command output."
+                exit 0
+                ;;
+            --id)
+                shift
+                opts[id]=$1
+                ;;
+            *)
+                error "unknown option: $1"
+                ;;
+        esac
+        [[ $# > 0 ]] && shift;
+    done
+
+    for opt in ${!opts[@]}; do
+        [ ! -z "${opts[$opt]}" ] || error "missing option: --$opt"
+    done
+
+    assert_runner_exists ${opts[id]}
+
+    start_runner_service ${opts[id]}
+
+    echo "runner 'id = ${opts[id]}' started"
 }
 
 handle_${command}_command $@
