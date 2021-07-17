@@ -53,26 +53,26 @@ declare -A commands=( \
     )
 
 while [[ $# > 0 ]] ; do
-	case $1 in
-		--help)
-			echo "usage:"
-			echo "  $(basename $0) [<options>] <command> [--help] [<command-options>] [...]"
-			echo ""
-			echo "options:"
+    case $1 in
+        --help)
+            echo "usage:"
+            echo "  $(basename $0) [<options>] <command> [--help] [<command-options>] [...]"
+            echo ""
+            echo "options:"
             echo "  --help  show this help text and do nothing."
             echo ""
             echo "commands:"
             for i in "${!commands[@]}"; do {
                 echo "  $i        ${commands[$i]}"
             } done
-			exit 0
-			;;
-		*)
+            exit 0
+            ;;
+        *)
             command=$1
             [ ! -z "${commands[$command]}" ] || error "unknown command: $command"
-			;;
-	esac
-	[[ $# > 0 ]] && shift;
+            ;;
+    esac
+    [[ $# > 0 ]] && shift;
 
     if [ ! -z "$command" ]; then break; fi
 done
@@ -135,7 +135,7 @@ function handle_new_command {
         case $1 in
             --help)
                 echo "usage:"
-			    echo "	$(basename $0) <...> add <options>"
+                echo "	$(basename $0) <...> add <options>"
                 echo ""
                 echo "options:"
                 echo "  --help    show this help text and do nothing."
@@ -327,7 +327,7 @@ function handle_rm_command {
         case $1 in
             --help)
                 echo "usage:"
-			    echo "	$(basename $0) <...> add <options>"
+                echo "	$(basename $0) <...> add <options>"
                 echo ""
                 echo "options:"
                 echo "  --help    show this help text and do nothing."
@@ -378,7 +378,7 @@ function handle_stop_command {
         case $1 in
             --help)
                 echo "usage:"
-			    echo "	$(basename $0) <...> add <options>"
+                echo "	$(basename $0) <...> add <options>"
                 echo ""
                 echo "options:"
                 echo "  --help    show this help text and do nothing."
@@ -417,7 +417,7 @@ function handle_start_command {
         case $1 in
             --help)
                 echo "usage:"
-			    echo "	$(basename $0) <...> add <options>"
+                echo "	$(basename $0) <...> add <options>"
                 echo ""
                 echo "options:"
                 echo "  --help    show this help text and do nothing."
