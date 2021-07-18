@@ -129,6 +129,7 @@ function handle_new_command {
         [owner]= \
         [name]= \
         [token]= \
+        [domain]="https://github.com" \
     )
 
     while [[ $# > 0 ]] ; do
@@ -138,12 +139,18 @@ function handle_new_command {
                 echo "	$(basename $0) <...> add <options>"
                 echo ""
                 echo "options:"
-                echo "  --help    show this help text and do nothing."
-                echo "  --owner   github repo (e.g. 'my_user/my_repo') or organization (e.g. 'my_org')."
-                echo "  --name    new runner name."
-                echo "  --labels  comma separated list of runner labels, e.g. 'label1,label1,label3'."
-                echo "  --token   github runner registration token."
+                echo "  --help          show this help text and do nothing."
+                echo "  --domain        github domain (e.g. 'https://github.somedomain.org') default 'https://github.com'."
+                echo "  --owner         github repo (e.g. 'my_user/my_repo') or organization (e.g. 'my_org')."
+                echo "  --name          new runner name."
+                echo "  --labels        comma separated list of runner labels, e.g. 'label1,label1,label3'."
+                echo "  --token         github runner registration token."
+                echo "  --runnergroup   github runner runner group name."
                 exit 0
+                ;;
+            --domain)
+                shift
+                opts[domain]=$1
                 ;;
             --owner)
                 shift
@@ -156,6 +163,10 @@ function handle_new_command {
             --token)
                 shift
                 opts[token]=$1
+                ;;
+            --runnergroup)
+                shift
+                opts[runnergroup]=$1
                 ;;
             --labels)
                 shift
@@ -195,8 +206,12 @@ function handle_new_command {
 
     local labels=
     if [ ! -z "${opts[labels]}" ]; then
-        # NOTE: that runner_bin has '--label' key, not '--labels', TODO: fix that in runner_bin?
-        labels="--label ${opts[labels]}"
+        labels="--labels ${opts[labels]}"
+    fi
+
+    local runnergroup=
+    if [ ! -z "${opts[runnergroup]}" ]; then
+        runnergroup="--runnergroup ${opts[runnergroup]}"
     fi
 
     mkdir --parents $runner_dir
@@ -204,11 +219,11 @@ function handle_new_command {
     # remove the new runner dir in case of ERROR
     add_to_err_trap "rm --recursive --force $runner_dir"
 
-    local url=https://github.com/${opts[owner]}
+    local url=${opts[domain]/${opts[owner]}
 
     (
         cd $runner_dir &&
-        $runner_bin configure --unattended --url $url --name ${opts[name]} --token ${opts[token]} $labels
+        $runner_bin configure --unattended --url $url --name ${opts[name]} --token ${opts[token]} $labels $runnergroup
         echo "\$? = $?"
     )
 

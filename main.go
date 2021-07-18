@@ -855,7 +855,7 @@ type ConfigureRunner struct {
 	NoDefaultLabels bool
 	SystemLabels    []string
 	Unattended      bool
-	Pool            string
+	RunnerGroup     string
 }
 
 type RunnerSettings struct {
@@ -935,24 +935,24 @@ func (config *ConfigureRunner) Configure() int {
 			}
 		}
 		if len(taskAgentPools) == 0 {
-			fmt.Println("Failed to configure runner, no self-hosted runner pool available")
+			fmt.Println("Failed to configure runner, no self-hosted runner group available")
 			return 1
 		}
-		if len(config.Pool) > 0 {
-			taskAgentPool = config.Pool
+		if len(config.RunnerGroup) > 0 {
+			taskAgentPool = config.RunnerGroup
 		} else {
 			taskAgentPool = taskAgentPools[0]
 			if len(taskAgentPools) > 1 && !config.Unattended {
 
 				// prompt := &survey.Select{
-				// 	Message: "Choose a pool:",
+				// 	Message: "Choose a runner group:",
 				// 	Options: taskAgentPools,
 				// }
 				// err := survey.AskOne(prompt, &taskAgentPool)
 				// if err != nil {
-				// 	fmt.Println("Failed to retrieve your choice using default pool: " + taskAgentPool)
+				// 	fmt.Println("Failed to retrieve your choice using default runner group: " + taskAgentPool)
 				// }
-				fmt.Printf("Survey disabled, due to incompatibiliy with some platforms:\nAvailable pools are [%v]", taskAgentPool)
+				fmt.Printf("Survey disabled, due to incompatibiliy with some platforms:\nAvailable runner groups are [%v]", taskAgentPool)
 				return 1
 			}
 		}
@@ -2268,11 +2268,11 @@ func main() {
 
 	cmdConfigure.Flags().StringVar(&config.Url, "url", "", "url of your repository, organization or enterprise")
 	cmdConfigure.Flags().StringVar(&config.Token, "token", "", "runner registration token")
-	cmdConfigure.Flags().StringSliceVarP(&config.Labels, "label", "l", []string{}, "custom user label for your new runner")
+	cmdConfigure.Flags().StringSliceVarP(&config.Labels, "labels", "l", []string{}, "custom user labels for your new runner")
 	cmdConfigure.Flags().StringVar(&config.Name, "name", "", "custom runner name")
 	cmdConfigure.Flags().BoolVar(&config.NoDefaultLabels, "no-default-labels", false, "do not automatically add the following system labels: self-hosted, "+runtime.GOOS+" and "+runtime.GOARCH)
-	cmdConfigure.Flags().StringSliceVarP(&config.SystemLabels, "system-label", "", []string{}, "custom system labels for your new runner")
-	cmdConfigure.Flags().StringVar(&config.Token, "pool", "", "name of the runner pool to use will ask if more than one is available")
+	cmdConfigure.Flags().StringSliceVarP(&config.SystemLabels, "system-labels", "", []string{}, "custom system labels for your new runner")
+	cmdConfigure.Flags().StringVar(&config.Token, "runnergroup", "", "name of the runner group to use will ask if more than one is available")
 	cmdConfigure.Flags().BoolVar(&config.Unattended, "unattended", false, "suppress shell prompts during configure")
 	cmdConfigure.MarkFlagRequired("url")
 	cmdConfigure.MarkFlagRequired("token")
