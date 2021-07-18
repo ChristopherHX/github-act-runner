@@ -27,7 +27,7 @@ sudo apt install github-act-runner
 
 ### add new runner
 ```console
-github-act-runner.sh new --owner <github-repo-or-org-or-enterprise> --name <runner-name> --labels <labels> --token <runner-registration-token>
+github-act-runner new --owner <github-repo-or-org-or-enterprise> --name <runner-name> --labels <labels> --token <runner-registration-token>
 ```
 where
 - `<github-repo-or-org-or-enterprise>` - github repository (e.g. `myname/myrepo`), organization (e.g. `myorg`) or enterprise
@@ -39,7 +39,7 @@ The new runner will be registered and started as background service.
 
 See help:
 ```console
-github-act-runner.sh --help
+github-act-runner --help
 ```
 For more info about managing runners.
 
