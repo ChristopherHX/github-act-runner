@@ -15,12 +15,14 @@ runner_bin=${runner_bin_dir}runner
 runners_dir=~/.config/${pkg_name}/runners/
 
 systemctl_cmd="systemctl"
+journalctl_cmd="journalctl --quiet"
 if $is_root; then
     echo "running as root"
     systemd_units_dir=/etc/systemd/system/
 else
     echo "running as user '$(id --user --name)'"
     systemctl_cmd="${systemctl_cmd} --user"
+    journalctl_cmd="${journalctl_cmd} --user --user-unit"
     systemd_units_dir=~/.config/systemd/user/
 fi
 
@@ -51,6 +53,7 @@ declare -A commands=( \
         [stop]="stop runner service" \
         [start]="start runner service" \
         [restart]="restart runner service" \
+        [log]="show logs of the runner service" \
     )
 
 while [[ $# > 0 ]] ; do
@@ -312,6 +315,31 @@ function handle_ls_command {
         return
     fi
 
+    # define required options to empty values
+    declare -A local opts=( \
+    )
+
+    while [[ $# > 0 ]] ; do
+        case $1 in
+            --help)
+                echo "usage:"
+                echo "	$(basename $0) <...> ls [<options>]"
+                echo ""
+                echo "options:"
+                echo "  --help    show this help text and do nothing."
+                exit 0
+                ;;
+            *)
+                error "unknown option: $1"
+                ;;
+        esac
+        [[ $# > 0 ]] && shift;
+    done
+
+    for opt in ${!opts[@]}; do
+        [ ! -z "${opts[$opt]}" ] || error "missing option: --$opt"
+    done
+
     # echo "runners_dir = $runners_dir"
     local runners=$(ls --almost-all $runners_dir)
     # echo "runners = $runners"
@@ -453,10 +481,6 @@ function handle_start_command {
                 echo "  --help    show this help text and do nothing."
                 exit 0
                 ;;
-            --id)
-                shift
-                opts[id]=$1
-                ;;
             *)
                 if [ -z "$runner_id" ]; then
                     runner_id=$1
@@ -498,10 +522,6 @@ function handle_restart_command {
                 echo "  --help    show this help text and do nothing."
                 exit 0
                 ;;
-            --id)
-                shift
-                opts[id]=$1
-                ;;
             *)
                 if [ -z "$runner_id" ]; then
                     runner_id=$1
@@ -525,6 +545,57 @@ function handle_restart_command {
     start_runner_service $runner_id
 
     echo "runner 'id = $runner_id' restarted"
+}
+
+function handle_log_command {
+    # define required options to empty values
+    declare -A local opts=( \
+    )
+
+    local runner_id=
+
+    local follow=
+
+    while [[ $# > 0 ]] ; do
+        case $1 in
+            --help)
+                echo "usage:"
+                echo "	$(basename $0) <...> restart <runner-id> [<options>]"
+                echo ""
+                echo "options:"
+                echo "  --help    show this help text and do nothing."
+                echo "  --follow  watch for new log lines and show them as they appear."
+                exit 0
+                ;;
+            --follow)
+                follow=true
+                ;;
+            *)
+                if [ -z "$runner_id" ]; then
+                    runner_id=$1
+                else
+                    error "unknown option: $1"
+                fi
+                ;;
+        esac
+        [[ $# > 0 ]] && shift;
+    done
+
+    [ ! -z "$runner_id" ] || error "runner id is not given"
+
+    for opt in ${!opts[@]}; do
+        [ ! -z "${opts[$opt]}" ] || error "missing option: --$opt"
+    done
+
+    assert_runner_exists $runner_id
+
+    if [ ! -z "$follow" ]; then
+        follow="--follow"
+    fi
+
+    if ! $journalctl_cmd ${pkg_name}.${runner_id}.service $follow; then
+        error "journalctl failed. In case it is due to insufficient permissions, add 'Storage=persistent' to '/etc/systemd/journal.conf' and restart 'systemd-journald' service."
+    fi
 }
 
 handle_${command}_command $@
