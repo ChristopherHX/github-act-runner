@@ -250,7 +250,7 @@ Description=${pkg_name} '${opts[owner]}/${opts[name]}'
 After=network.target
 
 [Service]
-ExecStart=${runner_bin_dir}runner run
+ExecStart=${runner_bin} run
 WorkingDirectory=$runner_dir
 KillMode=process
 KillSignal=SIGINT
@@ -285,7 +285,7 @@ WantedBy=multi-user.target
 
     echo "\
 [Path]
-PathModified=${runner_bin_dir}runner
+PathModified=${runner_bin}
 Unit=${restarter_service_file}
 
 [Install]
