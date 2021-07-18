@@ -5,6 +5,8 @@ on:
       version:
         description: 'Version of the Release'  
   
+env:
+  RUNNER_DEV_VERSION: "0.0.4"
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -56,7 +58,7 @@ jobs:
       with:
         go-version: '^1.16.0'
     - name: Build
-      run: go build -ldflags "-X main.version=${{ github.event.inputs.version || format('0.0.0-dev-{0}', github.sha) }}" -o github-actions-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
+      run: go build -ldflags "-X main.version=${{ github.event.inputs.version || format('{0}-dev-{1}', env.RUNNER_DEV_VERSION, github.sha) }}" -o github-actions-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
       env:
         GOOS: ${{matrix.GOOS}}
         GOARCH: ${{matrix.GOARCH}}
@@ -86,11 +88,10 @@ jobs:
 #########################################
 ########## publish to deb repo ##########
 #########################################
-  publish-to-deb-repo:
+  build-and-publish-to-deb-repo:
     needs: build
-    if: ${{ github.event.inputs.version }}
     runs-on: ubuntu-latest
-    name: deploy to deb repo
+    name: build and deploy to deb repo
     env:
       DEPLOY_ARCHS: "amd64 i386 armhf arm64" # architectures from https://wiki.debian.org/SupportedArchitectures
     steps:
@@ -112,15 +113,23 @@ jobs:
         sudo apt --quiet update
         sudo apt --quiet install --assume-yes dpkg-dev debhelper devscripts myci
     - name: add entry to debian/changelog
-      run: dch --newversion="${{ github.event.inputs.version }}" "another release"
-      # this 'if:' here is for cases when job's 'if:' is commented for debugging purposes
-      if: ${{ github.event.inputs.version }}
+      run: dch --newversion="${{ github.event.inputs.version || format('{0}-dev-{1}', env.RUNNER_DEV_VERSION, github.sha) }}" "another release"
     - name: create deb package
       run: |
         for arch in $DEPLOY_ARCHS; do
           dpkg-buildpackage --build=binary --no-sign --host-arch $arch
         done
+        mkdir -p debs
+        cp ../*.deb debs/
+    - uses: actions/upload-artifact@v2
+      continue-on-error: true
+      with:
+        name: debs
+        path: 'debs/*.deb'
     - name: deploy packages to deb repo
+      if: ${{ github.event.inputs.version && fromJSON(env.HAVE_MYCI_REPO_SSH_KEY) }}
+      env:
+        HAVE_MYCI_REPO_SSH_KEY: ${{ toJSON(secrets.MYCI_REPO_SSH_KEY != '') }}
       run: |
         echo "${{ secrets.MYCI_REPO_SSH_KEY }}" > repo_key_rsa && chmod 600 repo_key_rsa
         myci-deploy-debian-ssh-freight.sh --key repo_key_rsa --server gagis.hopto.org --user chrishx --repo chrishx/deb --distro all --component main ../*.deb
