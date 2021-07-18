@@ -145,7 +145,7 @@ function handle_new_command {
                 echo "  --name          new runner name."
                 echo "  --labels        comma separated list of runner labels, e.g. 'label1,label1,label3'."
                 echo "  --token         github runner registration token."
-                echo "  --runnergroup   github runner runner group name."
+                echo "  --runnergroup   runner group name."
                 exit 0
                 ;;
             --domain)
@@ -219,7 +219,7 @@ function handle_new_command {
     # remove the new runner dir in case of ERROR
     add_to_err_trap "rm --recursive --force $runner_dir"
 
-    local url=${opts[domain]/${opts[owner]}
+    local url=${opts[domain]}/${opts[owner]}
 
     (
         cd $runner_dir &&
