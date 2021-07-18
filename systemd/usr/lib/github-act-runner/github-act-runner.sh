@@ -10,7 +10,7 @@ is_term="test -t 1"
 is_root="[ $(id --user) -eq 0 ]"
 
 pkg_name="github-act-runner"
-runner_bin_dir=/usr/bin/${pkg_name}/
+runner_bin_dir=/usr/lib/${pkg_name}/
 runner_bin=${runner_bin_dir}runner
 runners_dir=~/.config/${pkg_name}/runners/
 
@@ -202,7 +202,7 @@ function handle_new_command {
         error "unable to create new runner: runner 'id = ${runner_id}' already exists"
     fi
 
-    echo "new runner config will be placed to $runner_dir"
+    # echo "new runner config will be placed to $runner_dir"
 
     local labels=
     if [ ! -z "${opts[labels]}" ]; then
@@ -223,8 +223,10 @@ function handle_new_command {
 
     (
         cd $runner_dir &&
-        $runner_bin configure --unattended --url $url --name ${opts[name]} --token ${opts[token]} $labels $runnergroup
-        echo "\$? = $?"
+        if ! $runner_bin configure --unattended --url $url --name ${opts[name]} --token ${opts[token]} $labels $runnergroup; then
+            error "failed creating runner on github"
+        fi
+        # echo "\$? = $?"
     )
 
     # We add 3 service files. The idea is that one service file will be running the runner service itself.
@@ -248,7 +250,7 @@ Description=${pkg_name} '${opts[owner]}/${opts[name]}'
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/${pkg_name}/runner run
+ExecStart=${runner_bin} run
 WorkingDirectory=$runner_dir
 KillMode=process
 KillSignal=SIGINT
@@ -283,7 +285,7 @@ WantedBy=multi-user.target
 
     echo "\
 [Path]
-PathModified=/usr/bin/${pkg_name}/runner
+PathModified=${runner_bin}
 Unit=${restarter_service_file}
 
 [Install]
