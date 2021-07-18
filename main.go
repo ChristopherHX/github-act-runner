@@ -1247,7 +1247,7 @@ func (run *RunRunner) Run() int {
 				tokenresp_, err := taskAgent.Authorize(c, key)
 				if err != nil {
 					fmt.Printf("Failed to renew auth, waiting 10 sec before retry: %v\n", err.Error())
-					time.After(10 * time.Second)
+					<-time.After(10 * time.Second)
 					continue
 				}
 				tokenresp.AccessToken = tokenresp_.AccessToken
@@ -1261,7 +1261,7 @@ func (run *RunRunner) Run() int {
 					sessionErrorCount = 0
 				} else {
 					fmt.Println("Failed to recreate Session, waiting 30 sec before retry")
-					time.After(30 * time.Second)
+					<-time.After(30 * time.Second)
 					continue
 				}
 			}
@@ -1285,11 +1285,11 @@ func (run *RunRunner) Run() int {
 					return 0
 				} else {
 					fmt.Printf("Failed to get message, waiting 10 sec before retry: %v\n", err.Error())
-					time.After(10 * time.Second)
+					<-time.After(10 * time.Second)
 				}
 			} else if poolsresp == nil {
 				fmt.Printf("Failed to get message without error, waiting 10 sec before retry: %v\n", poolsresp.StatusCode)
-				time.After(10 * time.Second)
+				<-time.After(10 * time.Second)
 			} else if poolsresp.StatusCode != 200 {
 				if poolsresp.StatusCode >= 200 && poolsresp.StatusCode < 300 {
 					continue
@@ -1302,14 +1302,14 @@ func (run *RunRunner) Run() int {
 						b = nil
 						if err != nil {
 							fmt.Println("Failed to delete Session, waiting 10 sec before creating a new one")
-							time.After(10 * time.Second)
+							<-time.After(10 * time.Second)
 						}
 					}
 					if session == nil || b == nil {
 						tokenresp_, err := taskAgent.Authorize(c, key)
 						if err != nil {
 							fmt.Printf("Failed to renew auth, waiting 10 sec before retry: %v\n", err.Error())
-							time.After(10 * time.Second)
+							<-time.After(10 * time.Second)
 							continue
 						}
 						tokenresp.AccessToken = tokenresp_.AccessToken
@@ -1324,7 +1324,7 @@ func (run *RunRunner) Run() int {
 							continue
 						} else {
 							fmt.Println("Failed to recreate Session, waiting 30 sec before retry")
-							time.After(30 * time.Second)
+							<-time.After(30 * time.Second)
 							continue
 						}
 					}
@@ -1336,7 +1336,7 @@ func (run *RunRunner) Run() int {
 					tokenresp_, err := taskAgent.Authorize(c, key)
 					if err != nil {
 						fmt.Printf("Failed to renew auth, waiting 10 sec before retry: %v\n", err.Error())
-						time.After(10 * time.Second)
+						<-time.After(10 * time.Second)
 						continue
 					}
 					tokenresp.AccessToken = tokenresp_.AccessToken
@@ -1347,7 +1347,7 @@ func (run *RunRunner) Run() int {
 				bytes, _ := ioutil.ReadAll(poolsresp.Body)
 				fmt.Println(string(bytes))
 				fmt.Printf("Failed to get message, waiting 10 sec before retry: %v\n", poolsresp.StatusCode)
-				time.After(10 * time.Second)
+				<-time.After(10 * time.Second)
 				continue
 			} else {
 				sessionErrorCount = 0
