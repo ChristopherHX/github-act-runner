@@ -1861,7 +1861,7 @@ func (run *RunRunner) Run() int {
 									EventName:           githubCtxMap["event_name"].(string),
 									GitHubInstance:      githubCtxMap["server_url"].(string)[8:],
 									ForceRemoteCheckout: true, // Needed to avoid copy the non exiting working dir
-									AutoRemove:          true,
+									ReuseContainers:     false,
 								},
 								Env: env,
 								Run: &model.Run{
