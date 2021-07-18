@@ -50,6 +50,7 @@ declare -A commands=( \
         [rm]="remove registered runner" \
         [stop]="stop runner service" \
         [start]="start runner service" \
+        [restart]="restart runner service" \
     )
 
 while [[ $# > 0 ]] ; do
@@ -145,12 +146,12 @@ function handle_new_command {
                 echo ""
                 echo "options:"
                 echo "  --help          show this help text and do nothing."
-                echo "  --domain        github domain (e.g. 'https://github.somedomain.org') default 'https://github.com'."
+                echo "  --domain        github domain (e.g. 'https://github.somedomain.org'). Defaults to 'https://github.com'."
                 echo "  --owner         github repo (e.g. 'my_user/my_repo') or organization (e.g. 'my_org')."
                 echo "  --name          new runner name."
-                echo "  --labels        comma separated list of runner labels, e.g. 'label1,label1,label3'."
+                echo "  --labels        comma separated list of runner labels, e.g. 'label1,label1,label3'. Optional."
                 echo "  --token         github runner registration token."
-                echo "  --runnergroup   runner group name."
+                echo "  --runnergroup   runner group name. Optional."
                 exit 0
                 ;;
             --domain)
@@ -344,108 +345,112 @@ function handle_ls_command {
 function handle_rm_command {
     # define required options to empty values
     declare -A local opts=( \
-        [id]= \
     )
+
+    local runner_id=
 
     while [[ $# > 0 ]] ; do
         case $1 in
             --help)
                 echo "usage:"
-                echo "	$(basename $0) <...> add <options>"
+                echo "	$(basename $0) <...> rm <runner-id> [<options>]"
                 echo ""
                 echo "options:"
                 echo "  --help    show this help text and do nothing."
-                echo "  --id      runner id. See 'ls' command output."
                 exit 0
                 ;;
-            --id)
-                shift
-                opts[id]=$1
-                ;;
             *)
-                error "unknown option: $1"
+                if [ -z "$runner_id" ]; then
+                    runner_id=$1
+                else
+                    error "unknown option: $1"
+                fi
                 ;;
         esac
         [[ $# > 0 ]] && shift;
     done
 
+    [ ! -z "$runner_id" ] || error "runner id is not given"
+
     for opt in ${!opts[@]}; do
         [ ! -z "${opts[$opt]}" ] || error "missing option: --$opt"
     done
 
-    assert_runner_exists ${opts[id]}
+    assert_runner_exists $runner_id
 
-    stop_runner_service ${opts[id]}
+    stop_runner_service $runner_id
 
-    local common_prefix=${pkg_name}.${opts[id]}
+    local common_prefix=${pkg_name}.$runner_id
 
     rm --force ${systemd_units_dir}${common_prefix}.service
     rm --force ${systemd_units_dir}${common_prefix}.restarter.service
     rm --force ${systemd_units_dir}${common_prefix}.path
 
-    local runner_dir=${runners_dir}${opts[id]}
+    local runner_dir=${runners_dir}$runner_id
 
     rm --recursive --force ${runner_dir}
 
     $systemctl_cmd daemon-reload
 
-    echo "runner 'id = ${opts[id]}' removed"
+    echo "runner 'id = $runner_id' removed"
 }
 
 function handle_stop_command {
     # define required options to empty values
     declare -A local opts=( \
-        [id]= \
     )
+
+    local runner_id=
 
     while [[ $# > 0 ]] ; do
         case $1 in
             --help)
                 echo "usage:"
-                echo "	$(basename $0) <...> add <options>"
+                echo "	$(basename $0) <...> stop <runner-id> [<options>]"
                 echo ""
                 echo "options:"
                 echo "  --help    show this help text and do nothing."
-                echo "  --id      runner id. See 'ls' command output."
                 exit 0
                 ;;
-            --id)
-                shift
-                opts[id]=$1
-                ;;
             *)
-                error "unknown option: $1"
+                if [ -z "$runner_id" ]; then
+                    runner_id=$1
+                else
+                    error "unknown option: $1"
+                fi
                 ;;
         esac
         [[ $# > 0 ]] && shift;
     done
 
+    [ ! -z "$runner_id" ] || error "runner id is not given"
+
     for opt in ${!opts[@]}; do
         [ ! -z "${opts[$opt]}" ] || error "missing option: --$opt"
     done
 
-    assert_runner_exists ${opts[id]}
+    assert_runner_exists $runner_id
 
-    stop_runner_service ${opts[id]}
+    stop_runner_service $runner_id
 
-    echo "runner 'id = ${opts[id]}' stopped"
+    echo "runner 'id = $runner_id' stopped"
 }
 
 function handle_start_command {
     # define required options to empty values
     declare -A local opts=( \
-        [id]= \
     )
+
+    local runner_id=
 
     while [[ $# > 0 ]] ; do
         case $1 in
             --help)
                 echo "usage:"
-                echo "	$(basename $0) <...> add <options>"
+                echo "	$(basename $0) <...> start <runner-id> [<options>]"
                 echo ""
                 echo "options:"
                 echo "  --help    show this help text and do nothing."
-                echo "  --id      runner id. See 'ls' command output."
                 exit 0
                 ;;
             --id)
@@ -453,21 +458,73 @@ function handle_start_command {
                 opts[id]=$1
                 ;;
             *)
-                error "unknown option: $1"
+                if [ -z "$runner_id" ]; then
+                    runner_id=$1
+                else
+                    error "unknown option: $1"
+                fi
                 ;;
         esac
         [[ $# > 0 ]] && shift;
     done
 
+    [ ! -z "$runner_id" ] || error "runner id is not given"
+
     for opt in ${!opts[@]}; do
         [ ! -z "${opts[$opt]}" ] || error "missing option: --$opt"
     done
 
-    assert_runner_exists ${opts[id]}
+    assert_runner_exists $runner_id
 
-    start_runner_service ${opts[id]}
+    start_runner_service $runner_id
 
-    echo "runner 'id = ${opts[id]}' started"
+    echo "runner 'id = $runner_id' started"
+}
+
+function handle_restart_command {
+    # define required options to empty values
+    declare -A local opts=( \
+    )
+
+    local runner_id=
+
+    while [[ $# > 0 ]] ; do
+        case $1 in
+            --help)
+                echo "usage:"
+                echo "	$(basename $0) <...> restart <runner-id> [<options>]"
+                echo ""
+                echo "options:"
+                echo "  --help    show this help text and do nothing."
+                exit 0
+                ;;
+            --id)
+                shift
+                opts[id]=$1
+                ;;
+            *)
+                if [ -z "$runner_id" ]; then
+                    runner_id=$1
+                else
+                    error "unknown option: $1"
+                fi
+                ;;
+        esac
+        [[ $# > 0 ]] && shift;
+    done
+
+    [ ! -z "$runner_id" ] || error "runner id is not given"
+
+    for opt in ${!opts[@]}; do
+        [ ! -z "${opts[$opt]}" ] || error "missing option: --$opt"
+    done
+
+    assert_runner_exists $runner_id
+
+    stop_runner_service $runner_id
+    start_runner_service $runner_id
+
+    echo "runner 'id = $runner_id' restarted"
 }
 
 handle_${command}_command $@
