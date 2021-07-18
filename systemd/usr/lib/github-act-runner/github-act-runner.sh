@@ -10,7 +10,7 @@ is_term="test -t 1"
 is_root="[ $(id --user) -eq 0 ]"
 
 pkg_name="github-act-runner"
-runner_bin_dir=/usr/bin/${pkg_name}/
+runner_bin_dir=/usr/lib/${pkg_name}/
 runner_bin=${runner_bin_dir}runner
 runners_dir=~/.config/${pkg_name}/runners/
 
@@ -248,7 +248,7 @@ Description=${pkg_name} '${opts[owner]}/${opts[name]}'
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/${pkg_name}/runner run
+ExecStart=/usr/lib/${pkg_name}/runner run
 WorkingDirectory=$runner_dir
 KillMode=process
 KillSignal=SIGINT
@@ -283,7 +283,7 @@ WantedBy=multi-user.target
 
     echo "\
 [Path]
-PathModified=/usr/bin/${pkg_name}/runner
+PathModified=/usr/lib/${pkg_name}/runner
 Unit=${restarter_service_file}
 
 [Install]

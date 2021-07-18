@@ -17,11 +17,14 @@ else ifeq ($(this_arch),i386)
 	this_arch := 386
 endif
 
+this_artifact_runner_file := artifacts/binary-linux-${this_arch}/github-actions-act-runner-linux-${this_arch}
+
 .PHONY: override_dh_auto_install
 override_dh_auto_install:
-	mkdir -p debian/tmp/usr/bin/github-act-runner
-	cp artifacts/binary-linux-${this_arch}/github-actions-act-runner-linux-${this_arch} debian/tmp/usr/bin/github-act-runner/runner
+	mkdir --parents debian/tmp/
 	cp --recursive systemd/* debian/tmp/
+	chmod +x $(this_artifact_runner_file)
+	cp $(this_artifact_runner_file) debian/tmp/usr/lib/github-act-runner/runner
 
 .PHONY: override_dh_strip
 override_dh_strip:
