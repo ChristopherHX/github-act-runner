@@ -1293,6 +1293,7 @@ func (run *RunRunner) Run() int {
 				<-time.After(10 * time.Second)
 			} else if poolsresp.StatusCode != 200 {
 				if poolsresp.StatusCode >= 200 && poolsresp.StatusCode < 300 {
+					sessionErrorCount = 0
 					continue
 				}
 				if sessionErrorCount > 20 || session == nil || b == nil {
