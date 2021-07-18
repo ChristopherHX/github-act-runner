@@ -958,7 +958,7 @@ func (config *ConfigureRunner) Configure() int {
 		}
 		settings.PoolId = -1
 		for _, val := range _taskAgentPools.Value {
-			if !val.IsHosted && val.Name == taskAgentPool {
+			if !val.IsHosted && strings.EqualFold(val.Name, taskAgentPool) {
 				settings.PoolId = val.Id
 			}
 		}
