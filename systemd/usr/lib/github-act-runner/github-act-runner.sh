@@ -564,7 +564,7 @@ function handle_log_command {
         case $1 in
             --help)
                 echo "usage:"
-                echo "	$(basename $0) <...> restart <runner-id> [<options>]"
+                echo "	$(basename $0) <...> log <runner-id> [<options>]"
                 echo ""
                 echo "options:"
                 echo "  --help    show this help text and do nothing."
