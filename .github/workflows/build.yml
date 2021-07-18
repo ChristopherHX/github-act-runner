@@ -58,14 +58,14 @@ jobs:
       with:
         go-version: '^1.16.0'
     - name: Build
-      run: go build -ldflags "-X main.version=${{ github.event.inputs.version || format('{0}-dev-{1}', env.RUNNER_DEV_VERSION, github.sha) }}" -o github-actions-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
+      run: go build -ldflags "-X main.version=${{ github.event.inputs.version || format('{0}-dev-{1}', env.RUNNER_DEV_VERSION, github.sha) }}" -o github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
       env:
         GOOS: ${{matrix.GOOS}}
         GOARCH: ${{matrix.GOARCH}}
     - uses: actions/upload-artifact@v2
       with:
         name: binary-${{matrix.GOOS}}-${{matrix.GOARCH}}
-        path: github-actions-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
+        path: github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
 #######################################
 ########## publish to github ##########
 #######################################

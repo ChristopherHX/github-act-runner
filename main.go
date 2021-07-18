@@ -980,7 +980,7 @@ func (config *ConfigureRunner) Configure() int {
 	}
 	taskAgent.Authorization.PublicKey = TaskAgentPublicKey{Exponent: base64.StdEncoding.EncodeToString(bs[expof:]), Modulus: base64.StdEncoding.EncodeToString(key.N.Bytes())}
 	taskAgent.Version = "3.0.0" //version, will not use fips crypto if set to 0.0.0 *
-	taskAgent.OSDescription = "github-actions-act-runner " + runtime.GOOS + "/" + runtime.GOARCH
+	taskAgent.OSDescription = "github-act-runner " + runtime.GOOS + "/" + runtime.GOARCH
 	systemLabels := make([]string, 0, 3)
 	if !config.NoDefaultLabels {
 		systemLabels = append(systemLabels, "self-hosted", runtime.GOOS, runtime.GOARCH)
@@ -2060,7 +2060,7 @@ func (run *RunRunner) Run() int {
 							formatter.wrap = wrap
 
 							logger.Log(logrus.DebugLevel, "Runner Name: "+taskAgent.Name)
-							logger.Log(logrus.DebugLevel, "Runner OSDescription: github-actions-act-runner "+runtime.GOOS+"/"+runtime.GOARCH)
+							logger.Log(logrus.DebugLevel, "Runner OSDescription: github-act-runner "+runtime.GOOS+"/"+runtime.GOARCH)
 							logger.Log(logrus.DebugLevel, "Runner Version: "+version)
 							logrus.SetLevel(logrus.DebugLevel)
 							logrus.SetFormatter(formatter)
@@ -2300,7 +2300,7 @@ func main() {
 	cmdRemove.MarkFlagRequired("token")
 
 	var rootCmd = &cobra.Command{
-		Use:     "github-actions-act-runner",
+		Use:     "github-act-runner",
 		Version: version,
 	}
 	rootCmd.AddCommand(cmdConfigure, cmdRun, cmdRemove)

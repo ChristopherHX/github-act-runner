@@ -17,7 +17,7 @@ else ifeq ($(this_arch),i386)
 	this_arch := 386
 endif
 
-this_artifact_runner_file := artifacts/binary-linux-${this_arch}/github-actions-act-runner-linux-${this_arch}
+this_artifact_runner_file := artifacts/binary-linux-${this_arch}/github-act-runner-linux-${this_arch}
 
 .PHONY: override_dh_auto_install
 override_dh_auto_install:

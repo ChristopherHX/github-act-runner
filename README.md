@@ -1,4 +1,4 @@
-# github-actions-act-runner
+# github-act-runner
 
 This is a proof of concept runner prototype, which partially implements the azure devops agent protocol to act as self-hosted runner written in go.
 
@@ -57,7 +57,7 @@ You need at least go 1.16 to use this runner from source.
 
 ### Getting Source
 ```
-git clone https://github.com/ChristopherHX/github-actions-act-runner.git --recursive
+git clone https://github.com/ChristopherHX/github-act-runner.git --recursive
 ```
 
 ### Update Source
@@ -74,7 +74,7 @@ go run main.go configure --url <github-repo-or-org-or-enterprise> --name <name o
 
 #### `<github-repo-or-org-or-enterprise>`
 
-E.g. `https://github.com/ChristopherHX/github-actions-act-runner` for this repo
+E.g. `https://github.com/ChristopherHX/github-act-runner` for this repo
 
 #### `<name of this runner>`
 E.g. `Test`
