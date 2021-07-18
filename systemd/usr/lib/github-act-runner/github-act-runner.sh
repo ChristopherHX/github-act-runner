@@ -42,7 +42,8 @@ cur_err_trap=
 function add_to_err_trap {
     local cmd="$1;"
 
-    cur_err_trap="${cur_err_trap} $cmd"
+    # apply trap commands in reverse order, added last - executed first
+    cur_err_trap="$cmd ${cur_err_trap}"
     trap "${cur_err_trap}" ERR
 }
 
@@ -237,6 +238,9 @@ function handle_new_command {
         fi
         # echo "\$? = $?"
     )
+
+    # in case anything fails with setting up services below, we remove the registered runner from github
+    add_to_err_trap "(cd $runner_dir; $runner_bin remove --url $url --token ${opts[token]} > /dev/null)"
 
     # We add 3 service files. The idea is that one service file will be running the runner service itself.
     # Then there is a '.path' service file which watches the github-act-runner binary file for changes. When
