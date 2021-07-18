@@ -59,12 +59,17 @@ while [[ $# > 0 ]] ; do
             echo "  $(basename $0) [<options>] <command> [--help] [<command-options>] [...]"
             echo ""
             echo "options:"
-            echo "  --help  show this help text and do nothing."
+            echo "  --help     show this help text and do nothing."
+            echo "  --version  show the runner version"
             echo ""
             echo "commands:"
             for i in "${!commands[@]}"; do {
-                echo "  $i        ${commands[$i]}"
+                printf "  %-8s %s\n" $i "${commands[$i]}"
             } done
+            exit 0
+            ;;
+        --version)
+            $runner_bin --version
             exit 0
             ;;
         *)
