@@ -119,11 +119,13 @@ jobs:
         for arch in $DEPLOY_ARCHS; do
           dpkg-buildpackage --build=binary --no-sign --host-arch $arch
         done
+        mkdir -p debs
+        cp ../*.deb debs/
     - uses: actions/upload-artifact@v2
       continue-on-error: true
       with:
         name: debs
-        path: '../*.deb'
+        path: 'debs/*.deb'
     - name: deploy packages to deb repo
       if: ${{ github.event.inputs.version && fromJSON(env.HAVE_MYCI_REPO_SSH_KEY) }}
       env:
