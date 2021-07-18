@@ -27,6 +27,7 @@ import (
 	"time"
 
 	// "github.com/AlecAivazis/survey/v2"
+
 	"github.com/dgrijalva/jwt-go"
 	"github.com/google/uuid"
 	"github.com/nektos/act/pkg/common"
@@ -1851,6 +1852,7 @@ func (run *RunRunner) Run() int {
 								payload = string(e)
 							}
 							rc := &runner.RunContext{
+								Name: uuid.New().String(),
 								Config: &runner.Config{
 									Workdir: ".",
 									Secrets: secrets,
