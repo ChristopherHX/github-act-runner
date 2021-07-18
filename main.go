@@ -1342,6 +1342,7 @@ func (run *RunRunner) Run() int {
 					tokenresp.AccessToken = tokenresp_.AccessToken
 					tokenresp.ExpiresIn = tokenresp_.ExpiresIn
 					tokenresp.TokenType = tokenresp_.TokenType
+					sessionErrorCount = 0
 					continue
 				}
 				bytes, _ := ioutil.ReadAll(poolsresp.Body)
