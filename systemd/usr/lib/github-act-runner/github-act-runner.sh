@@ -18,6 +18,7 @@ systemctl_cmd="systemctl"
 journalctl_cmd="journalctl --quiet"
 if $is_root; then
     echo "running as root"
+    journalctl_cmd="${journalctl_cmd} --unit"
     systemd_units_dir=/etc/systemd/system/
 else
     echo "running as user '$(id --user --name)'"
