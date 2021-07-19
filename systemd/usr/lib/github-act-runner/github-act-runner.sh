@@ -137,10 +137,9 @@ function assert_runner_exists {
 function handle_new_command {
     # define required options to empty values
     declare -A local opts=( \
-        [owner]= \
+        [url]= \
         [name]= \
         [token]= \
-        [domain]="https://github.com" \
     )
 
     while [[ $# > 0 ]] ; do
@@ -151,21 +150,16 @@ function handle_new_command {
                 echo ""
                 echo "options:"
                 echo "  --help          show this help text and do nothing."
-                echo "  --domain        github domain (e.g. 'https://github.somedomain.org'). Defaults to 'https://github.com'."
-                echo "  --owner         github repo (e.g. 'my_user/my_repo') or organization (e.g. 'my_org')."
+                echo "  --url           github repo or organization URL (e.g. 'https://github.com/user/repo' or 'https://github.com/organization')."
                 echo "  --name          new runner name."
                 echo "  --labels        comma separated list of runner labels, e.g. 'label1,label1,label3'. Optional."
                 echo "  --token         github runner registration token."
                 echo "  --runnergroup   runner group name. Optional."
                 exit 0
                 ;;
-            --domain)
+            --url)
                 shift
-                opts[domain]=$1
-                ;;
-            --owner)
-                shift
-                opts[owner]=$1
+                opts[url]=$1
                 ;;
             --name)
                 shift
@@ -204,13 +198,22 @@ function handle_new_command {
 
     mkdir --parents $runners_dir
 
-    local owner_dot=(${opts[owner]//\//.})
-
-    local runner_id=${opts[name]}.${owner_dot}
+    local runner_id=${opts[name]}
 
     local runner_dir="${runners_dir}${runner_id}"
     if [ -d "$runner_dir" ]; then
-        error "unable to create new runner: runner 'id = ${runner_id}' already exists"
+        echo "runner 'id = ${runner_id}' already exists"
+
+        local number_suffix=1
+
+        while [ -d "${runner_dir}.${number_suffix}" ]; do
+            number_suffix=$((number_suffix+1))
+        done
+
+        runner_id="${runner_id}.${number_suffix}"
+        runner_dir="${runners_dir}${runner_id}"
+
+        echo "will create runner 'id = ${runner_id}'"
     fi
 
     # echo "new runner config will be placed to $runner_dir"
@@ -230,18 +233,16 @@ function handle_new_command {
     # remove the new runner dir in case of ERROR
     add_to_err_trap "rm --recursive --force $runner_dir"
 
-    local url=${opts[domain]}/${opts[owner]}
-
     (
         cd $runner_dir &&
-        if ! $runner_bin configure --unattended --url $url --name ${opts[name]} --token ${opts[token]} $labels $runnergroup; then
+        if ! $runner_bin configure --unattended --url ${opts[url]} --name ${opts[name]} --token ${opts[token]} $labels $runnergroup; then
             error "failed creating runner on github"
         fi
         # echo "\$? = $?"
     )
 
     # in case anything fails with setting up services below, we remove the registered runner from github
-    add_to_err_trap "(cd $runner_dir; $runner_bin remove --url $url --token ${opts[token]} > /dev/null)"
+    add_to_err_trap "(cd $runner_dir; $runner_bin remove --url ${opts[url]} --token ${opts[token]} > /dev/null)"
 
     # We add 3 service files. The idea is that one service file will be running the runner service itself.
     # Then there is a '.path' service file which watches the github-act-runner binary file for changes. When
