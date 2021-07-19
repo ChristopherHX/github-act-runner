@@ -1125,7 +1125,7 @@ func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAut
 		return nil, errors.New("Failed to Authorize: " + err.Error())
 	} else if poolsresp.StatusCode != 200 {
 		bytes, _ := ioutil.ReadAll(poolsresp.Body)
-		return nil, errors.New("Failed to Authorize, service reponded with code " + fmt.Sprint(poolsresp.StatusCode) + ": " + string(bytes))
+		return nil, errors.New("Failed to Authorize, service responded with code " + fmt.Sprint(poolsresp.StatusCode) + ": " + string(bytes))
 	} else {
 		dec := json.NewDecoder(poolsresp.Body)
 		if err := dec.Decode(tokenresp); err != nil {
