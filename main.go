@@ -2056,6 +2056,7 @@ func (run *RunRunner) Run() int {
 								}
 								var outputMap *map[string]VariableValue
 								jobStatus := "success"
+								cancelled := false
 								{
 									runCtx, cancelRun := context.WithCancel(context.Background())
 									logctx, cancelLog := context.WithCancel(context.Background())
@@ -2173,7 +2174,6 @@ func (run *RunRunner) Run() int {
 											break
 										}
 									}
-									cancelled := false
 									select {
 									case <-jobExecCtx.Done():
 										cancelled = true
@@ -2216,7 +2216,9 @@ func (run *RunRunner) Run() int {
 								}
 								UpdateTimeLine(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, wrap, jobToken)
 								result := "Failed"
-								if jobStatus == "success" {
+								if cancelled {
+									result = "Canceled"
+								} else if jobStatus == "success" {
 									result = "Succeeded"
 								}
 								finishJob2(result, outputMap)
