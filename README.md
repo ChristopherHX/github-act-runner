@@ -27,10 +27,10 @@ sudo apt install github-act-runner
 
 ### add new runner
 ```console
-github-act-runner new --owner <github-repo-or-org-or-enterprise> --name <runner-name> --labels <labels> --token <runner-registration-token>
+github-act-runner new --url <url> --name <runner-name> --labels <labels> --token <runner-registration-token>
 ```
 where
-- `<github-repo-or-org-or-enterprise>` - github repository (e.g. `myname/myrepo`), organization (e.g. `myorg`) or enterprise
+- `<url>` - github repository (e.g. `https://github.com/user/repo`), organization (e.g. `https://github.com/organization`) or enterprise URL
 - `<runner-name>` - choose a name for your runner
 - `<labels>` - comma-separated list of labels, e.g. `label1,label2`. Optional.
 - `<runner-registration-token>` - you can find the token in `<your-github-repo-url>/settings/actions/runners`, after pressing `Add runner`
