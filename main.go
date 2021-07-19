@@ -7,6 +7,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -14,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -614,7 +616,7 @@ func (connectionData *ConnectionData) GetServiceDefinition(id string) *ServiceDe
 	return nil
 }
 
-func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *http.Client, tenantUrl string, key *rsa.PrivateKey, token string, settings *RunnerSettings) (*TaskAgentSession, cipher.Block) {
+func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *http.Client, tenantUrl string, key *rsa.PrivateKey, token string, settings *RunnerSettings) (*TaskAgentSession, cipher.Block, error) {
 	session := &TaskAgentSession{}
 	session.Agent = *taskAgent
 	session.UseFipsEncryption = true
@@ -633,21 +635,32 @@ func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *ht
 	AddBearer(poolsreq.Header, token)
 	AddContentType(poolsreq.Header, "5.1-preview")
 	AddHeaders(poolsreq.Header)
-	poolsresp, _ := c.Do(poolsreq)
-
+	poolsresp, err := c.Do(poolsreq)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer poolsresp.Body.Close()
+	if poolsresp.StatusCode < 200 || poolsresp.StatusCode >= 300 {
+		return nil, nil, fmt.Errorf("failed to create session with status %v", poolsresp.StatusCode)
+	}
 	dec := json.NewDecoder(poolsresp.Body)
 	dec.Decode(session)
-	if !session.UseFipsEncryption {
-		fmt.Println("This runner doesn't support sessions without fips cryptography, please update your github server")
-		return nil, nil
+	d, err := base64.StdEncoding.DecodeString(session.EncryptionKey.Value)
+	if err != nil {
+		return nil, nil, err
 	}
-	d, _ := base64.StdEncoding.DecodeString(session.EncryptionKey.Value)
-	sessionKey, _ := rsa.DecryptOAEP(sha256.New(), rand.Reader, key, d, []byte{})
-	if sessionKey == nil {
-		return nil, nil
+	var h hash.Hash
+	if session.UseFipsEncryption {
+		h = sha256.New()
+	} else {
+		h = sha1.New()
 	}
-	b, _ := aes.NewCipher(sessionKey)
-	return session, b
+	sessionKey, err := rsa.DecryptOAEP(h, rand.Reader, key, d, []byte{})
+	if sessionKey == nil || err != nil {
+		return nil, nil, err
+	}
+	b, err := aes.NewCipher(sessionKey)
+	return session, b, err
 }
 
 func (session *TaskAgentSession) Delete(connectionData_ *ConnectionData, c *http.Client, tenantUrl string, token string, settings *RunnerSettings) error {
@@ -1227,8 +1240,11 @@ func (run *RunRunner) Run() int {
 
 	connectionData_ := GetConnectionData(c, req.TenantUrl)
 
-	session, b := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken, settings)
-	if session == nil || b == nil {
+	session, b, err := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken, settings)
+	if err != nil {
+		fmt.Printf("Failed to create Session: %v\n", err.Error())
+		return 1
+	} else if session == nil || b == nil {
 		fmt.Println("Failed to create Session")
 		return 1
 	} else {
@@ -1238,7 +1254,11 @@ func (run *RunRunner) Run() int {
 		session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken, settings)
 	}()
 	firstJobReceived := false
-	var cancelJob func()
+	jobctx, cancelJob := context.WithCancel(ctx)
+	cancelJob()
+	defer func() {
+		<-jobctx.Done()
+	}()
 	sessionErrorCount := 0
 	for {
 		message := &TaskAgentMessage{}
@@ -1265,8 +1285,17 @@ func (run *RunRunner) Run() int {
 				tokenresp.AccessToken = tokenresp_.AccessToken
 				tokenresp.ExpiresIn = tokenresp_.ExpiresIn
 				tokenresp.TokenType = tokenresp_.TokenType
-				session2, block2 := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken, settings)
-				if session2 != nil && block2 != nil {
+				session2, block2, err := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken, settings)
+				if err != nil {
+					fmt.Printf("Failed to recreate Session, waiting 30 sec before retry: %v\n", err.Error())
+					select {
+					case <-ctx.Done():
+						fmt.Println("Canceled stopping")
+						return 0
+					case <-time.After(30 * time.Second):
+					}
+					continue
+				} else if session2 != nil && block2 != nil {
 					session = session2
 					b = block2
 					fmt.Println("Listening for Jobs")
@@ -1338,39 +1367,7 @@ func (run *RunRunner) Run() int {
 							}
 						}
 					}
-					if session == nil || b == nil {
-						tokenresp_, err := taskAgent.Authorize(c, key)
-						if err != nil {
-							fmt.Printf("Failed to renew auth, waiting 10 sec before retry: %v\n", err.Error())
-							select {
-							case <-ctx.Done():
-								fmt.Println("Canceled stopping")
-								return 0
-							case <-time.After(10 * time.Second):
-							}
-							continue
-						}
-						tokenresp.AccessToken = tokenresp_.AccessToken
-						tokenresp.ExpiresIn = tokenresp_.ExpiresIn
-						tokenresp.TokenType = tokenresp_.TokenType
-						session2, block2 := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken, settings)
-						if session2 != nil && block2 != nil {
-							session = session2
-							b = block2
-							fmt.Println("Listening for Jobs")
-							sessionErrorCount = 0
-							continue
-						} else {
-							fmt.Println("Failed to recreate Session, waiting 30 sec before retry")
-							select {
-							case <-ctx.Done():
-								fmt.Println("Canceled stopping")
-								return 0
-							case <-time.After(30 * time.Second):
-							}
-							continue
-						}
-					}
+					continue
 				} else {
 					sessionErrorCount++
 				}
@@ -1448,14 +1445,14 @@ func (run *RunRunner) Run() int {
 					if strings.EqualFold(message.MessageType, "JobCancellation") && cancelJob != nil {
 						cancelJob()
 					} else if strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
-						cancelled := false
-						cancelJob = func() {
-							cancelled = true
-						}
 						if run.Once {
 							fmt.Println("First job received")
 							firstJobReceived = true
 						}
+						var finishJob context.CancelFunc
+						jobctx, finishJob = context.WithCancel(context.Background())
+						var jobExecCtx context.Context
+						jobExecCtx, cancelJob = context.WithCancel(ctx)
 						go func() {
 							defer func() {
 								if run.Once {
@@ -1463,6 +1460,8 @@ func (run *RunRunner) Run() int {
 									fmt.Println("First job finished, cancel Message loop")
 									cancel()
 								}
+								cancelJob()
+								finishJob()
 							}()
 							iv, _ := base64.StdEncoding.DecodeString(message.IV)
 							src, _ := base64.StdEncoding.DecodeString(message.Body)
@@ -1586,8 +1585,6 @@ func (run *RunRunner) Run() int {
 									}
 								}
 							}
-							renewctx, cancelRenew := context.WithCancel(context.Background())
-							defer cancelRenew()
 							go func() {
 								for {
 									serv := connectionData_.GetServiceDefinition("fc825784-c92a-4299-9221-998a02d1b54f")
@@ -1605,7 +1602,7 @@ func (run *RunRunner) Run() int {
 									if err := enc.Encode(renew); err != nil {
 										return
 									}
-									poolsreq, _ := http.NewRequestWithContext(renewctx, "PATCH", url, buf)
+									poolsreq, _ := http.NewRequestWithContext(jobctx, "PATCH", url, buf)
 									AddBearer(poolsreq.Header, tokenresp.AccessToken)
 									AddContentType(poolsreq.Header, "5.1-preview")
 									AddHeaders(poolsreq.Header)
@@ -1626,7 +1623,7 @@ func (run *RunRunner) Run() int {
 										}
 									}
 									select {
-									case <-renewctx.Done():
+									case <-jobctx.Done():
 										return
 									case <-time.After(60 * time.Second):
 									}
@@ -1984,12 +1981,6 @@ func (run *RunRunner) Run() int {
 							rc.GithubContextBase = &sv
 							rc.JobName = "beta"
 
-							ctx, _cancelJob := context.WithCancel(context.Background())
-							cancelJob = func() {
-								cancelled = true
-								_cancelJob()
-							}
-
 							ee := rc.NewExpressionEvaluator()
 							rc.ExprEval = ee
 							logger := logrus.New()
@@ -2023,156 +2014,163 @@ func (run *RunRunner) Run() int {
 									return UploadLogFile(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, jobToken, log)
 								}
 							}
-							jobDone := make(chan int)
-							logsDone := make(chan int)
-							{
-								serv := jobConnectionData.GetServiceDefinition("858983e4-19bd-4c5e-864c-507b59b58b12")
-								tenantUrl := jobTenant
-								logchan := make(chan *TimelineRecordFeedLinesWrapper, 64)
-								formatter.logline = func(startLine int64, recordId string, line string) {
-									lines := &TimelineRecordFeedLinesWrapper{}
-									lines.Count = 1
-									lines.StartLine = &startLine
-									lines.StepId = recordId
-									lines.Value = []string{line}
-									logchan <- lines
-								}
-								go func() {
-									sendLog := func(lines *TimelineRecordFeedLinesWrapper) {
-										url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
-											"area":            serv.ServiceType,
-											"resource":        serv.DisplayName,
-											"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
-											"planId":          jobreq.Plan.PlanId,
-											"hubName":         jobreq.Plan.PlanType,
-											"timelineId":      jobreq.Timeline.Id,
-											"recordId":        lines.StepId,
-										}, map[string]string{})
-
-										buf := new(bytes.Buffer)
-										enc := json.NewEncoder(buf)
-
-										enc.Encode(lines)
-										poolsreq, _ := http.NewRequest("POST", url, buf)
-										AddBearer(poolsreq.Header, jobToken)
-										AddContentType(poolsreq.Header, "5.1-preview")
-										AddHeaders(poolsreq.Header)
-										resp, err := c.Do(poolsreq)
-										if err != nil {
-											fmt.Println("Failed to upload logline: " + err.Error())
-										} else if resp == nil || resp.StatusCode != 200 {
-											fmt.Println("Failed to upload logline")
-										}
-									}
-									for {
-										select {
-										case <-renewctx.Done():
-											return
-										case lines := <-logchan:
-											st := time.Now()
-											lp := st
-											logsexit := false
-											for {
-												b := false
-												div := lp.Sub(st)
-												if div > time.Second {
-													break
-												}
-												select {
-												case line := <-logchan:
-													if line.StepId == lines.StepId {
-														lines.Count++
-														lines.Value = append(lines.Value, line.Value[0])
-													} else {
-														sendLog(lines)
-														lines = line
-														st = time.Now()
-													}
-												case <-time.After(time.Second - div):
-													b = true
-												case <-jobDone:
-													b = true
-													logsexit = true
-												}
-												if b {
-													break
-												}
-												lp = time.Now()
-											}
-											sendLog(lines)
-											if logsexit {
-												logsDone <- 0
-												return
-											}
-										case <-jobDone:
-											logsDone <- 0
-											return
-										}
-									}
-								}()
-							}
-							formatter.wrap = wrap
-
-							logger.Log(logrus.DebugLevel, "Runner Name: "+taskAgent.Name)
-							logger.Log(logrus.DebugLevel, "Runner OSDescription: github-act-runner "+runtime.GOOS+"/"+runtime.GOARCH)
-							logger.Log(logrus.DebugLevel, "Runner Version: "+version)
-							logrus.SetLevel(logrus.DebugLevel)
-							logrus.SetFormatter(formatter)
-							rc.Executor()(common.WithLogger(ctx, logger))
-
-							// Prepare results for github server
 							var outputMap *map[string]VariableValue
-							if rqt.JobOutputs != nil {
-								m := make(map[string]VariableValue)
-								outputMap = &m
-								for k, v := range rc.Run.Workflow.Jobs[rqt.JobId].Outputs {
-									m[k] = VariableValue{Value: v}
-								}
-							}
-
 							jobStatus := "success"
-							for _, stepStatus := range rc.StepResults {
-								if !stepStatus.Success {
-									jobStatus = "failure"
-									break
-								}
-							}
 							{
-								f := formatter
-								f.startLine = 1
-								if f.current != nil {
-									if f.current == &wrap.Value[1] {
-										// Workaround check for init failure, e.g. docker fails
-										if cancelled {
-											f.current.Complete("Canceled")
+								runCtx, cancelRun := context.WithCancel(context.Background())
+								logctx, cancelLog := context.WithCancel(context.Background())
+								defer func() {
+									cancelRun()
+									<-logctx.Done()
+								}()
+								{
+									serv := jobConnectionData.GetServiceDefinition("858983e4-19bd-4c5e-864c-507b59b58b12")
+									tenantUrl := jobTenant
+									logchan := make(chan *TimelineRecordFeedLinesWrapper, 64)
+									formatter.logline = func(startLine int64, recordId string, line string) {
+										lines := &TimelineRecordFeedLinesWrapper{}
+										lines.Count = 1
+										lines.StartLine = &startLine
+										lines.StepId = recordId
+										lines.Value = []string{line}
+										logchan <- lines
+									}
+									go func() {
+										defer cancelLog()
+										sendLog := func(lines *TimelineRecordFeedLinesWrapper) {
+											url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
+												"area":            serv.ServiceType,
+												"resource":        serv.DisplayName,
+												"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
+												"planId":          jobreq.Plan.PlanId,
+												"hubName":         jobreq.Plan.PlanType,
+												"timelineId":      jobreq.Timeline.Id,
+												"recordId":        lines.StepId,
+											}, map[string]string{})
+
+											buf := new(bytes.Buffer)
+											enc := json.NewEncoder(buf)
+
+											enc.Encode(lines)
+											poolsreq, _ := http.NewRequest("POST", url, buf)
+											AddBearer(poolsreq.Header, jobToken)
+											AddContentType(poolsreq.Header, "5.1-preview")
+											AddHeaders(poolsreq.Header)
+											resp, err := c.Do(poolsreq)
+											if err != nil {
+												fmt.Println("Failed to upload logline: " + err.Error())
+											} else if resp == nil || resp.StatusCode != 200 {
+												fmt.Println("Failed to upload logline")
+											}
+										}
+										for {
+											select {
+											case <-runCtx.Done():
+												return
+											case lines := <-logchan:
+												st := time.Now()
+												lp := st
+												logsexit := false
+												for {
+													b := false
+													div := lp.Sub(st)
+													if div > time.Second {
+														break
+													}
+													select {
+													case line := <-logchan:
+														if line.StepId == lines.StepId {
+															lines.Count++
+															lines.Value = append(lines.Value, line.Value[0])
+														} else {
+															sendLog(lines)
+															lines = line
+															st = time.Now()
+														}
+													case <-time.After(time.Second - div):
+														b = true
+													case <-runCtx.Done():
+														b = true
+														logsexit = true
+													}
+													if b {
+														break
+													}
+													lp = time.Now()
+												}
+												sendLog(lines)
+												if logsexit {
+													return
+												}
+											}
+										}
+									}()
+								}
+								formatter.wrap = wrap
+
+								logger.Log(logrus.DebugLevel, "Runner Name: "+taskAgent.Name)
+								logger.Log(logrus.DebugLevel, "Runner OSDescription: github-act-runner "+runtime.GOOS+"/"+runtime.GOARCH)
+								logger.Log(logrus.DebugLevel, "Runner Version: "+version)
+								logrus.SetLevel(logrus.DebugLevel)
+								logrus.SetFormatter(formatter)
+								rc.Executor()(common.WithLogger(jobExecCtx, logger))
+
+								// Prepare results for github server
+								if rqt.JobOutputs != nil {
+									m := make(map[string]VariableValue)
+									outputMap = &m
+									for k, v := range rc.Run.Workflow.Jobs[rqt.JobId].Outputs {
+										m[k] = VariableValue{Value: v}
+									}
+								}
+
+								for _, stepStatus := range rc.StepResults {
+									if !stepStatus.Success {
+										jobStatus = "failure"
+										break
+									}
+								}
+								cancelled := false
+								select {
+								case <-jobExecCtx.Done():
+									cancelled = true
+								default:
+								}
+								{
+									f := formatter
+									f.startLine = 1
+									if f.current != nil {
+										if f.current == &wrap.Value[1] {
+											// Workaround check for init failure, e.g. docker fails
+											if cancelled {
+												f.current.Complete("Canceled")
+											} else {
+												jobStatus = "failure"
+												f.current.Complete("Failed")
+											}
+										} else if f.rc.StepResults[f.current.RefName].Success {
+											f.current.Complete("Succeeded")
 										} else {
-											jobStatus = "failure"
 											f.current.Complete("Failed")
 										}
-									} else if f.rc.StepResults[f.current.RefName].Success {
-										f.current.Complete("Succeeded")
-									} else {
-										f.current.Complete("Failed")
-									}
-									if f.stepBuffer.Len() > 0 {
-										f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
+										if f.stepBuffer.Len() > 0 {
+											f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
+										}
 									}
 								}
-							}
-							for i := 2; i < len(wrap.Value); i++ {
-								if !strings.EqualFold(wrap.Value[i].State, "Completed") {
-									wrap.Value[i].Complete("Skipped")
+								for i := 2; i < len(wrap.Value); i++ {
+									if !strings.EqualFold(wrap.Value[i].State, "Completed") {
+										wrap.Value[i].Complete("Skipped")
+									}
+								}
+								if cancelled {
+									wrap.Value[0].Complete("Canceled")
+								} else if jobStatus == "success" {
+									wrap.Value[0].Complete("Succeeded")
+								} else {
+									wrap.Value[0].Complete("Failed")
 								}
 							}
-							if cancelled {
-								wrap.Value[0].Complete("Canceled")
-							} else if jobStatus == "success" {
-								wrap.Value[0].Complete("Succeeded")
-							} else {
-								wrap.Value[0].Complete("Failed")
-							}
-							jobDone <- 0
-							<-logsDone
 							UpdateTimeLine(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, wrap, jobToken)
 							fmt.Println("Finishing Job")
 							result := "Failed"
