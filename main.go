@@ -1738,7 +1738,7 @@ func (run *RunRunner) Run() int {
 										if ok {
 											shell = sshell
 										} else {
-											failInitJob("shell is not a script")
+											failInitJob("shell is not a string")
 											return
 										}
 									}
