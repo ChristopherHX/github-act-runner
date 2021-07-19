@@ -1686,18 +1686,6 @@ func (run *RunRunner) Run() int {
 									}
 								}
 
-								rawwd, haswd := inputs["workingDirectory"]
-								var wd string
-								if haswd {
-									tmpwd, ok := rawwd.(string)
-									if !ok {
-										failInitJob("workingDirectory: act doesn't support non strings")
-										return
-									}
-									wd = tmpwd
-								} else {
-									wd = ""
-								}
 								continueOnError := false
 								if step.ContinueOnError != nil {
 									tmpcontinueOnError, ok := step.ContinueOnError.ToRawObject().(bool)
@@ -1731,6 +1719,18 @@ func (run *RunRunner) Run() int {
 
 								switch st {
 								case "script":
+									rawwd, haswd := inputs["workingDirectory"]
+									var wd string
+									if haswd {
+										tmpwd, ok := rawwd.(string)
+										if !ok {
+											failInitJob("workingDirectory: act doesn't support non strings")
+											return
+										}
+										wd = tmpwd
+									} else {
+										wd = ""
+									}
 									rawshell, hasshell := inputs["shell"]
 									shell := ""
 									if hasshell {
