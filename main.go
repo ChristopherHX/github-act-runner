@@ -427,7 +427,7 @@ func (ctx PipelineContextData) ToRawObject() interface{} {
 }
 
 type WorkspaceOptions struct {
-	Clean *string `json:"Clean,omitempty"`
+	Clean *string `json:",omitempty"`
 }
 
 type MaskHint struct {
@@ -532,8 +532,8 @@ type JobEvent struct {
 	JobId              string
 	RequestId          int64
 	Result             string
-	Outputs            *map[string]VariableValue    `json:"Outputs,omitempty"`
-	ActionsEnvironment *ActionsEnvironmentReference `json:"ActionsEnvironment,omitempty"`
+	Outputs            *map[string]VariableValue    `json:",omitempty"`
+	ActionsEnvironment *ActionsEnvironmentReference `json:",omitempty"`
 }
 
 func (rec *TimelineRecord) Start() {
@@ -630,7 +630,7 @@ func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *ht
 	enc.Encode(session)
 
 	poolsreq, _ := http.NewRequest("POST", url, buf)
-	poolsreq.Header["Authorization"] = []string{"bearer " + token}
+	AddBearer(poolsreq.Header, token)
 	AddContentType(poolsreq.Header, "5.1-preview")
 	AddHeaders(poolsreq.Header)
 	poolsresp, _ := c.Do(poolsreq)
@@ -660,7 +660,7 @@ func (session *TaskAgentSession) Delete(connectionData_ *ConnectionData, c *http
 	}, map[string]string{})
 
 	poolsreq, _ := http.NewRequest("DELETE", url, nil)
-	poolsreq.Header["Authorization"] = []string{"bearer " + token}
+	AddBearer(poolsreq.Header, token)
 	AddContentType(poolsreq.Header, "5.1-preview")
 	AddHeaders(poolsreq.Header)
 	poolsresp, _ := c.Do(poolsreq)
@@ -700,7 +700,7 @@ func UpdateTimeLine(con *ConnectionData, c *http.Client, tenantUrl string, timel
 	enc.Encode(wrap)
 
 	poolsreq, _ := http.NewRequest("PATCH", url, buf)
-	poolsreq.Header["Authorization"] = []string{"bearer " + token}
+	AddBearer(poolsreq.Header, token)
 	AddContentType(poolsreq.Header, "5.1-preview")
 	AddHeaders(poolsreq.Header)
 	poolsresp, err := c.Do(poolsreq)
