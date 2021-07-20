@@ -361,6 +361,13 @@ function handle_ls_command {
         [ ! -z "${opts[$opt]}" ] || error "missing option: --$opt"
     done
 
+    if ! $is_root; then
+        # check if lingering is enabled
+        if [ -z "$(loginctl show-user $user | grep 'Linger=yes')" ]; then
+            warning "Lingering is disabled for user '$user'. Enable lingering using command 'loginctl enable-linger'."
+        fi
+    fi
+
     # echo "runners_dir = $runners_dir"
     local runners=$(ls --almost-all $runners_dir)
     # echo "runners = $runners"
