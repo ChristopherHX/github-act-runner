@@ -21,7 +21,8 @@ if $is_root; then
     journalctl_cmd="${journalctl_cmd} --unit"
     systemd_units_dir=/etc/systemd/system/
 else
-    echo "running as user '$(id --user --name)'"
+    user="$(id --user --name)"
+    echo "running as user '$user'"
     systemctl_cmd="${systemctl_cmd} --user"
     journalctl_cmd="${journalctl_cmd} --user --user-unit"
     systemd_units_dir=~/.config/systemd/user/
@@ -37,6 +38,12 @@ function error {
 
     $is_term && printf "\t\e[1;31mERROR\e[0m: $message\n" || printf "\tERROR: $message\n"
     exit $exit_code
+}
+
+function warning {
+    local message=$1
+
+    $is_term && printf "\t\e[1;35mWARNING\e[0m: $message\n" || printf "\tWARNING: $message\n"
 }
 
 cur_err_trap=
@@ -194,6 +201,14 @@ function handle_new_command {
         if [ -z "$(groups | grep docker)" ]; then
             error "user '$(id --user --name)' is not in 'docker' group, install docker and add the user to the group"
         fi
+        local service_wanted_by="default.target"
+
+        # check if lingering is enabled
+        if [ -z "$(loginctl show-user $user | grep 'Linger=yes')" ]; then
+            warning "Lingering is not enabled for user '$user'. Lingering is needed to make user services start at boot and to prevent them to be stopped when user logs out. Enable lingering using command 'loginctl enable-linger'."
+        fi
+    else
+        local service_wanted_by="multi-user.target"
     fi
 
     mkdir --parents $runners_dir
@@ -261,7 +276,7 @@ function handle_new_command {
 
     echo "\
 [Unit]
-Description=${pkg_name} '${opts[owner]}/${opts[name]}'
+Description=${pkg_name} '${runner_id}'
 After=network.target
 
 [Service]
@@ -274,7 +289,7 @@ Restart=always
 RestartSec=5s
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=${service_wanted_by}
 " > ${systemd_units_dir}${runner_service_file}
 
     add_to_err_trap "rm ${systemd_units_dir}${runner_service_file}"
@@ -283,7 +298,7 @@ WantedBy=multi-user.target
 
     echo "\
 [Unit]
-Description=${pkg_name} '${opts[owner]}/${opts[name]}' restarter
+Description=${pkg_name} '${runner_id}' restarter
 After=network.target
 
 [Service]
@@ -291,7 +306,7 @@ Type=oneshot
 ExecStart=${runner_bin_dir}restart.sh ${runner_service_file}
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=${service_wanted_by}
 " > ${systemd_units_dir}${restarter_service_file}
 
     add_to_err_trap "rm ${systemd_units_dir}${restarter_service_file}"
@@ -304,7 +319,7 @@ PathModified=${runner_bin}
 Unit=${restarter_service_file}
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=${service_wanted_by}
 " > ${systemd_units_dir}${restarter_path_file}
 
     add_to_err_trap "rm ${systemd_units_dir}${restarter_path_file}"
