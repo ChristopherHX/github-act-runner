@@ -34,6 +34,7 @@ import (
 	"github.com/dgrijalva/jwt-go"
 	"github.com/google/uuid"
 	"github.com/nektos/act/pkg/common"
+	"github.com/nektos/act/pkg/container"
 	"github.com/nektos/act/pkg/model"
 	"github.com/nektos/act/pkg/runner"
 	"github.com/sirupsen/logrus"
@@ -1122,7 +1123,8 @@ func (config *ConfigureRunner) Configure() int {
 }
 
 type RunRunner struct {
-	Once bool
+	Once     bool
+	Terminal bool
 }
 
 func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAuthTokenResponse, error) {
@@ -1178,6 +1180,7 @@ func ToStringMap(src interface{}) interface{} {
 
 func (run *RunRunner) Run() int {
 	// trap Ctrl+C
+	container.SetContainerAllocateTerminal(run.Terminal)
 	channel := make(chan os.Signal, 1)
 	signal.Notify(channel, os.Interrupt)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2375,6 +2378,7 @@ func main() {
 	}
 
 	cmdRun.Flags().BoolVar(&run.Once, "once", false, "only execute one job and exit")
+	cmdRun.Flags().BoolVarP(&run.Terminal, "terminal", "t", false, "allocate a pty if possible")
 	var cmdRemove = &cobra.Command{
 		Use:   "remove",
 		Short: "remove your self-hosted runner",
