@@ -68,13 +68,13 @@ jobs:
     - name: Package tar
       if: ${{matrix.GOOS != 'windows'}}
       run: |
-        cp compat/*.cmd output/
+        cp compat/*.sh output/
         cd output
         tar czf ../binary-${{matrix.GOOS}}-${{matrix.GOARCH}}.tar.gz ./*
     - name: Package zip
       if: ${{matrix.GOOS == 'windows'}}
       run: |
-        cp compat/*.sh output/
+        cp compat/*.cmd output/
         cd output
         zip ../binary-${{matrix.GOOS}}-${{matrix.GOARCH}}.zip ./*
     - uses: actions/upload-artifact@v2
