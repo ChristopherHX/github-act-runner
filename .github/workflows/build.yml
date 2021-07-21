@@ -67,13 +67,13 @@ jobs:
         GOARCH: ${{matrix.GOARCH}}
     - name: Package tar
       if: ${{matrix.GOOS != 'windows'}}
-      run:
+      run: |
         cp compat/*.cmd output/
         cd output
         tar czf ../binary-${{matrix.GOOS}}-${{matrix.GOARCH}}.tar.gz ./*
     - name: Package zip
       if: ${{matrix.GOOS == 'windows'}}
-      run:
+      run: |
         cp compat/*.sh output/
         cd output
         zip ../binary-${{matrix.GOOS}}-${{matrix.GOARCH}}.zip ./*
