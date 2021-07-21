@@ -1868,7 +1868,7 @@ func (run *RunRunner) Run() int {
 											}
 											val, ok := v.(string)
 											if !ok {
-												fmt.Println("with input value is not a string")
+												failInitJob("with input value is not a string")
 												return
 											}
 											with[k] = val
