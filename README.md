@@ -9,14 +9,14 @@ This is a proof of concept runner prototype, which partially implements the azur
 ## usage from debian repo
 
 ### add debian repository
-`/etc/apt/sources.list` entry:
+`/etc/apt/sources.list.d/github-act-runner.list` file:
 ```
 deb http://gagis.hopto.org/repo/chrishx/deb all main
 ```
 
 ### import repository public key
 ```console
-curl -sS http://gagis.hopto.org/repo/chrishx/pubkey.gpg | sudo apt-key add -
+curl -sS http://gagis.hopto.org/repo/chrishx/pubkey.gpg | sudo tee -a /etc/apt/trusted.gpg.d/chrishx-github-act-runner.asc
 ```
 
 ### install the runner
