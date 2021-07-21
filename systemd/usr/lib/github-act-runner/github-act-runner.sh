@@ -205,7 +205,7 @@ function handle_new_command {
 
         # check if lingering is enabled
         if [ -z "$(loginctl show-user $user | grep 'Linger=yes')" ]; then
-            warning "Lingering is not enabled for user '$user'. Lingering is needed to make user services start at boot and to prevent them to be stopped when user logs out. Enable lingering using command 'loginctl enable-linger'."
+            warning "Lingering is not enabled for user '$user'. Lingering is needed to make user services start at boot and to prevent them from being stopped when user logs out. Enable lingering using command 'loginctl enable-linger'."
         fi
     else
         local service_wanted_by="multi-user.target"
