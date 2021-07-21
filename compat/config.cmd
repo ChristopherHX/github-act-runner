@@ -4,10 +4,10 @@ if /i "%~1" equ "remove" (
     rem ********************************************************************************
     rem Unconfigure the runner.
     rem ********************************************************************************
-    "%~dp0bin\Runner.Listener.exe" %*
+    "%~dp0github-act-runner.exe" %*
 ) else (
     rem ********************************************************************************
     rem Configure the runner.
     rem ********************************************************************************
-    "%~dp0bin\Runner.Listener.exe" configure %*
+    "%~dp0github-act-runner.exe" configure %*
 )
