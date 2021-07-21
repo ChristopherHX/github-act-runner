@@ -58,14 +58,33 @@ jobs:
       with:
         go-version: '^1.16.0'
     - name: Build
-      run: go build -ldflags "-X main.version=${{ github.event.inputs.version || format('{0}-dev-{1}', env.RUNNER_DEV_VERSION, github.sha) }}" -o github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
+      run: |
+        go build -ldflags "-X main.version=${{ github.event.inputs.version || format('{0}-dev-{1}', env.RUNNER_DEV_VERSION, github.sha) }}" -o github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
+        mkdir output
+        cp github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}} output/github-act-runner${{matrix.suffix}}
       env:
         GOOS: ${{matrix.GOOS}}
         GOARCH: ${{matrix.GOARCH}}
+    - name: Package tar
+      if: ${{matrix.GOOS != 'windows'}}
+      run:
+        cp compat/*.cmd output/
+        cd output
+        tar czf ../binary-${{matrix.GOOS}}-${{matrix.GOARCH}}.tar.gz ./*
+    - name: Package zip
+      if: ${{matrix.GOOS == 'windows'}}
+      run:
+        cp compat/*.sh output/
+        cd output
+        zip ../binary-${{matrix.GOOS}}-${{matrix.GOARCH}}.zip ./*
     - uses: actions/upload-artifact@v2
       with:
         name: binary-${{matrix.GOOS}}-${{matrix.GOARCH}}
         path: github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
+    - uses: actions/upload-artifact@v2
+      with:
+        name: bundle-${{matrix.GOOS}}-${{matrix.GOARCH}}
+        path: 'binary-${{matrix.GOOS}}-${{matrix.GOARCH}}.*'
 #######################################
 ########## publish to github ##########
 #######################################
@@ -81,7 +100,7 @@ jobs:
         path: "artifacts"
     - uses: ncipollo/release-action@v1
       with:
-        artifacts: "artifacts/**/*"
+        artifacts: "artifacts/**/*.zip,artifacts/**/*.tar.gz"
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: v${{ github.event.inputs.version }}
         commit: ${{ github.sha }}
