@@ -979,17 +979,7 @@ func (config *ConfigureRunner) Configure() int {
 		} else {
 			taskAgentPool = taskAgentPools[0]
 			if len(taskAgentPools) > 1 && !config.Unattended {
-
-				// prompt := &survey.Select{
-				// 	Message: "Choose a runner group:",
-				// 	Options: taskAgentPools,
-				// }
-				// err := survey.AskOne(prompt, &taskAgentPool)
-				// if err != nil {
-				// 	fmt.Println("Failed to retrieve your choice using default runner group: " + taskAgentPool)
-				// }
-				fmt.Printf("Survey disabled, due to incompatibiliy with some platforms:\nAvailable runner groups are [%v]", taskAgentPool)
-				return 1
+				taskAgentPool = RunnerGroupSurvey(taskAgentPool, taskAgentPools)
 			}
 		}
 		settings.PoolId = -1
