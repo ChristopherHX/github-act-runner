@@ -2378,7 +2378,7 @@ func main() {
 	}
 
 	cmdRun.Flags().BoolVar(&run.Once, "once", false, "only execute one job and exit")
-	cmdRun.Flags().BoolVarP(&run.Terminal, "terminal", "t", false, "allocate a pty if possible")
+	cmdRun.Flags().BoolVarP(&run.Terminal, "terminal", "t", true, "allocate a pty if possible")
 	var cmdRemove = &cobra.Command{
 		Use:   "remove",
 		Short: "remove your self-hosted runner",

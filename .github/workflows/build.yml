@@ -11,8 +11,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
+      # 
+      fail-fast: false
       matrix:
         include:
+        # go tool dist list -json to get the source
         - {GOOS: darwin,    GOARCH: amd64                 }
         - {GOOS: darwin,    GOARCH: arm64                 }
         - {GOOS: dragonfly, GOARCH: amd64                 }
@@ -41,6 +44,7 @@ jobs:
         - {GOOS: openbsd,   GOARCH: amd64                 }
         - {GOOS: openbsd,   GOARCH: arm                   }
         - {GOOS: openbsd,   GOARCH: arm64                 }
+        - {GOOS: openbsd,   GOARCH: mips64                }
         - {GOOS: plan9,     GOARCH: 386                   }
         - {GOOS: plan9,     GOARCH: amd64                 }
         - {GOOS: plan9,     GOARCH: arm                   }
@@ -114,7 +118,6 @@ jobs:
     env:
       DEPLOY_ARCHS: "amd64 i386 armhf arm64" # architectures from https://wiki.debian.org/SupportedArchitectures
     steps:
-      # clone must go before downloading artifacts because it cleans up the directory before cloning
     - name: git clone
       uses: actions/checkout@v2
       with: {submodules: false}
