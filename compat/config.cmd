@@ -1,5 +1,7 @@
 @echo off
 
+cd "%~dp0"
+
 if /i "%~1" equ "remove" (
     rem ********************************************************************************
     rem Unconfigure the runner.
