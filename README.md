@@ -1,8 +1,13 @@
 # github-act-runner
 
-This is a proof of concept runner prototype, which partially implements the azure devops agent protocol to act as self-hosted runner written in go.
+A reverse engineered github actions compatible self-hosted runner using [act](https://github.com/nektos/act) to execute your workflow steps.
+Unlike the [official runner](https://github.com/actions/runner), this works on more systems like freebsd.
 
 # Usage
+
+## usage from prebuilds
+
+Follow the instruction of https://github.com/ChristopherHX/github-act-runner/releases/latest.
 
 ## usage from debian repo
 

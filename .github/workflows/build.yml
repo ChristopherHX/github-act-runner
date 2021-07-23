@@ -3,7 +3,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version of the Release'  
+        description: 'Version of the Release'
+      changelog:
+        description: 'Changelog of the Release'  
   
 env:
   RUNNER_DEV_VERSION: "0.0.4"
@@ -108,6 +110,22 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: v${{ github.event.inputs.version }}
         commit: ${{ github.sha }}
+        body: |
+          # Changes
+          ${{ github.event.inputs.changelog || 'No changelog provided' }}
+
+          # Using your self hosted runner
+          Download and extract the self-hosted runner artifact for your system, then [follow the official Documentation](https://docs.github.com/en/actions/hosting-your-own-runners/adding-self-hosted-runners) (follow the linux instruction if your system isn't listed).
+
+          If your system doesn't have bash installed and isn't windows then:
+          |replace|with|
+          ---|---
+          |`./config.sh`|`./github-act-runner configure`|
+          |`./config.sh remove`|`./github-act-runner remove`|
+          |`./run.sh`|`./github-act-runner run`|
+
+          The runner configuration is saved in / loaded from your current working directory, while using the `github-act-runner` command directly.
+
 #########################################
 ########## publish to deb repo ##########
 #########################################
