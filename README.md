@@ -4,8 +4,6 @@ This is a proof of concept runner prototype, which partially implements the azur
 
 # Usage
 
-<details><summary>from debian repo</summary>
-
 ## usage from debian repo
 
 ### add debian repository
@@ -33,7 +31,7 @@ where
 - `<url>` - github repository (e.g. `https://github.com/user/repo`), organization (e.g. `https://github.com/organization`) or enterprise URL
 - `<runner-name>` - choose a name for your runner
 - `<labels>` - comma-separated list of labels, e.g. `label1,label2`. Optional.
-- `<runner-registration-token>` - you can find the token in `<your-github-repo-url>/settings/actions/runners`, after pressing `Add runner`
+- [`<runner-registration-token>`](#runner-registration-token)
 
 The new runner will be registered and started as background service.
 
@@ -42,14 +40,6 @@ See help:
 github-act-runner --help
 ```
 For more info about managing runners.
-
-</details>
-
-
-
-
-
-<details><summary>from source</summary>
 
 ## Usage from source
 
@@ -97,4 +87,3 @@ Replace `label1,label2` with a custom list of runner labels.
 ```
 go run main.go run
 ```
-</details>
