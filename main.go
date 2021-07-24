@@ -622,7 +622,7 @@ func (connectionData *ConnectionData) GetServiceDefinition(id string) *ServiceDe
 func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *http.Client, tenantUrl string, key *rsa.PrivateKey, token string, settings *RunnerSettings) (*TaskAgentSession, cipher.Block, error) {
 	session := &TaskAgentSession{}
 	session.Agent = *taskAgent
-	session.UseFipsEncryption = true
+	session.UseFipsEncryption = false // Have to be set to false for "GitHub Enterprise Server 3.0.11", github.com reset it to false 24-07-2021
 	session.OwnerName = "RUNNER"
 	serv := connectionData_.GetServiceDefinition("134e239e-2df3-4794-a6f6-24f1f19ec8dc")
 	url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
@@ -652,6 +652,9 @@ func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *ht
 	if err := dec.Decode(session); err != nil {
 		return nil, nil, err
 	}
+	// uncomment for debugging
+	// out, _ := json.MarshalIndent(session, "", "    ")
+	// fmt.Println(string(out))
 	sessionKey, err := base64.StdEncoding.DecodeString(session.EncryptionKey.Value)
 	if sessionKey == nil || err != nil {
 		return nil, nil, err
