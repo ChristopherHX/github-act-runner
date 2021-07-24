@@ -632,7 +632,9 @@ func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *ht
 	}, map[string]string{})
 	buf := new(bytes.Buffer)
 	enc := json.NewEncoder(buf)
-	enc.Encode(session)
+	if err := enc.Encode(session); err != nil {
+		return nil, nil, err
+	}
 
 	poolsreq, _ := http.NewRequest("POST", url, buf)
 	AddBearer(poolsreq.Header, token)
@@ -647,20 +649,24 @@ func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *ht
 		return nil, nil, fmt.Errorf("failed to create session with status %v", poolsresp.StatusCode)
 	}
 	dec := json.NewDecoder(poolsresp.Body)
-	dec.Decode(session)
-	d, err := base64.StdEncoding.DecodeString(session.EncryptionKey.Value)
-	if err != nil {
+	if err := dec.Decode(session); err != nil {
 		return nil, nil, err
 	}
-	var h hash.Hash
-	if session.UseFipsEncryption {
-		h = sha256.New()
-	} else {
-		h = sha1.New()
-	}
-	sessionKey, err := rsa.DecryptOAEP(h, rand.Reader, key, d, []byte{})
+	sessionKey, err := base64.StdEncoding.DecodeString(session.EncryptionKey.Value)
 	if sessionKey == nil || err != nil {
 		return nil, nil, err
+	}
+	if session.EncryptionKey.Encrypted {
+		var h hash.Hash
+		if session.UseFipsEncryption {
+			h = sha256.New()
+		} else {
+			h = sha1.New()
+		}
+		sessionKey, err = rsa.DecryptOAEP(h, rand.Reader, key, sessionKey, []byte{})
+		if sessionKey == nil || err != nil {
+			return nil, nil, err
+		}
 	}
 	b, err := aes.NewCipher(sessionKey)
 	return session, b, err
