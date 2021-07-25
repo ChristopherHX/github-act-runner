@@ -116,7 +116,7 @@ jobs:
         commit: ${{ github.sha }}
         body: |
           # Changes
-          ${{ github.event.inputs.changelog || 'No changelog provided' }}
+          ${{ fromJSON(github.event.inputs.changelog) || 'No changelog provided' }}
 
           # Using your self hosted runner
           Download and extract the self-hosted runner artifact for your system, then [follow the official Documentation](https://docs.github.com/en/actions/hosting-your-own-runners/adding-self-hosted-runners) (follow the linux instruction if your system isn't listed).
