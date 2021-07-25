@@ -257,7 +257,7 @@ function handle_new_command {
     )
 
     # in case anything fails with setting up services below, we remove the registered runner from github
-    add_to_err_trap "(cd $runner_dir; $runner_bin remove --url ${opts[url]} --token ${opts[token]} > /dev/null)"
+    add_to_err_trap "(cd $runner_dir; $runner_bin remove --unattended --url ${opts[url]} --token ${opts[token]} > /dev/null)"
 
     # We add 3 service files. The idea is that one service file will be running the runner service itself.
     # Then there is a '.path' service file which watches the github-act-runner binary file for changes. When
