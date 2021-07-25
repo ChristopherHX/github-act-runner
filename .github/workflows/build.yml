@@ -18,6 +18,10 @@ jobs:
       matrix:
         include:
         # go tool dist list -json to get the source
+        - {GOOS: android,   GOARCH: 386                   }
+        - {GOOS: android,   GOARCH: amd64                 }
+        - {GOOS: android,   GOARCH: arm                   }
+        - {GOOS: android,   GOARCH: arm64                 }
         - {GOOS: darwin,    GOARCH: amd64                 }
         - {GOOS: darwin,    GOARCH: arm64                 }
         - {GOOS: dragonfly, GOARCH: amd64                 }
@@ -65,7 +69,7 @@ jobs:
         go-version: '^1.16.0'
     - name: Build
       run: |
-        go build -ldflags "-X main.version=${{ github.event.inputs.version || format('{0}-dev-{1}', env.RUNNER_DEV_VERSION, github.sha) }}" -o github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
+        go build -ldflags "-X main.version=${{ github.event.inputs.version || format('{0}-dev-{1}', env.RUNNER_DEV_VERSION, github.sha) }}" ${{ matrix.GOOS == 'android' && '-tags=''androiddnsfix''' || ''}} -o github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
         mkdir output
         cp github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}} output/github-act-runner${{matrix.suffix}}
       env:

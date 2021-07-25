@@ -670,6 +670,8 @@ github.com/morikuni/aec v1.0.0/go.mod h1:BbKIizmSmc5MMPqRYbxO4ZU0S0+P200+tUnFx7P
 github.com/mozilla/tls-observatory v0.0.0-20190404164649-a3c1b6cfecfd/go.mod h1:SrKMQvPiws7F7iqYp8/TX+IhxCYhzr6N/1yb8cwHsGk=
 github.com/mozilla/tls-observatory v0.0.0-20200317151703-4fa42e1c2dee/go.mod h1:SrKMQvPiws7F7iqYp8/TX+IhxCYhzr6N/1yb8cwHsGk=
 github.com/mrunalp/fileutils v0.0.0-20200520151820-abd8a0e76976/go.mod h1:x8F1gnqOkIEiO4rqoeEEEqQbo7HjGMTvyoq3gej4iT0=
+github.com/mtibben/androiddnsfix v0.0.0-20200907095054-ff0280446354 h1:aS4S9U7xE7bwYB6gn/X0BteBAasVEfQwPV5k8trGXW4=
+github.com/mtibben/androiddnsfix v0.0.0-20200907095054-ff0280446354/go.mod h1:Cu3Rcze2YUpuTWfggCBafY8U9/ckCksdAiONQ7XDvB8=
 github.com/munnerz/goautoneg v0.0.0-20120707110453-a547fc61f48d/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/mwitkow/go-conntrack v0.0.0-20161129095857-cc309e4a2223/go.mod h1:qRWi+5nqEBWmkhHvq77mSJWrCKwh8bxhgT7d/eI7P4U=
