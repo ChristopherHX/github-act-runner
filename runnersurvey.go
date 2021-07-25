@@ -19,3 +19,14 @@ func RunnerGroupSurvey(taskAgentPool string, taskAgentPools []string) string {
 	}
 	return taskAgentPool
 }
+
+func GetInput(prompt string, answer string) string {
+	in := &survey.Input{
+		Message: prompt,
+		Default: answer,
+	}
+	if err := survey.AskOne(in, &answer); err != nil {
+		fmt.Println("Failed to retrieve your choice using default: " + answer)
+	}
+	return answer
+}

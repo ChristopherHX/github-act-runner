@@ -33,6 +33,7 @@ import (
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/google/uuid"
+	_ "github.com/mtibben/androiddnsfix"
 	"github.com/nektos/act/pkg/common"
 	"github.com/nektos/act/pkg/container"
 	"github.com/nektos/act/pkg/model"
@@ -45,6 +46,11 @@ import (
 type RunnerAddRemove struct {
 	Url         string `json:"url"`
 	RunnerEvent string `json:"runner_event"`
+}
+
+type GitHubRunnerRegisterToken struct {
+	Token     string `json:"token"`
+	ExpiresAt string `json:"expires_at"`
 }
 
 type GitHubAuthResult struct {
@@ -891,6 +897,7 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 type ConfigureRunner struct {
 	Url             string
 	Token           string
+	Pat             string
 	Labels          []string
 	Name            string
 	NoDefaultLabels bool
@@ -905,6 +912,81 @@ type RunnerSettings struct {
 }
 
 func (config *ConfigureRunner) Configure() int {
+	if len(config.Url) == 0 {
+		if !config.Unattended {
+			config.Url = GetInput("Please enter your repository, organization or enterprise url:", "")
+		} else {
+			fmt.Println("No url provided")
+			return 1
+		}
+	}
+	if len(config.Url) == 0 {
+		fmt.Println("No url provided")
+		return 1
+	}
+
+	registerUrl, err := url.Parse(config.Url)
+	if err != nil {
+		fmt.Printf("Invalid Url: %v\n", config.Url)
+		return 1
+	}
+	apiscope := "/"
+	if strings.ToLower(registerUrl.Host) == "github.com" {
+		registerUrl.Host = "api." + registerUrl.Host
+	} else {
+		apiscope = "/api/v3"
+	}
+
+	c := &http.Client{}
+	if len(config.Token) == 0 {
+		if len(config.Pat) > 0 {
+			paths := strings.Split(strings.TrimPrefix(registerUrl.Path, "/"), "/")
+			url := *registerUrl
+			if len(paths) == 1 {
+				url.Path = path.Join(apiscope, "orgs", paths[0], "actions/runners/registration-token")
+			} else if len(paths) == 2 {
+				scope := "repos"
+				if strings.EqualFold(paths[0], "enterprises") {
+					scope = ""
+				}
+				url.Path = path.Join(apiscope, scope, paths[0], paths[1], "actions/runners/registration-token")
+			} else {
+				fmt.Println("Unsupported registration url")
+				return 1
+			}
+			req, _ := http.NewRequest("POST", url.String(), nil)
+			req.SetBasicAuth("github", config.Pat)
+			req.Header.Add("Accept", "application/vnd.github.v3+json")
+			resp, err := c.Do(req)
+			if err != nil {
+				fmt.Println("Failed to retrive registration token via pat: " + err.Error())
+				return 1
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				body, _ := ioutil.ReadAll(resp.Body)
+				fmt.Println("Failed to retrive registration token via pat [" + fmt.Sprint(resp.StatusCode) + "]: " + string(body))
+				return 1
+			}
+			tokenresp := &GitHubRunnerRegisterToken{}
+			dec := json.NewDecoder(resp.Body)
+			if err := dec.Decode(tokenresp); err != nil {
+				fmt.Println("Failed to decode registration token via pat: " + err.Error())
+				return 1
+			}
+			config.Token = tokenresp.Token
+		} else {
+			if !config.Unattended {
+				config.Token = GetInput("Please enter your runner registration token:", "")
+			}
+		}
+	}
+	if len(config.Token) == 0 {
+		fmt.Println("No runner registration token provided")
+		return 1
+	}
+	registerUrl.Path = path.Join(apiscope, "actions/runner-registration")
+
 	buf := new(bytes.Buffer)
 	req := &RunnerAddRemove{}
 	req.Url = config.Url
@@ -913,22 +995,10 @@ func (config *ConfigureRunner) Configure() int {
 	if err := enc.Encode(req); err != nil {
 		return 1
 	}
-	registerUrl, err := url.Parse(config.Url)
-	if err != nil {
-		fmt.Printf("Invalid Url: %v\n", config.Url)
-		return 1
-	}
-	if strings.ToLower(registerUrl.Host) == "github.com" {
-		registerUrl.Host = "api." + registerUrl.Host
-		registerUrl.Path = "actions/runner-registration"
-	} else {
-		registerUrl.Path = "api/v3/actions/runner-registration"
-	}
 	finalregisterUrl := registerUrl.String()
-	fmt.Printf("Try to register runner with url: %v\n", finalregisterUrl)
+	// fmt.Printf("Try to register runner with url: %v\n", finalregisterUrl)
 	r, _ := http.NewRequest("POST", finalregisterUrl, buf)
 	r.Header["Authorization"] = []string{"RemoteAuth " + config.Token}
-	c := &http.Client{}
 	resp, err := c.Do(r)
 	if err != nil {
 		fmt.Printf("Failed to register Runner: %v\n", err)
@@ -1017,6 +1087,19 @@ func (config *ConfigureRunner) Configure() int {
 	taskAgent.Authorization.PublicKey = TaskAgentPublicKey{Exponent: base64.StdEncoding.EncodeToString(bs[expof:]), Modulus: base64.StdEncoding.EncodeToString(key.N.Bytes())}
 	taskAgent.Version = "3.0.0" //version, will not use fips crypto if set to 0.0.0 *
 	taskAgent.OSDescription = "github-act-runner " + runtime.GOOS + "/" + runtime.GOARCH
+	if config.Name != "" {
+		taskAgent.Name = config.Name
+	} else {
+		taskAgent.Name = "golang_" + uuid.NewString()
+		if !config.Unattended {
+			taskAgent.Name = GetInput("Please enter a name of your new runner:", taskAgent.Name)
+		}
+	}
+	if !config.Unattended && len(config.Labels) == 0 {
+		if res := GetInput("Please enter custom labels of your new runner (case insensitive, seperated by ','):", ""); len(res) > 0 {
+			config.Labels = strings.Split(res, ",")
+		}
+	}
 	systemLabels := make([]string, 0, 3)
 	if !config.NoDefaultLabels {
 		systemLabels = append(systemLabels, "self-hosted", runtime.GOOS, runtime.GOARCH)
@@ -1032,11 +1115,6 @@ func (config *ConfigureRunner) Configure() int {
 		taskAgent.Labels[i+len(systemLabels)+len(config.SystemLabels)] = AgentLabel{Name: config.Labels[i], Type: "user"}
 	}
 	taskAgent.MaxParallelism = 1
-	if config.Name != "" {
-		taskAgent.Name = config.Name
-	} else {
-		taskAgent.Name = "golang_" + uuid.NewString()
-	}
 	taskAgent.ProvisioningState = "Provisioned"
 	taskAgent.CreatedOn = time.Now().UTC().Format("2006-01-02T15:04:05")
 	{
@@ -2236,8 +2314,10 @@ func (run *RunRunner) Run() int {
 }
 
 type RemoveRunner struct {
-	Url   string
-	Token string
+	Url        string
+	Token      string
+	Pat        string
+	Unattended bool
 }
 
 func (config *RemoveRunner) Remove() int {
@@ -2265,7 +2345,18 @@ func (config *RemoveRunner) Remove() int {
 			settings.PoolId = 1
 			if len(config.Url) == 0 {
 				fmt.Printf("Please provide the registration url. You configured the runner in <= 0.0.3, cannot unconfigure the runner without it. Error: %v\n", err.Error())
-				return 1
+				if len(config.Url) == 0 {
+					if !config.Unattended {
+						config.Url = GetInput("Please enter your repository, organization or enterprise url:", "")
+					} else {
+						fmt.Println("No url provided")
+						return 1
+					}
+				}
+				if len(config.Url) == 0 {
+					fmt.Println("No url provided")
+					return 1
+				}
 			}
 			settings.RegistrationUrl = config.Url
 		} else {
@@ -2292,17 +2383,66 @@ func (config *RemoveRunner) Remove() int {
 			fmt.Printf("Invalid Url: %v\n", settings.RegistrationUrl)
 			return 1
 		}
+		apiscope := "/"
 		if strings.ToLower(registerUrl.Host) == "github.com" {
 			registerUrl.Host = "api." + registerUrl.Host
-			registerUrl.Path = "actions/runner-registration"
 		} else {
-			registerUrl.Path = "api/v3/actions/runner-registration"
+			apiscope = "/api/v3"
 		}
+
+		c := &http.Client{}
+		if len(config.Token) == 0 {
+			if len(config.Pat) > 0 {
+				paths := strings.Split(strings.TrimPrefix(registerUrl.Path, "/"), "/")
+				url := *registerUrl
+				if len(paths) == 1 {
+					url.Path = path.Join(apiscope, "orgs", paths[0], "actions/runners/remove-token")
+				} else if len(paths) == 2 {
+					scope := "repos"
+					if strings.EqualFold(paths[0], "enterprises") {
+						scope = ""
+					}
+					url.Path = path.Join(apiscope, scope, paths[0], paths[1], "actions/runners/remove-token")
+				} else {
+					fmt.Println("Unsupported remove url")
+					return 1
+				}
+				req, _ := http.NewRequest("POST", url.String(), nil)
+				req.SetBasicAuth("github", config.Pat)
+				req.Header.Add("Accept", "application/vnd.github.v3+json")
+				resp, err := c.Do(req)
+				if err != nil {
+					fmt.Println("Failed to retrive remove token via pat: " + err.Error())
+					return 1
+				}
+				defer resp.Body.Close()
+				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+					body, _ := ioutil.ReadAll(resp.Body)
+					fmt.Println("Failed to retrive remove token via pat [" + fmt.Sprint(resp.StatusCode) + "]: " + string(body))
+					return 1
+				}
+				tokenresp := &GitHubRunnerRegisterToken{}
+				dec := json.NewDecoder(resp.Body)
+				if err := dec.Decode(tokenresp); err != nil {
+					fmt.Println("Failed to decode remove token via pat: " + err.Error())
+					return 1
+				}
+				config.Token = tokenresp.Token
+			} else {
+				if !config.Unattended {
+					config.Token = GetInput("Please enter your runner remove token:", "")
+				}
+			}
+		}
+		if len(config.Token) == 0 {
+			fmt.Println("No runner remove token provided")
+			return 1
+		}
+		registerUrl.Path = path.Join(apiscope, "actions/runner-registration")
 		finalregisterUrl := registerUrl.String()
-		fmt.Printf("Try to remove runner with url: %v\n", finalregisterUrl)
+		//fmt.Printf("Try to remove runner with url: %v\n", finalregisterUrl)
 		r, _ := http.NewRequest("POST", finalregisterUrl, buf)
 		r.Header["Authorization"] = []string{"RemoteAuth " + config.Token}
-		c := &http.Client{}
 		resp, err := c.Do(r)
 		if err != nil {
 			fmt.Printf("Failed to remove Runner: %v\n", err)
@@ -2369,14 +2509,13 @@ func main() {
 
 	cmdConfigure.Flags().StringVar(&config.Url, "url", "", "url of your repository, organization or enterprise")
 	cmdConfigure.Flags().StringVar(&config.Token, "token", "", "runner registration token")
+	cmdConfigure.Flags().StringVar(&config.Pat, "pat", "", "personal access token with access to your repository, organization or enterprise")
 	cmdConfigure.Flags().StringSliceVarP(&config.Labels, "labels", "l", []string{}, "custom user labels for your new runner")
 	cmdConfigure.Flags().StringVar(&config.Name, "name", "", "custom runner name")
 	cmdConfigure.Flags().BoolVar(&config.NoDefaultLabels, "no-default-labels", false, "do not automatically add the following system labels: self-hosted, "+runtime.GOOS+" and "+runtime.GOARCH)
 	cmdConfigure.Flags().StringSliceVarP(&config.SystemLabels, "system-labels", "", []string{}, "custom system labels for your new runner")
 	cmdConfigure.Flags().StringVar(&config.Token, "runnergroup", "", "name of the runner group to use will ask if more than one is available")
 	cmdConfigure.Flags().BoolVar(&config.Unattended, "unattended", false, "suppress shell prompts during configure")
-	cmdConfigure.MarkFlagRequired("url")
-	cmdConfigure.MarkFlagRequired("token")
 	var cmdRun = &cobra.Command{
 		Use:   "run",
 		Short: "run your self-hosted runner",
@@ -2399,7 +2538,8 @@ func main() {
 
 	cmdRemove.Flags().StringVar(&remove.Url, "url", "", "url of your repository, organization or enterprise ( required to unconfigure version <= 0.0.3 )")
 	cmdRemove.Flags().StringVar(&remove.Token, "token", "", "runner registration or remove token")
-	cmdRemove.MarkFlagRequired("token")
+	cmdRemove.Flags().StringVar(&remove.Pat, "pat", "", "personal access token with access to your repository, organization or enterprise")
+	cmdRemove.Flags().BoolVar(&remove.Unattended, "unattended", false, "suppress shell prompts during configure")
 
 	var rootCmd = &cobra.Command{
 		Use:     "github-act-runner",
