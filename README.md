@@ -64,7 +64,7 @@ git submodule update
 ### Configure
 
 ```
-go run main.go configure --url <github-repo-or-org-or-enterprise> --name <name of this runner> -l label1,label2 --token <runner registration token>
+go run . configure --url <github-repo-or-org-or-enterprise> --name <name of this runner> -l label1,label2 --token <runner registration token>
 ```
 
 #### `<github-repo-or-org-or-enterprise>`
@@ -90,5 +90,5 @@ Replace `label1,label2` with a custom list of runner labels.
 ### Run
 
 ```
-go run main.go run
+go run . run
 ```
