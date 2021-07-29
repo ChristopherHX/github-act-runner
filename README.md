@@ -5,6 +5,18 @@ Unlike the [official runner](https://github.com/actions/runner), this works on m
 
 # Usage
 
+## Dependencies
+|Actions Type|Host|JobContainer (only Linux, Windows, macOS or Openbsd)|
+---|---|---
+|(composite) run steps|`bash` or explicit shell in your `PATH` (prior running the runner)|Docker (*1), `bash` or explicit shell in your `PATH` (inside your container image)|
+|nodejs actions|`node` (*2) in your `PATH` (prior running the runner)|Docker (*1), `node` (*2) in your `PATH` (inside your container image)|
+|docker actions|Not available|Docker (*1)|
+|service container|Not available|Not available|
+
+(*1) Reachable docker daemon use `DOCKER_HOST` to specify a remote host.
+
+(*2) For best compatibility with existing nodejs actions, please add nodejs in version 12 to your `PATH`, newer nodejs versions might lead to workflow failures.
+
 ## usage from prebuilds
 
 Follow the instruction of https://github.com/ChristopherHX/github-act-runner/releases/latest.
