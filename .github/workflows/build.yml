@@ -202,7 +202,8 @@ jobs:
     - name: Run Tests
       run: |
         ./actions-runner/bin/Runner.Client startserver --server http://*:5023 &
-        ./runner/config.sh configure --unattended --url http://localhost:5023/runner/test --token WhichToken
+        sleep 2
+        ./runner/config.sh --unattended --url http://localhost:5023/runner/test --token WhichToken
         ./runner/run.sh&
         sleep 2
         ./actions-runner/bin/Runner.Client --server http://localhost:5023 -W ./.github/testworkflows
