@@ -177,3 +177,32 @@ jobs:
       run: |
         echo "${{ secrets.MYCI_REPO_SSH_KEY }}" > repo_key_rsa && chmod 600 repo_key_rsa
         myci-deploy-debian-ssh-freight.sh --key repo_key_rsa --server gagis.hopto.org --user chrishx --repo chrishx/deb --distro all --component main ../*.deb
+  
+  run-tests:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Prepare actions-runner
+      run: |
+        # Create a folder
+        mkdir actions-runner && cd actions-runner
+        # Download the latest runner package
+        curl -O -L https://github.com/ChristopherHX/runner.server/releases/download/v3.2.1/actions-runner-linux-x64-3.2.1.tar.gz
+        # Extract the installer
+        tar xzf ./actions-runner-linux-x64-3.2.1.tar.gz
+    - name: Download Artifact
+      uses: actions/download-artifact@v2
+      with:
+        name: bundle-linux-amd64
+        path: runner
+    - name: Unpack Artifact
+      run: |
+        tar xzf ./binary-linux-amd64.tar.gz
+      working-directory: runner
+    - name: Run Tests
+      run: |
+        ./actions-runner/bin/Runner.Client startserver --server http://*:5023 &
+        ./runner/config.sh configure --unattended --url http://localhost:5023/runner/test --token WhichToken
+        ./runner/run.sh&
+        sleep 2
+        ./actions-runner/bin/Runner.Client --server http://localhost:5023 -W ./.github/testworkflows
