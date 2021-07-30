@@ -210,9 +210,12 @@ jobs:
         sudo prlimit --pid $! --nofile=16:16
         sleep 2
         ./actions-runner/bin/Runner.Client --server http://localhost:5000 -W ./.github/testworkflows --log-output-dir ./logs
+    - name: Archive Test Results
+      run: tar czf ../logs.tar.gz .
+      working-directory: logs
     - name: Upload Test Results
       if: ${{always()}}
       uses: actions/upload-artifact@v2
       with:
         name: test-results-linux-amd64
-        path: 'logs'
+        path: 'logs.tar.gz'
