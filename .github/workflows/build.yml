@@ -211,6 +211,7 @@ jobs:
         sleep 2
         ./actions-runner/bin/Runner.Client --server http://localhost:5000 -W ./.github/testworkflows --log-output-dir ./logs
     - name: Archive Test Results
+      if: ${{always()}}
       run: tar czf ../logs.tar.gz .
       working-directory: logs
     - name: Upload Test Results
