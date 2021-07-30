@@ -202,9 +202,9 @@ jobs:
       working-directory: runner
     - name: Run Tests
       run: |
-        ./actions-runner/bin/Runner.Client startserver --server http://*:5023 &
+        ./actions-runner/bin/Runner.Server&
         sleep 2
-        ./runner/config.sh --unattended --url http://localhost:5023/runner/test --token WhichToken
+        ./runner/config.sh --unattended --url http://localhost:5000/runner/test --token WhichToken
         ./runner/run.sh&
         sleep 2
-        ./actions-runner/bin/Runner.Client --server http://localhost:5023 -W ./.github/testworkflows
+        ./actions-runner/bin/Runner.Client --server http://localhost:5000 -W ./.github/testworkflows
