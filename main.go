@@ -127,8 +127,7 @@ type TaskAgent struct {
 	Name              string
 	Version           string
 	OSDescription     string
-	Enabled           *bool  `json:",omitempty"`
-	Status            string `json:",omitempty"`
+	Enabled           *bool `json:",omitempty"`
 	ProvisioningState string
 	AccessPoint       string `json:",omitempty"`
 	CreatedOn         string
