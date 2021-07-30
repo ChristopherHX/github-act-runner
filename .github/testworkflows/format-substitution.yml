@@ -15,6 +15,6 @@ jobs:
         echo ${{matrix.test1}}-${{matrix.test2}}-${{matrix.test3}}-${{matrix.test4}}-${{matrix.test5}}${{matrix.test6}}
         echo ${{github.actor}}
         echo ${{github.event_name}}
-        local test="Hello World"
+        test="Hello World"
         echo $test
         echo ${test}
