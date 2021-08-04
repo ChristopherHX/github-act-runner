@@ -1,5 +1,7 @@
 # github-act-runner
 
+[![awesome-runners](https://img.shields.io/badge/listed%20on-awesome--runners-blue.svg)](https://github.com/jonico/awesome-runners)
+
 A reverse engineered github actions compatible self-hosted runner using [act](https://github.com/nektos/act) to execute your workflow steps.
 Unlike the [official runner](https://github.com/actions/runner), this works on more systems like freebsd.
 
