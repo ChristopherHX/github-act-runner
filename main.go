@@ -1265,19 +1265,42 @@ func ToStringMap(src interface{}) interface{} {
 }
 
 func (run *RunRunner) Run() int {
-	// trap Ctrl+C
 	container.SetContainerAllocateTerminal(run.Terminal)
+	// trap Ctrl+C
 	channel := make(chan os.Signal, 1)
 	signal.Notify(channel, os.Interrupt)
 	ctx, cancel := context.WithCancel(context.Background())
+	firstJobReceived := false
+	jobctx, cancelJob := context.WithCancel(context.Background())
+	cancelJob()
 	go func() {
 		<-channel
-		cancel()
-		fmt.Println("CTRL+C received, stopping accepting new jobs")
+		select {
+		case <-jobctx.Done():
+			fmt.Println("CTRL+C received, no job is running shutdown")
+			cancel()
+		default:
+			fmt.Println("CTRL+C received, stop accepting new jobs and exit after the current job finishs")
+			// Switch to run once mode
+			run.Once = true
+			firstJobReceived = true
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-channel:
+				fmt.Println("CTRL+C received again, cancel current Job if it is still running")
+				cancel()
+			}
+		}
 	}()
 	defer func() {
 		cancel()
 		signal.Stop(channel)
+	}()
+	defer func() {
+		<-jobctx.Done()
 	}()
 	c := &http.Client{}
 	taskAgent := &TaskAgent{}
@@ -1357,12 +1380,6 @@ func (run *RunRunner) Run() int {
 	}
 	defer func() {
 		session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken, settings)
-	}()
-	firstJobReceived := false
-	jobctx, cancelJob := context.WithCancel(ctx)
-	cancelJob()
-	defer func() {
-		<-jobctx.Done()
 	}()
 	sessionErrorCount := 0
 	for {
@@ -1562,12 +1579,12 @@ func (run *RunRunner) Run() int {
 							var finishJob context.CancelFunc
 							jobctx, finishJob = context.WithCancel(context.Background())
 							var jobExecCtx context.Context
-							jobExecCtx, cancelJob = context.WithCancel(ctx)
+							jobExecCtx, cancelJob = context.WithCancel(context.Background())
 							go func() {
 								defer func() {
 									if run.Once {
 										// cancel Message Loop
-										fmt.Println("First job finished, cancel Message loop")
+										fmt.Println("Last Job finished, cancel Message loop")
 										cancel()
 									}
 									cancelJob()
