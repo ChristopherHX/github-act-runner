@@ -1231,7 +1231,7 @@ type RunRunner struct {
 
 func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAuthTokenResponse, error) {
 	tokenresp := &VssOAuthTokenResponse{}
-	now := time.Now().UTC()
+	now := time.Now().UTC().Add(-30 * time.Second)
 	token2 := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.StandardClaims{
 		Subject:   taskAgent.Authorization.ClientId,
 		Issuer:    taskAgent.Authorization.ClientId,
