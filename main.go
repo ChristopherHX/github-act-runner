@@ -518,6 +518,26 @@ type TaskAgentSession struct {
 	UseFipsEncryption bool
 }
 
+func (session *TaskAgentSession) GetSessionKey(key *rsa.PrivateKey) (cipher.Block, error) {
+	sessionKey, err := base64.StdEncoding.DecodeString(session.EncryptionKey.Value)
+	if sessionKey == nil || err != nil {
+		return nil, err
+	}
+	if session.EncryptionKey.Encrypted {
+		var h hash.Hash
+		if session.UseFipsEncryption {
+			h = sha256.New()
+		} else {
+			h = sha1.New()
+		}
+		sessionKey, err = rsa.DecryptOAEP(h, rand.Reader, key, sessionKey, []byte{})
+		if sessionKey == nil || err != nil {
+			return nil, err
+		}
+	}
+	return aes.NewCipher(sessionKey)
+}
+
 type VssOAuthTokenResponse struct {
 	AccessToken string `json:"access_token"`
 	ExpiresIn   int    `json:"expires_in"`
@@ -624,7 +644,7 @@ func (connectionData *ConnectionData) GetServiceDefinition(id string) *ServiceDe
 	return nil
 }
 
-func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *http.Client, tenantUrl string, key *rsa.PrivateKey, token string, settings *RunnerSettings) (*TaskAgentSession, cipher.Block, error) {
+func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *http.Client, tenantUrl string, token string, settings *RunnerSettings) (*TaskAgentSession, error) {
 	session := &TaskAgentSession{}
 	session.Agent = *taskAgent
 	session.UseFipsEncryption = false // Have to be set to false for "GitHub Enterprise Server 3.0.11", github.com reset it to false 24-07-2021
@@ -638,7 +658,7 @@ func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *ht
 	buf := new(bytes.Buffer)
 	enc := json.NewEncoder(buf)
 	if err := enc.Encode(session); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	poolsreq, _ := http.NewRequest("POST", url, buf)
@@ -647,37 +667,17 @@ func (taskAgent *TaskAgent) CreateSession(connectionData_ *ConnectionData, c *ht
 	AddHeaders(poolsreq.Header)
 	poolsresp, err := c.Do(poolsreq)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	defer poolsresp.Body.Close()
 	if poolsresp.StatusCode < 200 || poolsresp.StatusCode >= 300 {
-		return nil, nil, fmt.Errorf("failed to create session with status %v", poolsresp.StatusCode)
+		return nil, fmt.Errorf("failed to create session with status %v", poolsresp.StatusCode)
 	}
 	dec := json.NewDecoder(poolsresp.Body)
 	if err := dec.Decode(session); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	// uncomment for debugging
-	// out, _ := json.MarshalIndent(session, "", "    ")
-	// fmt.Println(string(out))
-	sessionKey, err := base64.StdEncoding.DecodeString(session.EncryptionKey.Value)
-	if sessionKey == nil || err != nil {
-		return nil, nil, err
-	}
-	if session.EncryptionKey.Encrypted {
-		var h hash.Hash
-		if session.UseFipsEncryption {
-			h = sha256.New()
-		} else {
-			h = sha1.New()
-		}
-		sessionKey, err = rsa.DecryptOAEP(h, rand.Reader, key, sessionKey, []byte{})
-		if sessionKey == nil || err != nil {
-			return nil, nil, err
-		}
-	}
-	b, err := aes.NewCipher(sessionKey)
-	return session, b, err
+	return session, err
 }
 
 func (session *TaskAgentSession) Delete(connectionData_ *ConnectionData, c *http.Client, tenantUrl string, token string, settings *RunnerSettings) error {
@@ -908,6 +908,22 @@ type ConfigureRunner struct {
 type RunnerSettings struct {
 	PoolId          int64
 	RegistrationUrl string
+}
+
+func WriteJson(path string, value interface{}) error {
+	b, err := json.MarshalIndent(value, "", "    ")
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile(path, b, 0777)
+}
+
+func ReadJson(path string, value interface{}) error {
+	cont, err := ioutil.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(cont, value)
 }
 
 func (config *ConfigureRunner) Configure() int {
@@ -1360,26 +1376,19 @@ func (run *RunRunner) Run() int {
 		}
 	}
 
-	tokenresp, err := taskAgent.Authorize(c, key)
-	if err != nil {
-		fmt.Println(err.Error())
-		return 1
-	}
-
 	connectionData_ := GetConnectionData(c, req.TenantUrl)
 
-	session, b, err := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken, settings)
-	if err != nil {
-		fmt.Printf("Failed to create Session: %v\n", err.Error())
-		return 1
-	} else if session == nil || b == nil {
-		fmt.Println("Failed to create Session")
-		return 1
-	} else {
-		fmt.Println("Listening for Jobs")
-	}
+	tokenresp := &VssOAuthTokenResponse{}
+	var session *TaskAgentSession
+	var b cipher.Block
 	defer func() {
-		session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken, settings)
+		if session != nil {
+			if err := session.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken, settings); err != nil {
+				fmt.Printf("WARNING: Failed to delete active session: %v\n", err)
+			} else {
+				os.Remove("session.json")
+			}
+		}
 	}()
 	sessionErrorCount := 0
 	for {
@@ -1407,7 +1416,19 @@ func (run *RunRunner) Run() int {
 				tokenresp.AccessToken = tokenresp_.AccessToken
 				tokenresp.ExpiresIn = tokenresp_.ExpiresIn
 				tokenresp.TokenType = tokenresp_.TokenType
-				session2, block2, err := taskAgent.CreateSession(connectionData_, c, req.TenantUrl, key, tokenresp.AccessToken, settings)
+				var session2 = &TaskAgentSession{}
+				if err := ReadJson("session.json", session2); err == nil {
+					if err := session2.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken, settings); err != nil {
+						fmt.Printf("INFO: Failed to delete previous session: %v\n", err)
+					}
+				} else {
+					session2 = nil
+				}
+				session2, err = taskAgent.CreateSession(connectionData_, c, req.TenantUrl, tokenresp.AccessToken, settings)
+				var block2 cipher.Block
+				if err == nil {
+					block2, err = session2.GetSessionKey(key)
+				}
 				if err != nil {
 					fmt.Printf("Failed to recreate Session, waiting 30 sec before retry: %v\n", err.Error())
 					select {
@@ -1418,6 +1439,9 @@ func (run *RunRunner) Run() int {
 					}
 					continue
 				} else if session2 != nil && block2 != nil {
+					if err := WriteJson("session.json", session2); err != nil {
+						fmt.Printf("INFO: Failed to save new session: %v\n", err)
+					}
 					session = session2
 					b = block2
 					fmt.Println("Listening for Jobs")
@@ -1489,6 +1513,8 @@ func (run *RunRunner) Run() int {
 									return 0
 								case <-time.After(10 * time.Second):
 								}
+							} else {
+								os.Remove("session.json")
 							}
 						}
 						continue
