@@ -1229,6 +1229,12 @@ type RunRunner struct {
 	Terminal bool
 }
 
+type JobRun struct {
+	RequestId int64
+	JobId     string
+	Plan      *TaskOrchestrationPlanReference
+}
+
 func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAuthTokenResponse, error) {
 	tokenresp := &VssOAuthTokenResponse{}
 	now := time.Now().UTC().Add(-30 * time.Second)
@@ -1416,6 +1422,57 @@ func (run *RunRunner) Run() int {
 				tokenresp.AccessToken = tokenresp_.AccessToken
 				tokenresp.ExpiresIn = tokenresp_.ExpiresIn
 				tokenresp.TokenType = tokenresp_.TokenType
+				jobrun := &JobRun{}
+				if ReadJson("jobrun.json", jobrun) == nil {
+					jobToken := tokenresp.AccessToken
+					jobTenant := req.TenantUrl
+					jobConnectionData := connectionData_
+					result := "Failed"
+					finish := &JobEvent{
+						Name:      "JobCompleted",
+						JobId:     jobrun.JobId,
+						RequestId: jobrun.RequestId,
+						Result:    result,
+					}
+					for i := 0; ; i++ {
+						serv := jobConnectionData.GetServiceDefinition("557624af-b29e-4c20-8ab0-0399d2204f3f")
+						url := BuildUrl(jobTenant, serv.RelativePath, map[string]string{
+							"area":            serv.ServiceType,
+							"resource":        serv.DisplayName,
+							"scopeIdentifier": jobrun.Plan.ScopeIdentifier,
+							"planId":          jobrun.Plan.PlanId,
+							"hubName":         jobrun.Plan.PlanType,
+						}, map[string]string{})
+						buf := new(bytes.Buffer)
+						enc := json.NewEncoder(buf)
+						enc.Encode(finish)
+						poolsreq, _ := http.NewRequest("POST", url, buf)
+						AddBearer(poolsreq.Header, jobToken)
+						AddContentType(poolsreq.Header, "2.0-preview")
+						AddHeaders(poolsreq.Header)
+						poolsresp, err := c.Do(poolsreq)
+						if err != nil {
+							fmt.Printf("Failed to send finish job event: %v\n", err.Error())
+						} else if poolsresp == nil {
+							fmt.Printf("Failed to send finish job event: Failed without errormessage")
+						} else {
+							defer poolsresp.Body.Close()
+							if poolsresp.StatusCode != 200 {
+								fmt.Println("Failed to send finish job event with status: " + fmt.Sprint(poolsresp.StatusCode))
+							} else {
+								if os.Remove("jobrun.json") != nil {
+									fmt.Printf("Failed to delete jobrun.json: %v\n", err)
+								}
+								fmt.Println("Finished previous stuck job with Status Failed")
+								break
+							}
+						}
+						if i < 10 {
+							fmt.Printf("Retry finishing the job in 10 seconds attempt %v of 10\n", i+1)
+							<-time.After(time.Second * 10)
+						}
+					}
+				}
 				var session2 = &TaskAgentSession{}
 				if err := ReadJson("session.json", session2); err == nil {
 					if err := session2.Delete(connectionData_, c, req.TenantUrl, tokenresp.AccessToken, settings); err != nil {
@@ -1644,6 +1701,15 @@ func (run *RunRunner) Run() int {
 									dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
 									dec.Decode(jobreq)
 								}
+								{
+									if err := WriteJson("jobrun.json", &JobRun{
+										RequestId: jobreq.RequestId,
+										JobId:     jobreq.JobId,
+										Plan:      jobreq.Plan,
+									}); err != nil {
+										fmt.Printf("INFO: Failed to create jobrun.json: %v\n", err)
+									}
+								}
 								fmt.Printf("Running Job '%v'\n", jobreq.JobDisplayName)
 								jobToken := tokenresp.AccessToken
 								jobTenant := req.TenantUrl
@@ -1656,32 +1722,42 @@ func (run *RunRunner) Run() int {
 										Result:    result,
 										Outputs:   outputs,
 									}
-									serv := jobConnectionData.GetServiceDefinition("557624af-b29e-4c20-8ab0-0399d2204f3f")
-									url := BuildUrl(jobTenant, serv.RelativePath, map[string]string{
-										"area":            serv.ServiceType,
-										"resource":        serv.DisplayName,
-										"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
-										"planId":          jobreq.Plan.PlanId,
-										"hubName":         jobreq.Plan.PlanType,
-									}, map[string]string{})
-									buf := new(bytes.Buffer)
-									enc := json.NewEncoder(buf)
-									enc.Encode(finish)
-									poolsreq, _ := http.NewRequest("POST", url, buf)
-									AddBearer(poolsreq.Header, jobToken)
-									AddContentType(poolsreq.Header, "2.0-preview")
-									AddHeaders(poolsreq.Header)
-									poolsresp, err := c.Do(poolsreq)
-									if err != nil {
-										fmt.Printf("Failed to send finish job event: %v\n", err.Error())
-									} else if poolsresp == nil {
-										fmt.Printf("Failed to send finish job event: Failed without errormessage")
-									} else {
-										defer poolsresp.Body.Close()
-										if poolsresp.StatusCode != 200 {
-											fmt.Println("Failed to send finish job event with status: " + fmt.Sprint(poolsresp.StatusCode))
+									for i := 0; ; i++ {
+										serv := jobConnectionData.GetServiceDefinition("557624af-b29e-4c20-8ab0-0399d2204f3f")
+										url := BuildUrl(jobTenant, serv.RelativePath, map[string]string{
+											"area":            serv.ServiceType,
+											"resource":        serv.DisplayName,
+											"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
+											"planId":          jobreq.Plan.PlanId,
+											"hubName":         jobreq.Plan.PlanType,
+										}, map[string]string{})
+										buf := new(bytes.Buffer)
+										enc := json.NewEncoder(buf)
+										enc.Encode(finish)
+										poolsreq, _ := http.NewRequest("POST", url, buf)
+										AddBearer(poolsreq.Header, jobToken)
+										AddContentType(poolsreq.Header, "2.0-preview")
+										AddHeaders(poolsreq.Header)
+										poolsresp, err := c.Do(poolsreq)
+										if err != nil {
+											fmt.Printf("Failed to send finish job event: %v\n", err.Error())
+										} else if poolsresp == nil {
+											fmt.Printf("Failed to send finish job event: Failed without errormessage")
 										} else {
-											fmt.Printf("Finished Job '%v' with result: %v\n", jobreq.JobDisplayName, result)
+											defer poolsresp.Body.Close()
+											if poolsresp.StatusCode != 200 {
+												fmt.Println("Failed to send finish job event with status: " + fmt.Sprint(poolsresp.StatusCode))
+											} else {
+												if os.Remove("jobrun.json") != nil {
+													fmt.Printf("Failed to delete jobrun.json: %v\n", err)
+												}
+												fmt.Printf("Finished Job '%v' with result: %v\n", jobreq.JobDisplayName, result)
+												return
+											}
+										}
+										if i < 10 {
+											fmt.Printf("Retry finishing the job in 10 seconds attempt %v of 10\n", i+1)
+											<-time.After(time.Second * 10)
 										}
 									}
 								}
