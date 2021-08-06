@@ -8,12 +8,12 @@ Unlike the [official runner](https://github.com/actions/runner), this works on m
 # Usage
 
 ## Dependencies
-|Actions Type|Host|JobContainer (only Linux, Windows, macOS or Openbsd)|
+|Actions Type|Host|[JobContainer](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idcontainer) (only Linux, Windows, macOS or Openbsd)|
 ---|---|---
-|(composite) run steps|`bash` or explicit shell in your `PATH` (prior running the runner)|Docker (*1), `bash` or explicit shell in your `PATH` (inside your container image)|
-|nodejs actions|`node` (*2) in your `PATH` (prior running the runner)|Docker (*1), `node` (*2) in your `PATH` (inside your container image)|
-|docker actions|Not available|Docker (*1)|
-|service container|Not available|Not available|
+|([composite](https://docs.github.com/en/actions/creating-actions/creating-a-composite-run-steps-action)) [run steps](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idstepsrun)|`bash` or [explicit shell](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#custom-shell) in your `PATH` (prior running the runner)|Docker (*1), `bash` or [explicit shell](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#custom-shell) in your `PATH` (inside your container image)|
+|[nodejs actions](https://docs.github.com/en/actions/creating-actions/creating-a-javascript-action)|`node` (*2) in your `PATH` (prior running the runner)|Docker (*1), `node` (*2) in your `PATH` (inside your container image)|
+|[docker actions](https://docs.github.com/en/actions/creating-actions/creating-a-docker-container-action)|Not available|Docker (*1)|
+|[service container](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idservices)|Not available|Not available|
 |composite actions with uses|Not available|Not available|
 
 (*1) Reachable docker daemon use `DOCKER_HOST` to specify a remote host.
