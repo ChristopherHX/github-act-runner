@@ -719,7 +719,7 @@ func AddBearer(header http.Header, token string) {
 	header["Authorization"] = []string{"bearer " + token}
 }
 
-func UpdateTimeLine(con *ConnectionData, c *http.Client, tenantUrl string, timelineId string, jobreq *AgentJobRequestMessage, wrap *TimelineRecordWrapper, token string) {
+func UpdateTimeLine(con *ConnectionData, c *http.Client, tenantUrl string, timelineId string, jobreq *AgentJobRequestMessage, wrap *TimelineRecordWrapper, token string) error {
 	serv := con.GetServiceDefinition("8893bc5b-35b2-4be7-83cb-99e683551db4")
 	url := BuildUrl(tenantUrl, serv.RelativePath, map[string]string{
 		"area":            serv.ServiceType,
@@ -740,14 +740,18 @@ func UpdateTimeLine(con *ConnectionData, c *http.Client, tenantUrl string, timel
 	poolsresp, err := c.Do(poolsreq)
 	if err != nil {
 		fmt.Println("Failed to upload timeline: " + err.Error())
+		return err
 	} else if poolsresp == nil {
 		fmt.Println("Failed to upload timeline")
+		return errors.New("No response")
 	} else {
 		defer poolsresp.Body.Close()
 		if poolsresp.StatusCode < 200 || poolsresp.StatusCode >= 300 {
 			fmt.Printf("Failed to upload timeline with Status %v\n", poolsresp.StatusCode)
+			return errors.New("No success")
 		}
 	}
+	return nil
 }
 
 func UploadLogFile(con *ConnectionData, c *http.Client, tenantUrl string, timelineId string, jobreq *AgentJobRequestMessage, token string, logContent string) int {
@@ -2412,7 +2416,14 @@ func (run *RunRunner) Run() int {
 										wrap.Value[0].Complete("Failed")
 									}
 								}
-								UpdateTimeLine(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, wrap, jobToken)
+								for i := 0; ; i++ {
+									if UpdateTimeLine(jobConnectionData, c, jobTenant, jobreq.Timeline.Id, jobreq, wrap, jobToken) != nil && i < 10 {
+										fmt.Printf("Retry uploading the final timeline of the job in 10 seconds attempt %v of 10\n", i+1)
+										<-time.After(time.Second * 10)
+									} else {
+										break
+									}
+								}
 								result := "Failed"
 								if cancelled {
 									result = "Canceled"
