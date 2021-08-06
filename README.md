@@ -1,6 +1,6 @@
 # github-act-runner
 
-[![awesome-runners](https://img.shields.io/badge/listed%20on-awesome--runners-blue.svg)](https://github.com/jonico/awesome-runners)
+[![CI](https://github.com/ChristopherHX/github-act-runner/actions/workflows/build.yml/badge.svg)](https://github.com/ChristopherHX/github-act-runner/actions/workflows/build.yml) [![awesome-runners](https://img.shields.io/badge/listed%20on-awesome--runners-blue.svg)](https://github.com/jonico/awesome-runners)
 
 A reverse engineered github actions compatible self-hosted runner using [act](https://github.com/nektos/act) to execute your workflow steps.
 Unlike the [official runner](https://github.com/actions/runner), this works on more systems like freebsd.
@@ -14,6 +14,7 @@ Unlike the [official runner](https://github.com/actions/runner), this works on m
 |nodejs actions|`node` (*2) in your `PATH` (prior running the runner)|Docker (*1), `node` (*2) in your `PATH` (inside your container image)|
 |docker actions|Not available|Docker (*1)|
 |service container|Not available|Not available|
+|composite actions with uses|Not available|Not available|
 
 (*1) Reachable docker daemon use `DOCKER_HOST` to specify a remote host.
 
