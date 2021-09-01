@@ -954,6 +954,7 @@ type ConfigureRunner struct {
 	SystemLabels    []string
 	Unattended      bool
 	RunnerGroup     string
+	Trace           bool
 }
 
 type RunnerSettings struct {
@@ -1092,6 +1093,7 @@ func (config *ConfigureRunner) Configure() int {
 		TenantUrl: res.TenantUrl,
 		Token:     res.Token,
 		Settings:  &RunnerSettings{RegistrationUrl: config.Url},
+		Trace:     config.Trace,
 	}
 	vssConnection.ConnectionData = vssConnection.GetConnectionData()
 	{
@@ -1242,6 +1244,7 @@ func (config *ConfigureRunner) Configure() int {
 type RunRunner struct {
 	Once     bool
 	Terminal bool
+	Trace    bool
 }
 
 type JobRun struct {
@@ -1405,7 +1408,7 @@ func (run *RunRunner) Run() int {
 		Settings:  settings,
 		TaskAgent: taskAgent,
 		Key:       key,
-		Trace:     true,
+		Trace:     run.Trace,
 	}
 	vssConnection.ConnectionData = vssConnection.GetConnectionData()
 
@@ -1615,14 +1618,16 @@ func (run *RunRunner) Run() int {
 								}
 								for i := 0; ; i++ {
 									if err := vssConnection.FinishJob(finish, jobrun); err != nil {
-										fmt.Printf("Failed to finish previous stuck job with Status Failed: %v\n", err.Error())
+										fmt.Printf("Failed to finish Job '%v' with Status %v: %v\n", jobreq.JobDisplayName, result, err.Error())
 									} else {
-										fmt.Println("Finished previous stuck job with Status Failed")
+										fmt.Printf("Finished Job '%v' with Status %v\n", jobreq.JobDisplayName, result)
 										break
 									}
 									if i < 10 {
-										fmt.Printf("Retry finishing the job in 10 seconds attempt %v of 10\n", i+1)
+										fmt.Printf("Retry finishing '%v' in 10 seconds attempt %v of 10\n", jobreq.JobDisplayName, i+1)
 										<-time.After(time.Second * 10)
+									} else {
+										break
 									}
 								}
 								os.Remove("jobrun.json")
@@ -1656,6 +1661,29 @@ func (run *RunRunner) Run() int {
 									failInitJob("The worker panicked with message: " + fmt.Sprint(err) + "\n" + string(debug.Stack()))
 								}
 							}()
+							con := *vssConnection
+							go func() {
+								for {
+									err := con.Request("fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
+										"poolId":    fmt.Sprint(poolId),
+										"requestId": fmt.Sprint(jobreq.RequestId),
+									}, map[string]string{
+										"lockToken": "00000000-0000-0000-0000-000000000000",
+									}, &RenewAgent{RequestId: jobreq.RequestId}, nil)
+									if err != nil {
+										if errors.Is(err, context.Canceled) {
+											return
+										} else {
+											fmt.Printf("Failed to renew job: %v\n", err.Error())
+										}
+									}
+									select {
+									case <-jobctx.Done():
+										return
+									case <-time.After(60 * time.Second):
+									}
+								}
+							}()
 							if jobreq.Resources == nil {
 								failInitJob("Missing Job Resources")
 								return
@@ -1685,36 +1713,11 @@ func (run *RunRunner) Run() int {
 										Client:    vssConnection.Client,
 										TenantUrl: jobTenant,
 										Token:     jobToken,
-										Trace:     true,
+										Trace:     run.Trace,
 									}
 									vssConnection.ConnectionData = vssConnection.GetConnectionData()
 								}
 							}
-							go func() {
-								for {
-									err := vssConnection.Request("fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
-										"poolId":    fmt.Sprint(poolId),
-										"requestId": fmt.Sprint(jobreq.RequestId),
-									}, map[string]string{
-										"lockToken": "00000000-0000-0000-0000-000000000000",
-									}, &RenewAgent{RequestId: jobreq.RequestId}, nil)
-									// if len(orchid) > 0 {
-									// 	poolsreq.Header["X-VSS-OrchestrationId"] = []string{orchid}
-									// }
-									if err != nil {
-										if errors.Is(err, context.Canceled) {
-											return
-										} else {
-											fmt.Printf("Failed to renew job: %v\n", err.Error())
-										}
-									}
-									select {
-									case <-jobctx.Done():
-										return
-									case <-time.After(60 * time.Second):
-									}
-								}
-							}()
 
 							rawGithubCtx, ok := rqt.ContextData["github"]
 							if !ok {
@@ -2264,6 +2267,7 @@ type RemoveRunner struct {
 	Token      string
 	Pat        string
 	Unattended bool
+	Trace      bool
 }
 
 func (config *RemoveRunner) Remove() int {
@@ -2411,6 +2415,7 @@ func (config *RemoveRunner) Remove() int {
 		TenantUrl: res.TenantUrl,
 		Token:     res.Token,
 		Settings:  settings,
+		Trace:     config.Trace,
 	}
 	vssConnection.ConnectionData = vssConnection.GetConnectionData()
 	{
@@ -2443,6 +2448,7 @@ func main() {
 	cmdConfigure.Flags().StringSliceVarP(&config.SystemLabels, "system-labels", "", []string{}, "custom system labels for your new runner")
 	cmdConfigure.Flags().StringVar(&config.Token, "runnergroup", "", "name of the runner group to use will ask if more than one is available")
 	cmdConfigure.Flags().BoolVar(&config.Unattended, "unattended", false, "suppress shell prompts during configure")
+	cmdConfigure.Flags().BoolVar(&config.Trace, "trace", false, "trace http communication with the github action service")
 	var cmdRun = &cobra.Command{
 		Use:   "run",
 		Short: "run your self-hosted runner",
@@ -2454,6 +2460,7 @@ func main() {
 
 	cmdRun.Flags().BoolVar(&run.Once, "once", false, "only execute one job and exit")
 	cmdRun.Flags().BoolVarP(&run.Terminal, "terminal", "t", true, "allocate a pty if possible")
+	cmdRun.Flags().BoolVar(&run.Trace, "trace", false, "trace http communication with the github action service")
 	var cmdRemove = &cobra.Command{
 		Use:   "remove",
 		Short: "remove your self-hosted runner",
@@ -2467,6 +2474,7 @@ func main() {
 	cmdRemove.Flags().StringVar(&remove.Token, "token", "", "runner registration or remove token")
 	cmdRemove.Flags().StringVar(&remove.Pat, "pat", "", "personal access token with access to your repository, organization or enterprise")
 	cmdRemove.Flags().BoolVar(&remove.Unattended, "unattended", false, "suppress shell prompts during configure")
+	cmdRemove.Flags().BoolVar(&remove.Trace, "trace", false, "trace http communication with the github action service")
 
 	var rootCmd = &cobra.Command{
 		Use:     "github-act-runner",
