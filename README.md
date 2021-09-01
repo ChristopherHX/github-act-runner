@@ -14,7 +14,9 @@ Unlike the [official runner](https://github.com/actions/runner), this works on m
 |[nodejs actions](https://docs.github.com/en/actions/creating-actions/creating-a-javascript-action)|`node` (*2) in your `PATH` (prior running the runner)|Docker (*1), `node` (*2) in your `PATH` (inside your container image)|
 |[docker actions](https://docs.github.com/en/actions/creating-actions/creating-a-docker-container-action)|Not available|Docker (*1)|
 |[service container](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idservices)|Not available|Not available|
-|composite actions with uses|Not available|Not available|
+|composite actions with uses|v0.1.0|v0.1.0|
+|composite actions with if|v0.1.0|v0.1.0|
+|composite actions with continue-on-error|v0.1.0|v0.1.0|
 
 (*1) Reachable docker daemon use `DOCKER_HOST` to specify a remote host.
 
