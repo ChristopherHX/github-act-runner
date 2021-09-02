@@ -1473,6 +1473,8 @@ func (run *RunRunner) Run() int {
 						if i < 10 {
 							fmt.Printf("Retry finishing the job in 10 seconds attempt %v of 10\n", i+1)
 							<-time.After(time.Second * 10)
+						} else {
+							break
 						}
 					}
 				}
@@ -1761,6 +1763,8 @@ func (run *RunRunner) Run() int {
 										if i < 10 {
 											fmt.Printf("Retry finishing the job in 10 seconds attempt %v of 10\n", i+1)
 											<-time.After(time.Second * 10)
+										} else {
+											break
 										}
 									}
 								}
