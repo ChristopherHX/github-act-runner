@@ -30,3 +30,15 @@ func GetInput(prompt string, answer string) string {
 	}
 	return answer
 }
+
+func GetMultiSelectInput(prompt string, options []string) []string {
+	answer := []string{}
+	in := &survey.MultiSelect{
+		Message: prompt,
+		Options: options,
+	}
+	if err := survey.AskOne(in, &answer); err != nil {
+		fmt.Printf("Failed to retrieve your choice selecting all: %v\n", options)
+	}
+	return answer
+}

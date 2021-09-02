@@ -675,6 +675,9 @@ func (vssConnection *VssConnection) authorize() (*VssOAuthTokenResponse, error) 
 }
 
 func (vssConnection *VssConnection) Request(serviceId string, protocol string, method string, urlParameter map[string]string, queryParameter map[string]string, requestBody interface{}, responseBody interface{}) error {
+	return vssConnection.RequestWithContext(context.Background(), serviceId, protocol, method, urlParameter, queryParameter, requestBody, responseBody)
+}
+func (vssConnection *VssConnection) RequestWithContext(ctx context.Context, serviceId string, protocol string, method string, urlParameter map[string]string, queryParameter map[string]string, requestBody interface{}, responseBody interface{}) error {
 	serv := vssConnection.ConnectionData.GetServiceDefinition(serviceId)
 	if urlParameter == nil {
 		urlParameter = map[string]string{}
@@ -699,7 +702,7 @@ func (vssConnection *VssConnection) Request(serviceId string, protocol string, m
 				buf = _buf
 			}
 		}
-		request, err := http.NewRequest(method, url, buf)
+		request, err := http.NewRequestWithContext(ctx, method, url, buf)
 		if err != nil {
 			return err
 		}
@@ -756,7 +759,7 @@ func (vssConnection *VssConnection) Request(serviceId string, protocol string, m
 				if err != nil {
 					bytes = []byte("no response: " + err.Error())
 				}
-				fmt.Printf("Http %v Request succeeded %v Headers: %v Body: `%v`\n", method, url, string(headerbuf.Bytes()), string(bytes))
+				fmt.Printf("Http %v Request succeeded %v Headers: %v Body: `%v`\n", method, url, headerbuf.String(), string(bytes))
 
 				if err := json.Unmarshal(bytes, responseBody); err != nil {
 					return err
@@ -864,8 +867,8 @@ func (vssConnection *VssConnection) UploadLogFile(timelineId string, jobreq *Age
 	return log.Id
 }
 
-func (vssConnection *VssConnection) DeleteAgent(taskAgent *TaskAgent) {
-	vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "DELETE", map[string]string{
+func (vssConnection *VssConnection) DeleteAgent(taskAgent *TaskAgent) error {
+	return vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "DELETE", map[string]string{
 		"poolId":  fmt.Sprint(vssConnection.Settings.PoolId),
 		"agentId": fmt.Sprint(taskAgent.Id),
 	}, map[string]string{}, nil, nil)
@@ -957,9 +960,19 @@ type ConfigureRunner struct {
 	Trace           bool
 }
 
+type RunnerInstance struct {
+	PoolId          int64
+	RegistrationUrl string
+	Auth            *GitHubAuthResult
+	Agent           *TaskAgent
+	Key             string
+	PKey            *rsa.PrivateKey `json:"-"`
+}
+
 type RunnerSettings struct {
 	PoolId          int64
 	RegistrationUrl string
+	Instances       []*RunnerInstance
 }
 
 func WriteJson(path string, value interface{}) error {
@@ -979,6 +992,10 @@ func ReadJson(path string, value interface{}) error {
 }
 
 func (config *ConfigureRunner) Configure() int {
+	settings := &RunnerSettings{RegistrationUrl: config.Url}
+	_ = ReadJson("settings.json", settings)
+	instance := &RunnerInstance{}
+	settings.Instances = append(settings.Instances, instance)
 	if len(config.Url) == 0 {
 		if !config.Unattended {
 			config.Url = GetInput("Please enter your repository, organization or enterprise url:", "")
@@ -991,7 +1008,7 @@ func (config *ConfigureRunner) Configure() int {
 		fmt.Println("No url provided")
 		return 1
 	}
-
+	instance.RegistrationUrl = config.Url
 	registerUrl, err := url.Parse(config.Url)
 	if err != nil {
 		fmt.Printf("Invalid Url: %v\n", config.Url)
@@ -1084,10 +1101,7 @@ func (config *ConfigureRunner) Configure() int {
 		return 1
 	}
 
-	{
-		b, _ := json.MarshalIndent(res, "", "    ")
-		ioutil.WriteFile("auth.json", b, 0777)
-	}
+	instance.Auth = res
 	vssConnection := &VssConnection{
 		Client:    c,
 		TenantUrl: res.TenantUrl,
@@ -1133,7 +1147,7 @@ func (config *ConfigureRunner) Configure() int {
 		}
 	}
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
-	ioutil.WriteFile("cred.pkcs1", x509.MarshalPKCS1PrivateKey(key), 0777)
+	instance.Key = base64.StdEncoding.EncodeToString(x509.MarshalPKCS1PrivateKey(key))
 
 	taskAgent := &TaskAgent{}
 	taskAgent.Authorization = TaskAgentAuthorization{}
@@ -1217,25 +1231,10 @@ func (config *ConfigureRunner) Configure() int {
 			return 1
 		}
 	}
-	b, err := json.MarshalIndent(taskAgent, "", "    ")
-	if err != nil {
-		fmt.Printf("Failed to serialize taskAgent: %v\n", err.Error())
-		return 1
-	}
-	if err := ioutil.WriteFile("agent.json", b, 0777); err != nil {
-		fmt.Printf("Failed to save agent.json: %v\n", err.Error())
-		return 1
-	}
-	{
-		b, err := json.MarshalIndent(vssConnection.Settings, "", "    ")
-		if err != nil {
-			fmt.Printf("Failed to serialize settings: %v\n", err.Error())
-			return 1
-		}
-		if err := ioutil.WriteFile("settings.json", b, 0777); err != nil {
-			fmt.Printf("Failed to save settings.json: %v\n", err.Error())
-			return 1
-		}
+	instance.Agent = taskAgent
+	instance.PoolId = vssConnection.Settings.PoolId
+	if err := WriteJson("settings.json", settings); err != nil {
+		fmt.Printf("Failed to save settings.json: %v\n", err.Error())
 	}
 	fmt.Println("success")
 	return 0
@@ -1304,6 +1303,78 @@ func ToStringMap(src interface{}) interface{} {
 	return src
 }
 
+func readLegacyInstance(settings *RunnerSettings, instance *RunnerInstance) int {
+	taskAgent := &TaskAgent{}
+	var key *rsa.PrivateKey
+	req := &GitHubAuthResult{}
+	{
+		cont, err := ioutil.ReadFile("agent.json")
+		if err != nil {
+			return 1
+		}
+		err = json.Unmarshal(cont, taskAgent)
+		if err != nil {
+			return 1
+		}
+	}
+	{
+		cont, err := ioutil.ReadFile("cred.pkcs1")
+		if err != nil {
+			return 1
+		}
+		key, err = x509.ParsePKCS1PrivateKey(cont)
+		if err != nil {
+			return 1
+		}
+	}
+	{
+		cont, err := ioutil.ReadFile("auth.json")
+		if err != nil {
+			return 1
+		}
+		err = json.Unmarshal(cont, req)
+		if err != nil {
+			return 1
+		}
+	}
+	instance.Agent = taskAgent
+	instance.PKey = key
+	instance.PoolId = settings.PoolId
+	instance.RegistrationUrl = settings.RegistrationUrl
+	instance.Auth = req
+	return 0
+}
+
+func loadConfiguration() (*RunnerSettings, error) {
+	settings := &RunnerSettings{}
+	{
+		cont, err := ioutil.ReadFile("settings.json")
+		if err != nil {
+			// Backward compat <= 0.0.3
+			// fmt.Printf("The runner needs to be configured first: %v\n", err.Error())
+			// return 1
+			settings.PoolId = 1
+		} else {
+			err = json.Unmarshal(cont, settings)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	{
+		for i := 0; i < len(settings.Instances); i++ {
+			key, _ := base64.StdEncoding.DecodeString(settings.Instances[i].Key)
+			pkey, _ := x509.ParsePKCS1PrivateKey(key)
+			settings.Instances[i].PKey = pkey
+		}
+		instance := &RunnerInstance{}
+		if readLegacyInstance(settings, instance) == 0 {
+			settings.Instances = append(settings.Instances, instance)
+		}
+	}
+	return settings, nil
+}
+
 func (run *RunRunner) Run() int {
 	container.SetContainerAllocateTerminal(run.Terminal)
 	// trap Ctrl+C
@@ -1343,71 +1414,18 @@ func (run *RunRunner) Run() int {
 		<-jobctx.Done()
 	}()
 	c := &http.Client{}
-	taskAgent := &TaskAgent{}
-	var key *rsa.PrivateKey
-	req := &GitHubAuthResult{}
-	{
-		cont, err := ioutil.ReadFile("agent.json")
-		if err != nil {
-			fmt.Printf("The runner needs to be configured first: %v\n", err.Error())
-			return 1
-		}
-		err = json.Unmarshal(cont, taskAgent)
-		if err != nil {
-			fmt.Printf("agent.json is corrupted: %v, please reconfigure the runner\n", err.Error())
-			return 1
-		}
+	settings, err := loadConfiguration()
+	if err != nil {
+		fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
+		return 1
 	}
-	settings := &RunnerSettings{}
-	{
-		cont, err := ioutil.ReadFile("settings.json")
-		if err != nil {
-			// Backward compat <= 0.0.3
-			// fmt.Printf("The runner needs to be configured first: %v\n", err.Error())
-			// return 1
-			settings.PoolId = 1
-		} else {
-			err = json.Unmarshal(cont, settings)
-			if err != nil {
-				fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
-				return 1
-			}
-		}
-	}
-	poolId := settings.PoolId
-	{
-		cont, err := ioutil.ReadFile("cred.pkcs1")
-		if err != nil {
-			fmt.Printf("The runner needs to be configured first: %v\n", err.Error())
-			return 1
-		}
-		key, err = x509.ParsePKCS1PrivateKey(cont)
-		if err != nil {
-			fmt.Printf("cred.pkcs1 is corrupted: %v, please reconfigure the runner\n", err.Error())
-			return 1
-		}
-	}
-	{
-		cont, err := ioutil.ReadFile("auth.json")
-		if err != nil {
-			fmt.Printf("The runner needs to be configured first: %v\n", err.Error())
-			return 1
-		}
-		err = json.Unmarshal(cont, req)
-		if err != nil {
-			fmt.Printf("auth.json is corrupted %v, please reconfigure the runner\n", err.Error())
-			return 1
-		}
-	}
-
-	tokenresp := &VssOAuthTokenResponse{}
+	instance := settings.Instances[0]
 	vssConnection := &VssConnection{
 		Client:    c,
-		TenantUrl: req.TenantUrl,
-		Token:     tokenresp.AccessToken,
+		TenantUrl: instance.Auth.TenantUrl,
 		Settings:  settings,
-		TaskAgent: taskAgent,
-		Key:       key,
+		TaskAgent: instance.Agent,
+		Key:       instance.PKey,
 		Trace:     run.Trace,
 	}
 	vssConnection.ConnectionData = vssConnection.GetConnectionData()
@@ -1433,20 +1451,6 @@ func (run *RunRunner) Run() int {
 			default:
 			}
 			if session == nil {
-				tokenresp_, err := taskAgent.Authorize(c, key)
-				if err != nil {
-					fmt.Printf("Failed to renew auth, waiting 10 sec before retry: %v\n", err.Error())
-					select {
-					case <-ctx.Done():
-						fmt.Println("Canceled stopping")
-						return 0
-					case <-time.After(10 * time.Second):
-					}
-					continue
-				}
-				tokenresp.AccessToken = tokenresp_.AccessToken
-				tokenresp.ExpiresIn = tokenresp_.ExpiresIn
-				tokenresp.TokenType = tokenresp_.TokenType
 				jobrun := &JobRun{}
 				if ReadJson("jobrun.json", jobrun) == nil {
 					result := "Failed"
@@ -1510,7 +1514,7 @@ func (run *RunRunner) Run() int {
 				}
 			}
 			err := vssConnection.Request("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "GET", map[string]string{
-				"poolId": fmt.Sprint(poolId),
+				"poolId": fmt.Sprint(instance.PoolId),
 			}, map[string]string{
 				"sessionId": session.TaskAgentSession.SessionId,
 			}, nil, message)
@@ -1537,7 +1541,7 @@ func (run *RunRunner) Run() int {
 				}
 				success = true
 				err := vssConnection.Request("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "DELETE", map[string]string{
-					"poolId":    fmt.Sprint(poolId),
+					"poolId":    fmt.Sprint(instance.PoolId),
 					"messageId": fmt.Sprint(message.MessageId),
 				}, map[string]string{
 					"sessionId": session.TaskAgentSession.SessionId,
@@ -1558,701 +1562,7 @@ func (run *RunRunner) Run() int {
 						jobctx, finishJob = context.WithCancel(context.Background())
 						var jobExecCtx context.Context
 						jobExecCtx, cancelJob = context.WithCancel(context.Background())
-						go func() {
-							defer func() {
-								if run.Once {
-									// cancel Message Loop
-									fmt.Println("Last Job finished, cancel Message loop")
-									cancel()
-								}
-								cancelJob()
-								finishJob()
-							}()
-							iv, _ := base64.StdEncoding.DecodeString(message.IV)
-							src, _ := base64.StdEncoding.DecodeString(message.Body)
-							cbcdec := cipher.NewCBCDecrypter(session.Block, iv)
-							cbcdec.CryptBlocks(src, src)
-							maxlen := session.Block.BlockSize()
-							validlen := len(src)
-							if int(src[len(src)-1]) < maxlen {
-								ok := true
-								for i := 2; i <= int(src[len(src)-1]); i++ {
-									if src[len(src)-i] != src[len(src)-1] {
-										ok = false
-										break
-									}
-								}
-								if ok {
-									validlen -= int(src[len(src)-1])
-								}
-							}
-							off := 0
-							// skip utf8 bom, c# cryptostream uses it for utf8
-							if src[0] == 239 && src[1] == 187 && src[2] == 191 {
-								off = 3
-							}
-							jobreq := &AgentJobRequestMessage{}
-							{
-								dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
-								dec.Decode(jobreq)
-							}
-							jobrun := &JobRun{
-								RequestId: jobreq.RequestId,
-								JobId:     jobreq.JobId,
-								Plan:      jobreq.Plan,
-							}
-							{
-								if err := WriteJson("jobrun.json", jobrun); err != nil {
-									fmt.Printf("INFO: Failed to create jobrun.json: %v\n", err)
-								}
-							}
-							fmt.Printf("Running Job '%v'\n", jobreq.JobDisplayName)
-							vssConnection := vssConnection
-							finishJob2 := func(result string, outputs *map[string]VariableValue) {
-								finish := &JobEvent{
-									Name:      "JobCompleted",
-									JobId:     jobreq.JobId,
-									RequestId: jobreq.RequestId,
-									Result:    result,
-									Outputs:   outputs,
-								}
-								for i := 0; ; i++ {
-									if err := vssConnection.FinishJob(finish, jobrun); err != nil {
-										fmt.Printf("Failed to finish Job '%v' with Status %v: %v\n", jobreq.JobDisplayName, result, err.Error())
-									} else {
-										fmt.Printf("Finished Job '%v' with Status %v\n", jobreq.JobDisplayName, result)
-										break
-									}
-									if i < 10 {
-										fmt.Printf("Retry finishing '%v' in 10 seconds attempt %v of 10\n", jobreq.JobDisplayName, i+1)
-										<-time.After(time.Second * 10)
-									} else {
-										break
-									}
-								}
-								os.Remove("jobrun.json")
-							}
-							finishJob := func(result string) {
-								finishJob2(result, nil)
-							}
-							rqt := jobreq
-							wrap := &TimelineRecordWrapper{}
-							wrap.Count = 2
-							wrap.Value = make([]TimelineRecord, wrap.Count)
-							wrap.Value[0] = CreateTimelineEntry("", rqt.JobName, rqt.JobDisplayName)
-							wrap.Value[0].Id = rqt.JobId
-							wrap.Value[0].Type = "Job"
-							wrap.Value[0].Order = 0
-							wrap.Value[0].Start()
-							wrap.Value[1] = CreateTimelineEntry(rqt.JobId, "__setup", "Setup Job")
-							wrap.Value[1].Order = 1
-							wrap.Value[1].Start()
-							vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap)
-							failInitJob := func(message string) {
-								wrap.Value[1].Log = &TaskLogReference{Id: vssConnection.UploadLogFile(jobreq.Timeline.Id, jobreq, message)}
-								wrap.Value[1].Complete("Failed")
-								wrap.Value[0].Complete("Failed")
-								vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap)
-								fmt.Println(message)
-								finishJob("Failed")
-							}
-							defer func() {
-								if err := recover(); err != nil {
-									failInitJob("The worker panicked with message: " + fmt.Sprint(err) + "\n" + string(debug.Stack()))
-								}
-							}()
-							con := *vssConnection
-							go func() {
-								for {
-									err := con.Request("fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
-										"poolId":    fmt.Sprint(poolId),
-										"requestId": fmt.Sprint(jobreq.RequestId),
-									}, map[string]string{
-										"lockToken": "00000000-0000-0000-0000-000000000000",
-									}, &RenewAgent{RequestId: jobreq.RequestId}, nil)
-									if err != nil {
-										if errors.Is(err, context.Canceled) {
-											return
-										} else {
-											fmt.Printf("Failed to renew job: %v\n", err.Error())
-										}
-									}
-									select {
-									case <-jobctx.Done():
-										return
-									case <-time.After(60 * time.Second):
-									}
-								}
-							}()
-							if jobreq.Resources == nil {
-								failInitJob("Missing Job Resources")
-								return
-							}
-							if jobreq.Resources.Endpoints == nil {
-								failInitJob("Missing Job Resources Endpoints")
-								return
-							}
-							// orchid := ""
-							cacheUrl := ""
-							for _, endpoint := range jobreq.Resources.Endpoints {
-								if strings.EqualFold(endpoint.Name, "SystemVssConnection") && endpoint.Authorization.Parameters != nil && endpoint.Authorization.Parameters["AccessToken"] != "" {
-									jobToken := endpoint.Authorization.Parameters["AccessToken"]
-									jobTenant := endpoint.Url
-									claims := jwt.MapClaims{}
-									jwt.ParseWithClaims(jobToken, claims, func(t *jwt.Token) (interface{}, error) {
-										return nil, nil
-									})
-									// if _orchid, suc := claims["orchid"]; suc {
-									// 	orchid = _orchid.(string)
-									// }
-									_cacheUrl, ok := endpoint.Data["CacheServerUrl"]
-									if ok {
-										cacheUrl = _cacheUrl
-									}
-									vssConnection = &VssConnection{
-										Client:    vssConnection.Client,
-										TenantUrl: jobTenant,
-										Token:     jobToken,
-										Trace:     run.Trace,
-									}
-									vssConnection.ConnectionData = vssConnection.GetConnectionData()
-								}
-							}
-
-							rawGithubCtx, ok := rqt.ContextData["github"]
-							if !ok {
-								fmt.Println("missing github context in ContextData")
-								finishJob("Failed")
-								return
-							}
-							githubCtx := rawGithubCtx.ToRawObject()
-							secrets := map[string]string{}
-							if rqt.Variables != nil {
-								for k, v := range rqt.Variables {
-									if v.IsSecret && k != "system.github.token" {
-										secrets[k] = v.Value
-									}
-								}
-								if rawGithubToken, ok := rqt.Variables["system.github.token"]; ok {
-									secrets["GITHUB_TOKEN"] = rawGithubToken.Value
-								}
-							}
-							matrix := make(map[string]interface{})
-							if rawMatrix, ok := rqt.ContextData["matrix"]; ok {
-								rawobj := rawMatrix.ToRawObject()
-								if tmpmatrix, ok := rawobj.(map[string]interface{}); ok {
-									matrix = tmpmatrix
-								} else if rawobj != nil {
-									failInitJob("matrix: not a map")
-									return
-								}
-							}
-							env := make(map[string]string)
-							if rqt.EnvironmentVariables != nil {
-								for _, rawenv := range rqt.EnvironmentVariables {
-									if tmpenv, ok := rawenv.ToRawObject().(map[interface{}]interface{}); ok {
-										for k, v := range tmpenv {
-											key, ok := k.(string)
-											if !ok {
-												failInitJob("env key: act doesn't support non strings")
-												return
-											}
-											value, ok := v.(string)
-											if !ok {
-												failInitJob("env value: act doesn't support non strings")
-												return
-											}
-											env[key] = value
-										}
-									} else {
-										failInitJob("env: not a map")
-										return
-									}
-								}
-							}
-							env["ACTIONS_RUNTIME_URL"] = vssConnection.TenantUrl
-							env["ACTIONS_RUNTIME_TOKEN"] = vssConnection.Token
-							if len(cacheUrl) > 0 {
-								env["ACTIONS_CACHE_URL"] = cacheUrl
-							}
-
-							defaults := model.Defaults{}
-							if rqt.Defaults != nil {
-								for _, rawenv := range rqt.Defaults {
-									rawobj := rawenv.ToRawObject()
-									rawobj = ToStringMap(rawobj)
-									b, err := json.Marshal(rawobj)
-									if err != nil {
-										failInitJob("Failed to eval defaults")
-										return
-									}
-									json.Unmarshal(b, &defaults)
-								}
-							}
-							steps := []*model.Step{}
-							for _, step := range rqt.Steps {
-								st := strings.ToLower(step.Reference.Type)
-								inputs := make(map[interface{}]interface{})
-								if step.Inputs != nil {
-									if tmpinputs, ok := step.Inputs.ToRawObject().(map[interface{}]interface{}); ok {
-										inputs = tmpinputs
-									} else {
-										failInitJob("step.Inputs: not a map")
-										return
-									}
-								}
-
-								env := &yaml.Node{}
-								if step.Environment != nil {
-									env = step.Environment.ToYamlNode()
-								}
-
-								continueOnError := false
-								if step.ContinueOnError != nil {
-									tmpcontinueOnError, ok := step.ContinueOnError.ToRawObject().(bool)
-									if !ok {
-										failInitJob("ContinueOnError: act doesn't support expressions here")
-										return
-									}
-									continueOnError = tmpcontinueOnError
-								}
-								var timeoutMinutes int64 = 0
-								if step.TimeoutInMinutes != nil {
-									rawTimeout, ok := step.TimeoutInMinutes.ToRawObject().(float64)
-									if !ok {
-										failInitJob("TimeoutInMinutes: act doesn't support expressions here")
-										return
-									}
-									timeoutMinutes = int64(rawTimeout)
-								}
-								var displayName string = ""
-								if step.DisplayNameToken != nil {
-									rawDisplayName, ok := step.DisplayNameToken.ToRawObject().(string)
-									if !ok {
-										failInitJob("DisplayNameToken: act doesn't support no strings")
-										return
-									}
-									displayName = rawDisplayName
-								}
-								if step.ContextName == "" {
-									step.ContextName = "___" + uuid.New().String()
-								}
-
-								switch st {
-								case "script":
-									rawwd, haswd := inputs["workingDirectory"]
-									var wd string
-									if haswd {
-										tmpwd, ok := rawwd.(string)
-										if !ok {
-											failInitJob("workingDirectory: act doesn't support non strings")
-											return
-										}
-										wd = tmpwd
-									} else {
-										wd = ""
-									}
-									rawshell, hasshell := inputs["shell"]
-									shell := ""
-									if hasshell {
-										sshell, ok := rawshell.(string)
-										if ok {
-											shell = sshell
-										} else {
-											failInitJob("shell is not a string")
-											return
-										}
-									}
-									scriptContent, ok := inputs["script"].(string)
-									if ok {
-										steps = append(steps, &model.Step{
-											ID:               step.ContextName,
-											If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
-											Name:             displayName,
-											Run:              scriptContent,
-											WorkingDirectory: wd,
-											Shell:            shell,
-											ContinueOnError:  continueOnError,
-											TimeoutMinutes:   timeoutMinutes,
-											Env:              *env,
-										})
-									} else {
-										failInitJob("Missing script")
-										return
-									}
-								case "containerregistry", "repository":
-									uses := ""
-									if st == "containerregistry" {
-										uses = "docker://" + step.Reference.Image
-									} else if strings.ToLower(step.Reference.RepositoryType) == "self" {
-										uses = step.Reference.Path
-									} else {
-										uses = step.Reference.Name
-										if len(step.Reference.Path) > 0 {
-											uses = uses + "/" + step.Reference.Path
-										}
-										uses = uses + "@" + step.Reference.Ref
-									}
-									with := map[string]string{}
-									for k, v := range inputs {
-										k, ok := k.(string)
-										if !ok {
-											failInitJob("with input key is not a string")
-											return
-										}
-										val, ok := v.(string)
-										if !ok {
-											failInitJob("with input value is not a string")
-											return
-										}
-										with[k] = val
-									}
-
-									steps = append(steps, &model.Step{
-										ID:               step.ContextName,
-										If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
-										Name:             displayName,
-										Uses:             uses,
-										WorkingDirectory: "",
-										With:             with,
-										ContinueOnError:  continueOnError,
-										TimeoutMinutes:   timeoutMinutes,
-										Env:              *env,
-									})
-								}
-							}
-							rawContainer := yaml.Node{}
-							if rqt.JobContainer != nil {
-								rawContainer = *rqt.JobContainer.ToYamlNode()
-								// Fake step to catch the post log
-								steps = append(steps, &model.Step{
-									ID:               "___finish_job",
-									If:               yaml.Node{Kind: yaml.ScalarNode, Value: "false"},
-									Name:             "Finish Job",
-									Run:              "",
-									Env:              yaml.Node{},
-									ContinueOnError:  true,
-									WorkingDirectory: "",
-									Shell:            "",
-								})
-							}
-							services := make(map[string]*model.ContainerSpec)
-							if rqt.JobServiceContainers != nil {
-								rawServiceContainer, ok := rqt.JobServiceContainers.ToRawObject().(map[interface{}]interface{})
-								if !ok {
-									failInitJob("Job service container is not nil, but also not a map")
-									return
-								}
-								for name, rawcontainer := range rawServiceContainer {
-									containerName, ok := name.(string)
-									if !ok {
-										failInitJob("containername is not a string")
-										return
-									}
-									spec := &model.ContainerSpec{}
-									b, err := json.Marshal(ToStringMap(rawcontainer))
-									if err != nil {
-										failInitJob("Failed to serialize ContainerSpec")
-										return
-									}
-									err = json.Unmarshal(b, &spec)
-									if err != nil {
-										failInitJob("Failed to deserialize ContainerSpec")
-										return
-									}
-									services[containerName] = spec
-								}
-							}
-							githubCtxMap, ok := githubCtx.(map[string]interface{})
-							if !ok {
-								failInitJob("Github ctx is not a map")
-								return
-							}
-							var payload string
-							{
-								e, _ := json.Marshal(githubCtxMap["event"])
-								payload = string(e)
-							}
-							rc := &runner.RunContext{
-								Name: uuid.New().String(),
-								Config: &runner.Config{
-									Workdir: ".",
-									Secrets: secrets,
-									Platforms: map[string]string{
-										"dummy": "-self-hosted",
-									},
-									LogOutput:           true,
-									EventName:           githubCtxMap["event_name"].(string),
-									GitHubInstance:      githubCtxMap["server_url"].(string)[8:],
-									ForceRemoteCheckout: true, // Needed to avoid copy the non exiting working dir
-									ReuseContainers:     false,
-									CompositeRestrictions: &model.CompositeRestrictions{
-										AllowCompositeUses:            true,
-										AllowCompositeIf:              true,
-										AllowCompositeContinueOnError: true,
-									},
-								},
-								Env: env,
-								Run: &model.Run{
-									JobID: rqt.JobId,
-									Workflow: &model.Workflow{
-										Name:     githubCtxMap["workflow"].(string),
-										Defaults: defaults,
-										Jobs: map[string]*model.Job{
-											rqt.JobId: {
-												Name:         rqt.JobDisplayName,
-												RawRunsOn:    yaml.Node{Kind: yaml.ScalarNode, Value: "dummy"},
-												Steps:        steps,
-												RawContainer: rawContainer,
-												Services:     services,
-												Outputs:      make(map[string]string),
-											},
-										},
-									},
-								},
-								Matrix:    matrix,
-								EventJSON: payload,
-							}
-
-							// Prepare act to fill previous job outputs
-							if rawNeedstx, ok := rqt.ContextData["needs"]; ok {
-								needsCtx := rawNeedstx.ToRawObject()
-								if needsCtxMap, ok := needsCtx.(map[string]interface{}); ok {
-									a := make([]*yaml.Node, 0)
-									for k, v := range needsCtxMap {
-										a = append(a, &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: k})
-										outputs := make(map[string]string)
-										if jobMap, ok := v.(map[string]interface{}); ok {
-											if jobOutputs, ok := jobMap["outputs"]; ok {
-												if outputMap, ok := jobOutputs.(map[string]interface{}); ok {
-													for k, v := range outputMap {
-														if sv, ok := v.(string); ok {
-															outputs[k] = sv
-														}
-													}
-												}
-											}
-										}
-										rc.Run.Workflow.Jobs[k] = &model.Job{
-											Outputs: outputs,
-										}
-									}
-									rc.Run.Workflow.Jobs[rqt.JobId].RawNeeds = yaml.Node{Kind: yaml.SequenceNode, Content: a}
-								}
-							}
-							// Prepare act to add job outputs to current job
-							if rqt.JobOutputs != nil {
-								o := rqt.JobOutputs.ToRawObject()
-								if m, ok := o.(map[interface{}]interface{}); ok {
-									for k, v := range m {
-										if kv, ok := k.(string); ok {
-											if sv, ok := v.(string); ok {
-												rc.Run.Workflow.Jobs[rqt.JobId].Outputs[kv] = sv
-											}
-										}
-									}
-								}
-							}
-
-							val, _ := json.Marshal(githubCtx)
-							sv := string(val)
-							rc.GithubContextBase = &sv
-							rc.JobName = "beta"
-
-							ee := rc.NewExpressionEvaluator()
-							rc.ExprEval = ee
-							logger := logrus.New()
-
-							formatter := new(ghaFormatter)
-							formatter.rc = rc
-							formatter.rqt = rqt
-							formatter.stepBuffer = &bytes.Buffer{}
-
-							logger.SetFormatter(formatter)
-							logger.SetOutput(io.MultiWriter())
-							level := logrus.InfoLevel
-							if sd, ok := rqt.Variables["ACTIONS_STEP_DEBUG"]; !ok || sd.Value == "true" || sd.Value == "1" {
-								level = logrus.DebugLevel
-							}
-							logger.SetLevel(level)
-							logrus.SetLevel(level)
-							logrus.SetFormatter(formatter)
-							logrus.SetOutput(io.MultiWriter())
-
-							rc.CurrentStep = "__setup"
-							rc.InitStepResults([]string{rc.CurrentStep})
-
-							for i := 0; i < len(steps); i++ {
-								wrap.Value = append(wrap.Value, CreateTimelineEntry(rqt.JobId, steps[i].ID, steps[i].String()))
-								wrap.Value[i+2].Order = int32(i + 2)
-							}
-							formatter.current = &wrap.Value[1]
-							wrap.Count = int64(len(wrap.Value))
-							vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap)
-							{
-								formatter.updateTimeLine = func() {
-									vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap)
-								}
-								formatter.uploadLogFile = func(log string) int {
-									return vssConnection.UploadLogFile(jobreq.Timeline.Id, jobreq, log)
-								}
-							}
-							var outputMap *map[string]VariableValue
-							jobStatus := "success"
-							cancelled := false
-							{
-								runCtx, cancelRun := context.WithCancel(context.Background())
-								logctx, cancelLog := context.WithCancel(context.Background())
-								defer func() {
-									cancelRun()
-									<-logctx.Done()
-								}()
-								{
-									logchan := make(chan *TimelineRecordFeedLinesWrapper, 64)
-									formatter.logline = func(startLine int64, recordId string, line string) {
-										lines := &TimelineRecordFeedLinesWrapper{}
-										lines.Count = 1
-										lines.StartLine = &startLine
-										lines.StepId = recordId
-										lines.Value = []string{line}
-										logchan <- lines
-									}
-									go func() {
-										defer cancelLog()
-										sendLog := func(lines *TimelineRecordFeedLinesWrapper) {
-											vssConnection.Request("858983e4-19bd-4c5e-864c-507b59b58b12", "5.1-preview", "POST", map[string]string{
-												"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
-												"planId":          jobreq.Plan.PlanId,
-												"hubName":         jobreq.Plan.PlanType,
-												"timelineId":      jobreq.Timeline.Id,
-												"recordId":        lines.StepId,
-											}, map[string]string{}, lines, nil)
-
-											if err != nil {
-												fmt.Println("Failed to upload logline: " + err.Error())
-											}
-										}
-										for {
-											select {
-											case <-runCtx.Done():
-												return
-											case lines := <-logchan:
-												st := time.Now()
-												lp := st
-												logsexit := false
-												for {
-													b := false
-													div := lp.Sub(st)
-													if div > time.Second {
-														break
-													}
-													select {
-													case line := <-logchan:
-														if line.StepId == lines.StepId {
-															lines.Count++
-															lines.Value = append(lines.Value, line.Value[0])
-														} else {
-															sendLog(lines)
-															lines = line
-															st = time.Now()
-														}
-													case <-time.After(time.Second - div):
-														b = true
-													case <-runCtx.Done():
-														b = true
-														logsexit = true
-													}
-													if b {
-														break
-													}
-													lp = time.Now()
-												}
-												sendLog(lines)
-												if logsexit {
-													return
-												}
-											}
-										}
-									}()
-								}
-								formatter.wrap = wrap
-
-								logger.Log(logrus.DebugLevel, "Runner Name: "+taskAgent.Name)
-								logger.Log(logrus.DebugLevel, "Runner OSDescription: github-act-runner "+runtime.GOOS+"/"+runtime.GOARCH)
-								logger.Log(logrus.DebugLevel, "Runner Version: "+version)
-								rc.Executor()(common.WithLogger(jobExecCtx, logger))
-
-								// Prepare results for github server
-								if rqt.JobOutputs != nil {
-									m := make(map[string]VariableValue)
-									outputMap = &m
-									for k, v := range rc.Run.Workflow.Jobs[rqt.JobId].Outputs {
-										m[k] = VariableValue{Value: v}
-									}
-								}
-
-								for _, stepStatus := range rc.StepResults {
-									if !stepStatus.Success {
-										jobStatus = "failure"
-										break
-									}
-								}
-								select {
-								case <-jobExecCtx.Done():
-									cancelled = true
-								default:
-								}
-								{
-									f := formatter
-									f.startLine = 1
-									if f.current != nil {
-										if f.current == &wrap.Value[1] {
-											// Workaround check for init failure, e.g. docker fails
-											if cancelled {
-												f.current.Complete("Canceled")
-											} else {
-												jobStatus = "failure"
-												f.current.Complete("Failed")
-											}
-										} else if f.rc.StepResults[f.current.RefName].Success {
-											f.current.Complete("Succeeded")
-										} else {
-											f.current.Complete("Failed")
-										}
-										if f.stepBuffer.Len() > 0 {
-											f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
-										}
-									}
-								}
-								for i := 2; i < len(wrap.Value); i++ {
-									if !strings.EqualFold(wrap.Value[i].State, "Completed") {
-										wrap.Value[i].Complete("Skipped")
-									}
-								}
-								if cancelled {
-									wrap.Value[0].Complete("Canceled")
-								} else if jobStatus == "success" {
-									wrap.Value[0].Complete("Succeeded")
-								} else {
-									wrap.Value[0].Complete("Failed")
-								}
-							}
-							for i := 0; ; i++ {
-								if vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap) != nil && i < 10 {
-									fmt.Printf("Retry uploading the final timeline of the job in 10 seconds attempt %v of 10\n", i+1)
-									<-time.After(time.Second * 10)
-								} else {
-									break
-								}
-							}
-							result := "Failed"
-							if cancelled {
-								result = "Canceled"
-							} else if jobStatus == "success" {
-								result = "Succeeded"
-							}
-							finishJob2(result, outputMap)
-						}()
+						runJob(vssConnection, run, cancel, cancelJob, finishJob, jobExecCtx, jobctx, session, *message, instance)
 					} else {
 						fmt.Println("Ignoring incoming message of type: " + message.MessageType)
 					}
@@ -2262,165 +1572,893 @@ func (run *RunRunner) Run() int {
 	}
 }
 
+func runJob(vssConnection *VssConnection, run *RunRunner, cancel context.CancelFunc, cancelJob context.CancelFunc, finishJob context.CancelFunc, jobExecCtx context.Context, jobctx context.Context, session *AgentMessageConnection, message TaskAgentMessage, instance *RunnerInstance) {
+	go func() {
+		defer func() {
+			if run.Once {
+				// cancel Message Loop
+				fmt.Println("Last Job finished, cancel Message loop")
+				cancel()
+			}
+			cancelJob()
+			finishJob()
+		}()
+		iv, _ := base64.StdEncoding.DecodeString(message.IV)
+		src, _ := base64.StdEncoding.DecodeString(message.Body)
+		cbcdec := cipher.NewCBCDecrypter(session.Block, iv)
+		cbcdec.CryptBlocks(src, src)
+		maxlen := session.Block.BlockSize()
+		validlen := len(src)
+		if int(src[len(src)-1]) < maxlen {
+			ok := true
+			for i := 2; i <= int(src[len(src)-1]); i++ {
+				if src[len(src)-i] != src[len(src)-1] {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				validlen -= int(src[len(src)-1])
+			}
+		}
+		off := 0
+		// skip utf8 bom, c# cryptostream uses it for utf8
+		if src[0] == 239 && src[1] == 187 && src[2] == 191 {
+			off = 3
+		}
+		jobreq := &AgentJobRequestMessage{}
+		{
+			dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
+			dec.Decode(jobreq)
+		}
+		jobrun := &JobRun{
+			RequestId: jobreq.RequestId,
+			JobId:     jobreq.JobId,
+			Plan:      jobreq.Plan,
+		}
+		{
+			if err := WriteJson("jobrun.json", jobrun); err != nil {
+				fmt.Printf("INFO: Failed to create jobrun.json: %v\n", err)
+			}
+		}
+		fmt.Printf("Running Job '%v'\n", jobreq.JobDisplayName)
+		finishJob2 := func(result string, outputs *map[string]VariableValue) {
+			finish := &JobEvent{
+				Name:      "JobCompleted",
+				JobId:     jobreq.JobId,
+				RequestId: jobreq.RequestId,
+				Result:    result,
+				Outputs:   outputs,
+			}
+			for i := 0; ; i++ {
+				if err := vssConnection.FinishJob(finish, jobrun); err != nil {
+					fmt.Printf("Failed to finish Job '%v' with Status %v: %v\n", jobreq.JobDisplayName, result, err.Error())
+				} else {
+					fmt.Printf("Finished Job '%v' with Status %v\n", jobreq.JobDisplayName, result)
+					break
+				}
+				if i < 10 {
+					fmt.Printf("Retry finishing '%v' in 10 seconds attempt %v of 10\n", jobreq.JobDisplayName, i+1)
+					<-time.After(time.Second * 10)
+				} else {
+					break
+				}
+			}
+			os.Remove("jobrun.json")
+		}
+		finishJob := func(result string) {
+			finishJob2(result, nil)
+		}
+		rqt := jobreq
+		wrap := &TimelineRecordWrapper{}
+		wrap.Count = 2
+		wrap.Value = make([]TimelineRecord, wrap.Count)
+		wrap.Value[0] = CreateTimelineEntry("", rqt.JobName, rqt.JobDisplayName)
+		wrap.Value[0].Id = rqt.JobId
+		wrap.Value[0].Type = "Job"
+		wrap.Value[0].Order = 0
+		wrap.Value[0].Start()
+		wrap.Value[1] = CreateTimelineEntry(rqt.JobId, "__setup", "Setup Job")
+		wrap.Value[1].Order = 1
+		wrap.Value[1].Start()
+		vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap)
+		failInitJob := func(message string) {
+			wrap.Value[1].Log = &TaskLogReference{Id: vssConnection.UploadLogFile(jobreq.Timeline.Id, jobreq, message)}
+			wrap.Value[1].Complete("Failed")
+			wrap.Value[0].Complete("Failed")
+			vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap)
+			fmt.Println(message)
+			finishJob("Failed")
+		}
+		defer func() {
+			if err := recover(); err != nil {
+				failInitJob("The worker panicked with message: " + fmt.Sprint(err) + "\n" + string(debug.Stack()))
+			}
+		}()
+		con := *vssConnection
+		go func() {
+			for {
+				err := con.Request("fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
+					"poolId":    fmt.Sprint(instance.PoolId),
+					"requestId": fmt.Sprint(jobreq.RequestId),
+				}, map[string]string{
+					"lockToken": "00000000-0000-0000-0000-000000000000",
+				}, &RenewAgent{RequestId: jobreq.RequestId}, nil)
+				if err != nil {
+					if errors.Is(err, context.Canceled) {
+						return
+					} else {
+						fmt.Printf("Failed to renew job: %v\n", err.Error())
+					}
+				}
+				select {
+				case <-jobctx.Done():
+					return
+				case <-time.After(60 * time.Second):
+				}
+			}
+		}()
+		if jobreq.Resources == nil {
+			failInitJob("Missing Job Resources")
+			return
+		}
+		if jobreq.Resources.Endpoints == nil {
+			failInitJob("Missing Job Resources Endpoints")
+			return
+		}
+		// orchid := ""
+		cacheUrl := ""
+		for _, endpoint := range jobreq.Resources.Endpoints {
+			if strings.EqualFold(endpoint.Name, "SystemVssConnection") && endpoint.Authorization.Parameters != nil && endpoint.Authorization.Parameters["AccessToken"] != "" {
+				jobToken := endpoint.Authorization.Parameters["AccessToken"]
+				jobTenant := endpoint.Url
+				claims := jwt.MapClaims{}
+				jwt.ParseWithClaims(jobToken, claims, func(t *jwt.Token) (interface{}, error) {
+					return nil, nil
+				})
+				// if _orchid, suc := claims["orchid"]; suc {
+				// 	orchid = _orchid.(string)
+				// }
+				_cacheUrl, ok := endpoint.Data["CacheServerUrl"]
+				if ok {
+					cacheUrl = _cacheUrl
+				}
+				vssConnection = &VssConnection{
+					Client:    vssConnection.Client,
+					TenantUrl: jobTenant,
+					Token:     jobToken,
+					Trace:     run.Trace,
+				}
+				vssConnection.ConnectionData = vssConnection.GetConnectionData()
+			}
+		}
+
+		rawGithubCtx, ok := rqt.ContextData["github"]
+		if !ok {
+			fmt.Println("missing github context in ContextData")
+			finishJob("Failed")
+			return
+		}
+		githubCtx := rawGithubCtx.ToRawObject()
+		secrets := map[string]string{}
+		if rqt.Variables != nil {
+			for k, v := range rqt.Variables {
+				if v.IsSecret && k != "system.github.token" {
+					secrets[k] = v.Value
+				}
+			}
+			if rawGithubToken, ok := rqt.Variables["system.github.token"]; ok {
+				secrets["GITHUB_TOKEN"] = rawGithubToken.Value
+			}
+		}
+		matrix := make(map[string]interface{})
+		if rawMatrix, ok := rqt.ContextData["matrix"]; ok {
+			rawobj := rawMatrix.ToRawObject()
+			if tmpmatrix, ok := rawobj.(map[string]interface{}); ok {
+				matrix = tmpmatrix
+			} else if rawobj != nil {
+				failInitJob("matrix: not a map")
+				return
+			}
+		}
+		env := make(map[string]string)
+		if rqt.EnvironmentVariables != nil {
+			for _, rawenv := range rqt.EnvironmentVariables {
+				if tmpenv, ok := rawenv.ToRawObject().(map[interface{}]interface{}); ok {
+					for k, v := range tmpenv {
+						key, ok := k.(string)
+						if !ok {
+							failInitJob("env key: act doesn't support non strings")
+							return
+						}
+						value, ok := v.(string)
+						if !ok {
+							failInitJob("env value: act doesn't support non strings")
+							return
+						}
+						env[key] = value
+					}
+				} else {
+					failInitJob("env: not a map")
+					return
+				}
+			}
+		}
+		env["ACTIONS_RUNTIME_URL"] = vssConnection.TenantUrl
+		env["ACTIONS_RUNTIME_TOKEN"] = vssConnection.Token
+		if len(cacheUrl) > 0 {
+			env["ACTIONS_CACHE_URL"] = cacheUrl
+		}
+
+		defaults := model.Defaults{}
+		if rqt.Defaults != nil {
+			for _, rawenv := range rqt.Defaults {
+				rawobj := rawenv.ToRawObject()
+				rawobj = ToStringMap(rawobj)
+				b, err := json.Marshal(rawobj)
+				if err != nil {
+					failInitJob("Failed to eval defaults")
+					return
+				}
+				json.Unmarshal(b, &defaults)
+			}
+		}
+		steps := []*model.Step{}
+		for _, step := range rqt.Steps {
+			st := strings.ToLower(step.Reference.Type)
+			inputs := make(map[interface{}]interface{})
+			if step.Inputs != nil {
+				if tmpinputs, ok := step.Inputs.ToRawObject().(map[interface{}]interface{}); ok {
+					inputs = tmpinputs
+				} else {
+					failInitJob("step.Inputs: not a map")
+					return
+				}
+			}
+
+			env := &yaml.Node{}
+			if step.Environment != nil {
+				env = step.Environment.ToYamlNode()
+			}
+
+			continueOnError := false
+			if step.ContinueOnError != nil {
+				tmpcontinueOnError, ok := step.ContinueOnError.ToRawObject().(bool)
+				if !ok {
+					failInitJob("ContinueOnError: act doesn't support expressions here")
+					return
+				}
+				continueOnError = tmpcontinueOnError
+			}
+			var timeoutMinutes int64 = 0
+			if step.TimeoutInMinutes != nil {
+				rawTimeout, ok := step.TimeoutInMinutes.ToRawObject().(float64)
+				if !ok {
+					failInitJob("TimeoutInMinutes: act doesn't support expressions here")
+					return
+				}
+				timeoutMinutes = int64(rawTimeout)
+			}
+			var displayName string = ""
+			if step.DisplayNameToken != nil {
+				rawDisplayName, ok := step.DisplayNameToken.ToRawObject().(string)
+				if !ok {
+					failInitJob("DisplayNameToken: act doesn't support no strings")
+					return
+				}
+				displayName = rawDisplayName
+			}
+			if step.ContextName == "" {
+				step.ContextName = "___" + uuid.New().String()
+			}
+
+			switch st {
+			case "script":
+				rawwd, haswd := inputs["workingDirectory"]
+				var wd string
+				if haswd {
+					tmpwd, ok := rawwd.(string)
+					if !ok {
+						failInitJob("workingDirectory: act doesn't support non strings")
+						return
+					}
+					wd = tmpwd
+				} else {
+					wd = ""
+				}
+				rawshell, hasshell := inputs["shell"]
+				shell := ""
+				if hasshell {
+					sshell, ok := rawshell.(string)
+					if ok {
+						shell = sshell
+					} else {
+						failInitJob("shell is not a string")
+						return
+					}
+				}
+				scriptContent, ok := inputs["script"].(string)
+				if ok {
+					steps = append(steps, &model.Step{
+						ID:               step.ContextName,
+						If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
+						Name:             displayName,
+						Run:              scriptContent,
+						WorkingDirectory: wd,
+						Shell:            shell,
+						ContinueOnError:  continueOnError,
+						TimeoutMinutes:   timeoutMinutes,
+						Env:              *env,
+					})
+				} else {
+					failInitJob("Missing script")
+					return
+				}
+			case "containerregistry", "repository":
+				uses := ""
+				if st == "containerregistry" {
+					uses = "docker://" + step.Reference.Image
+				} else if strings.ToLower(step.Reference.RepositoryType) == "self" {
+					uses = step.Reference.Path
+				} else {
+					uses = step.Reference.Name
+					if len(step.Reference.Path) > 0 {
+						uses = uses + "/" + step.Reference.Path
+					}
+					uses = uses + "@" + step.Reference.Ref
+				}
+				with := map[string]string{}
+				for k, v := range inputs {
+					k, ok := k.(string)
+					if !ok {
+						failInitJob("with input key is not a string")
+						return
+					}
+					val, ok := v.(string)
+					if !ok {
+						failInitJob("with input value is not a string")
+						return
+					}
+					with[k] = val
+				}
+
+				steps = append(steps, &model.Step{
+					ID:               step.ContextName,
+					If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
+					Name:             displayName,
+					Uses:             uses,
+					WorkingDirectory: "",
+					With:             with,
+					ContinueOnError:  continueOnError,
+					TimeoutMinutes:   timeoutMinutes,
+					Env:              *env,
+				})
+			}
+		}
+		rawContainer := yaml.Node{}
+		if rqt.JobContainer != nil {
+			rawContainer = *rqt.JobContainer.ToYamlNode()
+			// Fake step to catch the post log
+			steps = append(steps, &model.Step{
+				ID:               "___finish_job",
+				If:               yaml.Node{Kind: yaml.ScalarNode, Value: "false"},
+				Name:             "Finish Job",
+				Run:              "",
+				Env:              yaml.Node{},
+				ContinueOnError:  true,
+				WorkingDirectory: "",
+				Shell:            "",
+			})
+		}
+		services := make(map[string]*model.ContainerSpec)
+		if rqt.JobServiceContainers != nil {
+			rawServiceContainer, ok := rqt.JobServiceContainers.ToRawObject().(map[interface{}]interface{})
+			if !ok {
+				failInitJob("Job service container is not nil, but also not a map")
+				return
+			}
+			for name, rawcontainer := range rawServiceContainer {
+				containerName, ok := name.(string)
+				if !ok {
+					failInitJob("containername is not a string")
+					return
+				}
+				spec := &model.ContainerSpec{}
+				b, err := json.Marshal(ToStringMap(rawcontainer))
+				if err != nil {
+					failInitJob("Failed to serialize ContainerSpec")
+					return
+				}
+				err = json.Unmarshal(b, &spec)
+				if err != nil {
+					failInitJob("Failed to deserialize ContainerSpec")
+					return
+				}
+				services[containerName] = spec
+			}
+		}
+		githubCtxMap, ok := githubCtx.(map[string]interface{})
+		if !ok {
+			failInitJob("Github ctx is not a map")
+			return
+		}
+		var payload string
+		{
+			e, _ := json.Marshal(githubCtxMap["event"])
+			payload = string(e)
+		}
+		rc := &runner.RunContext{
+			Name: uuid.New().String(),
+			Config: &runner.Config{
+				Workdir: ".",
+				Secrets: secrets,
+				Platforms: map[string]string{
+					"dummy": "-self-hosted",
+				},
+				LogOutput:           true,
+				EventName:           githubCtxMap["event_name"].(string),
+				GitHubInstance:      githubCtxMap["server_url"].(string)[8:],
+				ForceRemoteCheckout: true, // Needed to avoid copy the non exiting working dir
+				ReuseContainers:     false,
+				CompositeRestrictions: &model.CompositeRestrictions{
+					AllowCompositeUses:            true,
+					AllowCompositeIf:              true,
+					AllowCompositeContinueOnError: true,
+				},
+			},
+			Env: env,
+			Run: &model.Run{
+				JobID: rqt.JobId,
+				Workflow: &model.Workflow{
+					Name:     githubCtxMap["workflow"].(string),
+					Defaults: defaults,
+					Jobs: map[string]*model.Job{
+						rqt.JobId: {
+							Name:         rqt.JobDisplayName,
+							RawRunsOn:    yaml.Node{Kind: yaml.ScalarNode, Value: "dummy"},
+							Steps:        steps,
+							RawContainer: rawContainer,
+							Services:     services,
+							Outputs:      make(map[string]string),
+						},
+					},
+				},
+			},
+			Matrix:    matrix,
+			EventJSON: payload,
+		}
+
+		// Prepare act to fill previous job outputs
+		if rawNeedstx, ok := rqt.ContextData["needs"]; ok {
+			needsCtx := rawNeedstx.ToRawObject()
+			if needsCtxMap, ok := needsCtx.(map[string]interface{}); ok {
+				a := make([]*yaml.Node, 0)
+				for k, v := range needsCtxMap {
+					a = append(a, &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: k})
+					outputs := make(map[string]string)
+					if jobMap, ok := v.(map[string]interface{}); ok {
+						if jobOutputs, ok := jobMap["outputs"]; ok {
+							if outputMap, ok := jobOutputs.(map[string]interface{}); ok {
+								for k, v := range outputMap {
+									if sv, ok := v.(string); ok {
+										outputs[k] = sv
+									}
+								}
+							}
+						}
+					}
+					rc.Run.Workflow.Jobs[k] = &model.Job{
+						Outputs: outputs,
+					}
+				}
+				rc.Run.Workflow.Jobs[rqt.JobId].RawNeeds = yaml.Node{Kind: yaml.SequenceNode, Content: a}
+			}
+		}
+		// Prepare act to add job outputs to current job
+		if rqt.JobOutputs != nil {
+			o := rqt.JobOutputs.ToRawObject()
+			if m, ok := o.(map[interface{}]interface{}); ok {
+				for k, v := range m {
+					if kv, ok := k.(string); ok {
+						if sv, ok := v.(string); ok {
+							rc.Run.Workflow.Jobs[rqt.JobId].Outputs[kv] = sv
+						}
+					}
+				}
+			}
+		}
+
+		val, _ := json.Marshal(githubCtx)
+		sv := string(val)
+		rc.GithubContextBase = &sv
+		rc.JobName = "beta"
+
+		ee := rc.NewExpressionEvaluator()
+		rc.ExprEval = ee
+		logger := logrus.New()
+
+		formatter := new(ghaFormatter)
+		formatter.rc = rc
+		formatter.rqt = rqt
+		formatter.stepBuffer = &bytes.Buffer{}
+
+		logger.SetFormatter(formatter)
+		logger.SetOutput(io.MultiWriter())
+		level := logrus.InfoLevel
+		if sd, ok := rqt.Variables["ACTIONS_STEP_DEBUG"]; !ok || sd.Value == "true" || sd.Value == "1" {
+			level = logrus.DebugLevel
+		}
+		logger.SetLevel(level)
+		logrus.SetLevel(level)
+		logrus.SetFormatter(formatter)
+		logrus.SetOutput(io.MultiWriter())
+
+		rc.CurrentStep = "__setup"
+		rc.InitStepResults([]string{rc.CurrentStep})
+
+		for i := 0; i < len(steps); i++ {
+			wrap.Value = append(wrap.Value, CreateTimelineEntry(rqt.JobId, steps[i].ID, steps[i].String()))
+			wrap.Value[i+2].Order = int32(i + 2)
+		}
+		formatter.current = &wrap.Value[1]
+		wrap.Count = int64(len(wrap.Value))
+		vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap)
+		{
+			formatter.updateTimeLine = func() {
+				vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap)
+			}
+			formatter.uploadLogFile = func(log string) int {
+				return vssConnection.UploadLogFile(jobreq.Timeline.Id, jobreq, log)
+			}
+		}
+		var outputMap *map[string]VariableValue
+		jobStatus := "success"
+		cancelled := false
+		{
+			runCtx, cancelRun := context.WithCancel(context.Background())
+			logctx, cancelLog := context.WithCancel(context.Background())
+			defer func() {
+				cancelRun()
+				<-logctx.Done()
+			}()
+			{
+				logchan := make(chan *TimelineRecordFeedLinesWrapper, 64)
+				formatter.logline = func(startLine int64, recordId string, line string) {
+					lines := &TimelineRecordFeedLinesWrapper{}
+					lines.Count = 1
+					lines.StartLine = &startLine
+					lines.StepId = recordId
+					lines.Value = []string{line}
+					logchan <- lines
+				}
+				go func() {
+					defer cancelLog()
+					sendLog := func(lines *TimelineRecordFeedLinesWrapper) {
+						err := vssConnection.Request("858983e4-19bd-4c5e-864c-507b59b58b12", "5.1-preview", "POST", map[string]string{
+							"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
+							"planId":          jobreq.Plan.PlanId,
+							"hubName":         jobreq.Plan.PlanType,
+							"timelineId":      jobreq.Timeline.Id,
+							"recordId":        lines.StepId,
+						}, map[string]string{}, lines, nil)
+
+						if err != nil {
+							fmt.Println("Failed to upload logline: " + err.Error())
+						}
+					}
+					for {
+						select {
+						case <-runCtx.Done():
+							return
+						case lines := <-logchan:
+							st := time.Now()
+							lp := st
+							logsexit := false
+							for {
+								b := false
+								div := lp.Sub(st)
+								if div > time.Second {
+									break
+								}
+								select {
+								case line := <-logchan:
+									if line.StepId == lines.StepId {
+										lines.Count++
+										lines.Value = append(lines.Value, line.Value[0])
+									} else {
+										sendLog(lines)
+										lines = line
+										st = time.Now()
+									}
+								case <-time.After(time.Second - div):
+									b = true
+								case <-runCtx.Done():
+									b = true
+									logsexit = true
+								}
+								if b {
+									break
+								}
+								lp = time.Now()
+							}
+							sendLog(lines)
+							if logsexit {
+								return
+							}
+						}
+					}
+				}()
+			}
+			formatter.wrap = wrap
+
+			logger.Log(logrus.DebugLevel, "Runner Name: "+instance.Agent.Name)
+			logger.Log(logrus.DebugLevel, "Runner OSDescription: github-act-runner "+runtime.GOOS+"/"+runtime.GOARCH)
+			logger.Log(logrus.DebugLevel, "Runner Version: "+version)
+			rc.Executor()(common.WithLogger(jobExecCtx, logger))
+
+			// Prepare results for github server
+			if rqt.JobOutputs != nil {
+				m := make(map[string]VariableValue)
+				outputMap = &m
+				for k, v := range rc.Run.Workflow.Jobs[rqt.JobId].Outputs {
+					m[k] = VariableValue{Value: v}
+				}
+			}
+
+			for _, stepStatus := range rc.StepResults {
+				if !stepStatus.Success {
+					jobStatus = "failure"
+					break
+				}
+			}
+			select {
+			case <-jobExecCtx.Done():
+				cancelled = true
+			default:
+			}
+			{
+				f := formatter
+				f.startLine = 1
+				if f.current != nil {
+					if f.current == &wrap.Value[1] {
+						// Workaround check for init failure, e.g. docker fails
+						if cancelled {
+							f.current.Complete("Canceled")
+						} else {
+							jobStatus = "failure"
+							f.current.Complete("Failed")
+						}
+					} else if f.rc.StepResults[f.current.RefName].Success {
+						f.current.Complete("Succeeded")
+					} else {
+						f.current.Complete("Failed")
+					}
+					if f.stepBuffer.Len() > 0 {
+						f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
+					}
+				}
+			}
+			for i := 2; i < len(wrap.Value); i++ {
+				if !strings.EqualFold(wrap.Value[i].State, "Completed") {
+					wrap.Value[i].Complete("Skipped")
+				}
+			}
+			if cancelled {
+				wrap.Value[0].Complete("Canceled")
+			} else if jobStatus == "success" {
+				wrap.Value[0].Complete("Succeeded")
+			} else {
+				wrap.Value[0].Complete("Failed")
+			}
+		}
+		for i := 0; ; i++ {
+			if vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap) != nil && i < 10 {
+				fmt.Printf("Retry uploading the final timeline of the job in 10 seconds attempt %v of 10\n", i+1)
+				<-time.After(time.Second * 10)
+			} else {
+				break
+			}
+		}
+		result := "Failed"
+		if cancelled {
+			result = "Canceled"
+		} else if jobStatus == "success" {
+			result = "Succeeded"
+		}
+		finishJob2(result, outputMap)
+	}()
+}
+
 type RemoveRunner struct {
 	Url        string
+	Name       string
 	Token      string
 	Pat        string
 	Unattended bool
 	Trace      bool
+	Force      bool
 }
 
 func (config *RemoveRunner) Remove() int {
 	c := &http.Client{}
-	taskAgent := &TaskAgent{}
-	{
-		cont, err := ioutil.ReadFile("agent.json")
-		if err != nil {
-			fmt.Printf("The runner needs to be configured first: %v\n", err.Error())
-			return 1
+	settings, err := loadConfiguration()
+	if err != nil {
+		fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
+		return 1
+	}
+	defer WriteJson("settings.json", settings)
+	var instancesToRemove []*RunnerInstance
+	for _, i := range settings.Instances {
+		if (len(config.Url) == 0 || i.RegistrationUrl == config.Url) || (len(config.Name) == 0 || i.Agent.Name == config.Name) {
+			instancesToRemove = append(instancesToRemove, i)
 		}
-		err = json.Unmarshal(cont, taskAgent)
-		if err != nil {
-			fmt.Printf("agent.json is corrupted: %v, please reconfigure the runner\n", err.Error())
+	}
+	if len(instancesToRemove) == 0 {
+		fmt.Println("Nothing to do, no runner matches")
+		return 0
+	}
+	if !config.Unattended && len(instancesToRemove) > 1 {
+		options := make([]string, len(instancesToRemove))
+		for i, instance := range instancesToRemove {
+			options[i] = fmt.Sprintf("%v (%v)", instance.Agent.Name, instance.RegistrationUrl)
+		}
+		result := GetMultiSelectInput("Please select the instances to remove, use --unattended to remove all", options)
+		var instancesToRemoveFiltered []*RunnerInstance
+		for _, res := range result {
+			for i := 0; i < len(options); i++ {
+				if options[i] == res {
+					instancesToRemoveFiltered = append(instancesToRemoveFiltered, instancesToRemove[i])
+				}
+			}
+		}
+		instancesToRemove = instancesToRemoveFiltered
+		if len(instancesToRemove) == 0 {
+			fmt.Println("Nothing selected, no runner matches")
+			return 0
+		}
+	}
+	regurl := ""
+	needsPat := false
+	for _, i := range instancesToRemove {
+		if len(regurl) > 0 && regurl != i.RegistrationUrl {
+			needsPat = true
+		} else {
+			regurl = i.RegistrationUrl
+		}
+	}
+	if needsPat && len(config.Pat) == 0 {
+		if !config.Unattended {
+			config.Pat = GetInput("Please enter your Personal Access token", "")
+		}
+		if len(config.Pat) == 0 {
+			fmt.Println("You have to provide a Personal access token with access to the repositories to remove or use the --url parameter")
 			return 1
 		}
 	}
-	settings := &RunnerSettings{}
-	{
-		cont, err := ioutil.ReadFile("settings.json")
-		if err != nil {
-			// Backward compat <= 0.0.3
-			// fmt.Printf("The runner needs to be configured first: %v\n", err.Error())
-			// return 1
-			settings.PoolId = 1
-			if len(config.Url) == 0 {
-				fmt.Printf("Please provide the registration url. You configured the runner in <= 0.0.3, cannot unconfigure the runner without it. Error: %v\n", err.Error())
-				if len(config.Url) == 0 {
-					if !config.Unattended {
-						config.Url = GetInput("Please enter your repository, organization or enterprise url:", "")
-					} else {
-						fmt.Println("No url provided")
-						return 1
-					}
-				}
-				if len(config.Url) == 0 {
-					fmt.Println("No url provided")
+	for _, instance := range instancesToRemove {
+		result := func() int {
+			res := &GitHubAuthResult{}
+			{
+				buf := new(bytes.Buffer)
+				req := &RunnerAddRemove{}
+				req.Url = instance.RegistrationUrl
+				req.RunnerEvent = "remove"
+				enc := json.NewEncoder(buf)
+				if err := enc.Encode(req); err != nil {
 					return 1
 				}
-			}
-			settings.RegistrationUrl = config.Url
-		} else {
-			err = json.Unmarshal(cont, settings)
-			if err != nil {
-				fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
-				return 1
-			}
-		}
-	}
-	res := &GitHubAuthResult{}
-	{
-		buf := new(bytes.Buffer)
-		req := &RunnerAddRemove{}
-		req.Url = settings.RegistrationUrl
-		req.RunnerEvent = "remove"
-		enc := json.NewEncoder(buf)
-		if err := enc.Encode(req); err != nil {
-			return 1
-		}
-		registerUrl, err := url.Parse(settings.RegistrationUrl)
-		if err != nil {
-			fmt.Printf("Invalid Url: %v\n", settings.RegistrationUrl)
-			return 1
-		}
-		apiscope := "/"
-		if strings.ToLower(registerUrl.Host) == "github.com" {
-			registerUrl.Host = "api." + registerUrl.Host
-		} else {
-			apiscope = "/api/v3"
-		}
-
-		c := &http.Client{}
-		if len(config.Token) == 0 {
-			if len(config.Pat) > 0 {
-				paths := strings.Split(strings.TrimPrefix(registerUrl.Path, "/"), "/")
-				url := *registerUrl
-				if len(paths) == 1 {
-					url.Path = path.Join(apiscope, "orgs", paths[0], "actions/runners/remove-token")
-				} else if len(paths) == 2 {
-					scope := "repos"
-					if strings.EqualFold(paths[0], "enterprises") {
-						scope = ""
-					}
-					url.Path = path.Join(apiscope, scope, paths[0], paths[1], "actions/runners/remove-token")
-				} else {
-					fmt.Println("Unsupported remove url")
-					return 1
-				}
-				req, _ := http.NewRequest("POST", url.String(), nil)
-				req.SetBasicAuth("github", config.Pat)
-				req.Header.Add("Accept", "application/vnd.github.v3+json")
-				resp, err := c.Do(req)
+				registerUrl, err := url.Parse(instance.RegistrationUrl)
 				if err != nil {
-					fmt.Println("Failed to retrive remove token via pat: " + err.Error())
+					fmt.Printf("Invalid Url: %v\n", instance.RegistrationUrl)
+					return 1
+				}
+				apiscope := "/"
+				if strings.ToLower(registerUrl.Host) == "github.com" {
+					registerUrl.Host = "api." + registerUrl.Host
+				} else {
+					apiscope = "/api/v3"
+				}
+
+				c := &http.Client{}
+				if len(config.Token) == 0 || needsPat {
+					if len(config.Pat) > 0 {
+						paths := strings.Split(strings.TrimPrefix(registerUrl.Path, "/"), "/")
+						url := *registerUrl
+						if len(paths) == 1 {
+							url.Path = path.Join(apiscope, "orgs", paths[0], "actions/runners/remove-token")
+						} else if len(paths) == 2 {
+							scope := "repos"
+							if strings.EqualFold(paths[0], "enterprises") {
+								scope = ""
+							}
+							url.Path = path.Join(apiscope, scope, paths[0], paths[1], "actions/runners/remove-token")
+						} else {
+							fmt.Println("Unsupported remove url")
+							return 1
+						}
+						req, _ := http.NewRequest("POST", url.String(), nil)
+						req.SetBasicAuth("github", config.Pat)
+						req.Header.Add("Accept", "application/vnd.github.v3+json")
+						resp, err := c.Do(req)
+						if err != nil {
+							fmt.Println("Failed to retrive remove token via pat: " + err.Error())
+							return 1
+						}
+						defer resp.Body.Close()
+						if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+							body, _ := ioutil.ReadAll(resp.Body)
+							fmt.Println("Failed to retrive remove token via pat [" + fmt.Sprint(resp.StatusCode) + "]: " + string(body))
+							return 1
+						}
+						tokenresp := &GitHubRunnerRegisterToken{}
+						dec := json.NewDecoder(resp.Body)
+						if err := dec.Decode(tokenresp); err != nil {
+							fmt.Println("Failed to decode remove token via pat: " + err.Error())
+							return 1
+						}
+						config.Token = tokenresp.Token
+					} else {
+						if !config.Unattended {
+							config.Token = GetInput("Please enter your runner remove token:", "")
+						}
+					}
+				}
+				if len(config.Token) == 0 {
+					fmt.Println("No runner remove token provided")
+					return 1
+				}
+				registerUrl.Path = path.Join(apiscope, "actions/runner-registration")
+				finalregisterUrl := registerUrl.String()
+				//fmt.Printf("Try to remove runner with url: %v\n", finalregisterUrl)
+				r, _ := http.NewRequest("POST", finalregisterUrl, buf)
+				r.Header["Authorization"] = []string{"RemoteAuth " + config.Token}
+				resp, err := c.Do(r)
+				if err != nil {
+					fmt.Printf("Failed to remove Runner: %v\n", err)
 					return 1
 				}
 				defer resp.Body.Close()
-				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-					body, _ := ioutil.ReadAll(resp.Body)
-					fmt.Println("Failed to retrive remove token via pat [" + fmt.Sprint(resp.StatusCode) + "]: " + string(body))
+				if resp.StatusCode != 200 {
+					fmt.Printf("Failed to remove Runner with status code: %v\n", resp.StatusCode)
 					return 1
 				}
-				tokenresp := &GitHubRunnerRegisterToken{}
+
 				dec := json.NewDecoder(resp.Body)
-				if err := dec.Decode(tokenresp); err != nil {
-					fmt.Println("Failed to decode remove token via pat: " + err.Error())
+				if err := dec.Decode(res); err != nil {
+					fmt.Printf("Failed to remove Runner:\nerror decoding struct from JSON: %v\n", err)
 					return 1
-				}
-				config.Token = tokenresp.Token
-			} else {
-				if !config.Unattended {
-					config.Token = GetInput("Please enter your runner remove token:", "")
 				}
 			}
-		}
-		if len(config.Token) == 0 {
-			fmt.Println("No runner remove token provided")
-			return 1
-		}
-		registerUrl.Path = path.Join(apiscope, "actions/runner-registration")
-		finalregisterUrl := registerUrl.String()
-		//fmt.Printf("Try to remove runner with url: %v\n", finalregisterUrl)
-		r, _ := http.NewRequest("POST", finalregisterUrl, buf)
-		r.Header["Authorization"] = []string{"RemoteAuth " + config.Token}
-		resp, err := c.Do(r)
-		if err != nil {
-			fmt.Printf("Failed to remove Runner: %v\n", err)
-			return 1
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			fmt.Printf("Failed to remove Runner with status code: %v\n", resp.StatusCode)
-			return 1
-		}
 
-		dec := json.NewDecoder(resp.Body)
-		if err := dec.Decode(res); err != nil {
-			fmt.Printf("Failed to remove Runner:\nerror decoding struct from JSON: %v\n", err)
-			return 1
+			vssConnection := &VssConnection{
+				Client:    c,
+				TenantUrl: res.TenantUrl,
+				Token:     res.Token,
+				Settings: &RunnerSettings{
+					PoolId:          instance.PoolId,
+					RegistrationUrl: instance.RegistrationUrl,
+				},
+				Trace: config.Trace,
+			}
+			vssConnection.ConnectionData = vssConnection.GetConnectionData()
+			if err := vssConnection.DeleteAgent(instance.Agent); err != nil {
+				fmt.Printf("Failed to remove Runner from server: %v\n", err)
+				return 1
+			}
+			return 0
+		}()
+		if result != 0 && !config.Force {
+			return result
+		}
+		for i := range settings.Instances {
+			if settings.Instances[i] == instance {
+				settings.Instances[i] = settings.Instances[len(settings.Instances)-1]
+				settings.Instances = settings.Instances[:len(settings.Instances)-1]
+				break
+			}
 		}
 	}
-
-	vssConnection := &VssConnection{
-		Client:    c,
-		TenantUrl: res.TenantUrl,
-		Token:     res.Token,
-		Settings:  settings,
-		Trace:     config.Trace,
-	}
-	vssConnection.ConnectionData = vssConnection.GetConnectionData()
-	{
-		vssConnection.DeleteAgent(taskAgent)
-	}
+	fmt.Println("success")
 	return 0
 }
 
@@ -2474,7 +2512,9 @@ func main() {
 	cmdRemove.Flags().StringVar(&remove.Token, "token", "", "runner registration or remove token")
 	cmdRemove.Flags().StringVar(&remove.Pat, "pat", "", "personal access token with access to your repository, organization or enterprise")
 	cmdRemove.Flags().BoolVar(&remove.Unattended, "unattended", false, "suppress shell prompts during configure")
+	cmdRemove.Flags().StringVar(&remove.Name, "name", "", "name of the runner to remove")
 	cmdRemove.Flags().BoolVar(&remove.Trace, "trace", false, "trace http communication with the github action service")
+	cmdRemove.Flags().BoolVar(&remove.Force, "force", false, "force remove the instance even if the service responds with an error")
 
 	var rootCmd = &cobra.Command{
 		Use:     "github-act-runner",
