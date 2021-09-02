@@ -2286,7 +2286,12 @@ func (config *RemoveRunner) Remove() int {
 		fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
 		return 1
 	}
-	defer WriteJson("settings.json", settings)
+	defer func() {
+		os.Remove("agent.json")
+		os.Remove("auth.json")
+		os.Remove("cred.pkcs1")
+		WriteJson("settings.json", settings)
+	}()
 	var instancesToRemove []*RunnerInstance
 	for _, i := range settings.Instances {
 		if (len(config.Url) == 0 || i.RegistrationUrl == config.Url) || (len(config.Name) == 0 || i.Agent.Name == config.Name) {
