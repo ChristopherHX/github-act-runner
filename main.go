@@ -1586,8 +1586,7 @@ func (run *RunRunner) Run() int {
 							} else if !errors.Is(err, io.EOF) {
 								fmt.Printf("Failed to get message, waiting 10 sec before retry: %v\n", err.Error())
 								select {
-								case <-ctx.Done():
-									fmt.Println("Canceled stopping")
+								case <-joblisteningctx.Done():
 									return 0
 								case <-time.After(10 * time.Second):
 								}
