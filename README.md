@@ -22,30 +22,30 @@ Unlike the [official runner](https://github.com/actions/runner), this works on m
 
 (*2) For best compatibility with existing nodejs actions, please add nodejs in version 12 to your `PATH`, newer nodejs versions might lead to workflow failures.
 
-## usage from prebuilds
+## Usage Releases
 
 Follow the instruction of https://github.com/ChristopherHX/github-act-runner/releases/latest.
 
-## usage from debian repo
+## Usage Debian Repository
 
-### add debian repository
+### Add debian repository
 `/etc/apt/sources.list.d/github-act-runner.list` file:
 ```
 deb http://gagis.hopto.org/repo/chrishx/deb all main
 ```
 
-### import repository public key
+### Import repository public key
 ```console
 curl -sS http://gagis.hopto.org/repo/chrishx/pubkey.gpg | sudo tee -a /etc/apt/trusted.gpg.d/chrishx-github-act-runner.asc
 ```
 
-### install the runner
+### Install the runner
 ```console
 sudo apt update
 sudo apt install github-act-runner
 ```
 
-### add new runner
+### Add new runner
 ```console
 github-act-runner new --url <url> --name <runner-name> --labels <labels> --token <runner-registration-token>
 ```
@@ -63,7 +63,7 @@ github-act-runner --help
 ```
 For more info about managing runners.
 
-## Usage from source
+## Usage Source
 
 You need at least go 1.16 to use this runner from source.
 
