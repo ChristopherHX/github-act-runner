@@ -80,9 +80,9 @@ type ConnectionData struct {
 }
 
 type TaskAgentPoolReference struct {
-	Id         int64
-	Scope      string
-	PoolType   int
+	Id    int64
+	Scope string
+	// PoolType   int
 	Name       string
 	IsHosted   bool
 	IsInternal bool
