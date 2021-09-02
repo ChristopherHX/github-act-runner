@@ -39,6 +39,7 @@ import (
 	"github.com/nektos/act/pkg/container"
 	"github.com/nektos/act/pkg/model"
 	"github.com/nektos/act/pkg/runner"
+	"github.com/robertkrimen/otto"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -968,6 +969,7 @@ type RunnerInstance struct {
 	Agent           *TaskAgent
 	Key             string
 	PKey            *rsa.PrivateKey `json:"-"`
+	RunnerGuard     string
 }
 
 type RunnerSettings struct {
@@ -1643,9 +1645,13 @@ func (run *RunRunner) Run() int {
 			}(instance)
 		}
 		<-joblisteningctx.Done()
-		<-jobctx.Done()
 		wg.Wait()
-		if run.Once {
+		select {
+		case <-jobctx.Done():
+			if run.Once {
+				return 0
+			}
+		case <-ctx.Done():
 			return 0
 		}
 	}
@@ -1729,6 +1735,31 @@ func runJob(vssConnection *VssConnection, run *RunRunner, cancel context.CancelF
 		}
 		finishJob := func(result string) {
 			finishJob2(result, nil)
+		}
+		if len(instance.RunnerGuard) > 0 {
+			vm := otto.New()
+			{
+				var req interface{}
+				json.Unmarshal(src[off:validlen], req)
+				vm.Set("runnerInstance", instance)
+				vm.Set("jobrequest", req)
+				vm.Set("jobrun", jobrun)
+				contextData := make(map[string]interface{})
+				if jobreq.ContextData != nil {
+					for k, ctxdata := range jobreq.ContextData {
+						contextData[k] = ctxdata.ToRawObject()
+					}
+				}
+				vm.Set("contextData", contextData)
+				val, err := vm.Run(instance.RunnerGuard)
+				if err != nil {
+					fmt.Printf("Failed to run `%v`: %v", instance.RunnerGuard, err)
+				}
+				res, _ := val.ToBoolean()
+				if !res {
+					finishJob("Failed")
+				}
+			}
 		}
 		rqt := jobreq
 		wrap := &TimelineRecordWrapper{}
