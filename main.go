@@ -27,6 +27,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	// "github.com/AlecAivazis/survey/v2"
@@ -1247,9 +1248,11 @@ type RunRunner struct {
 }
 
 type JobRun struct {
-	RequestId int64
-	JobId     string
-	Plan      *TaskOrchestrationPlanReference
+	RequestId       int64
+	JobId           string
+	Plan            *TaskOrchestrationPlanReference
+	Name            string
+	RegistrationUrl string
 }
 
 func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAuthTokenResponse, error) {
@@ -1374,6 +1377,45 @@ func loadConfiguration() (*RunnerSettings, error) {
 	}
 	return settings, nil
 }
+func (session *AgentMessageConnection) GetNextMessage(ctx context.Context) (*TaskAgentMessage, error) {
+	message := &TaskAgentMessage{}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, context.Canceled
+		default:
+		}
+		err := session.VssConnection.RequestWithContext(ctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "GET", map[string]string{
+			"poolId": fmt.Sprint(session.VssConnection.Settings.PoolId),
+		}, map[string]string{
+			"sessionId": session.TaskAgentSession.SessionId,
+		}, nil, message)
+		//TODO lastMessageId=
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return nil, err
+			} else if !errors.Is(err, io.EOF) {
+				fmt.Printf("Failed to get message, waiting 10 sec before retry: %v\n", err.Error())
+				select {
+				case <-ctx.Done():
+					return nil, context.Canceled
+				case <-time.After(10 * time.Second):
+				}
+			}
+		} else {
+			return message, nil
+		}
+	}
+}
+
+func (session *AgentMessageConnection) DeleteMessage(message *TaskAgentMessage) error {
+	return session.VssConnection.Request("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "DELETE", map[string]string{
+		"poolId":    fmt.Sprint(session.VssConnection.Settings.PoolId),
+		"messageId": fmt.Sprint(message.MessageId),
+	}, map[string]string{
+		"sessionId": session.TaskAgentSession.SessionId,
+	}, nil, nil)
+}
 
 func (run *RunRunner) Run() int {
 	container.SetContainerAllocateTerminal(run.Terminal)
@@ -1413,161 +1455,198 @@ func (run *RunRunner) Run() int {
 	defer func() {
 		<-jobctx.Done()
 	}()
-	c := &http.Client{}
 	settings, err := loadConfiguration()
 	if err != nil {
 		fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
 		return 1
 	}
-	instance := settings.Instances[0]
-	vssConnection := &VssConnection{
-		Client:    c,
-		TenantUrl: instance.Auth.TenantUrl,
-		Settings:  settings,
-		TaskAgent: instance.Agent,
-		Key:       instance.PKey,
-		Trace:     run.Trace,
-	}
-	vssConnection.ConnectionData = vssConnection.GetConnectionData()
-	jobrun := &JobRun{}
-	if ReadJson("jobrun.json", jobrun) == nil {
-		result := "Failed"
-		finish := &JobEvent{
-			Name:      "JobCompleted",
-			JobId:     jobrun.JobId,
-			RequestId: jobrun.RequestId,
-			Result:    result,
-		}
-		go func() {
-			for i := 0; ; i++ {
-				if err := vssConnection.FinishJob(finish, jobrun); err != nil {
-					fmt.Printf("Failed to finish previous stuck job with Status Failed: %v\n", err.Error())
-				} else {
-					fmt.Println("Finished previous stuck job with Status Failed")
-					break
-				}
-				if i < 10 {
-					fmt.Printf("Retry finishing the job in 10 seconds attempt %v of 10\n", i+1)
-					<-time.After(time.Second * 10)
-				} else {
-					break
-				}
-			}
-		}()
-		os.Remove("jobrun.json")
-	}
-
-	var session *AgentMessageConnection
-	defer func() {
-		if session != nil {
-			if err := session.Delete(); err != nil {
-				fmt.Printf("WARNING: Failed to delete active session: %v\n", err)
-			} else {
-				os.Remove("session.json")
-			}
-		}
-	}()
 	for {
-		message := &TaskAgentMessage{}
-		success := false
-		for !success {
-			select {
-			case <-ctx.Done():
-				fmt.Println("Canceled stopping")
-				return 0
-			default:
-			}
-			if session == nil {
-				var _session = &TaskAgentSession{}
-				if err := ReadJson("session.json", _session); err == nil {
-					session, _ := vssConnection.LoadSession(_session)
-					if err := session.Delete(); err != nil {
-						fmt.Printf("INFO: Failed to delete previous session: %v\n", err)
-					}
-					os.Remove("session.json")
+		var sessions []*TaskAgentSession
+		mu := &sync.Mutex{}
+		joblisteningctx, cancelJobListening := context.WithCancel(ctx)
+		defer cancelJobListening()
+		wg := new(sync.WaitGroup)
+		wg.Add(len(settings.Instances))
+		for _, instance := range settings.Instances {
+			go func(instance *RunnerInstance) int {
+				defer wg.Done()
+				vssConnection := &VssConnection{
+					Client: &http.Client{Transport: &http.Transport{
+						MaxIdleConns:    1,
+						IdleConnTimeout: 100 * time.Second,
+					}},
+					TenantUrl: instance.Auth.TenantUrl,
+					Settings: &RunnerSettings{
+						PoolId:          instance.PoolId,
+						RegistrationUrl: instance.RegistrationUrl,
+					},
+					TaskAgent: instance.Agent,
+					Key:       instance.PKey,
+					Trace:     run.Trace,
 				}
-				session2, err := vssConnection.CreateSession()
-				if err != nil {
-					fmt.Printf("Failed to recreate Session, waiting 30 sec before retry: %v\n", err.Error())
-					select {
-					case <-ctx.Done():
-						fmt.Println("Canceled stopping")
-						return 0
-					case <-time.After(30 * time.Second):
+				vssConnection.ConnectionData = vssConnection.GetConnectionData()
+				jobrun := &JobRun{}
+				if ReadJson("jobrun.json", jobrun) == nil && ((jobrun.RegistrationUrl == instance.RegistrationUrl && jobrun.Name == instance.Agent.Name) || (len(settings.Instances) == 1)) {
+					result := "Failed"
+					finish := &JobEvent{
+						Name:      "JobCompleted",
+						JobId:     jobrun.JobId,
+						RequestId: jobrun.RequestId,
+						Result:    result,
 					}
-					continue
-				} else if session2 != nil {
-					if err := WriteJson("session.json", session2.TaskAgentSession); err != nil {
-						fmt.Printf("INFO: Failed to save new session: %v\n", err)
-					}
-					session = session2
-					fmt.Println("Listening for Jobs")
-				} else {
-					fmt.Println("Failed to recreate Session, waiting 30 sec before retry")
-					select {
-					case <-ctx.Done():
-						fmt.Println("Canceled stopping")
-						return 0
-					case <-time.After(30 * time.Second):
-					}
-					continue
-				}
-			}
-			err := vssConnection.RequestWithContext(ctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "GET", map[string]string{
-				"poolId": fmt.Sprint(instance.PoolId),
-			}, map[string]string{
-				"sessionId": session.TaskAgentSession.SessionId,
-			}, nil, message)
-			//TODO lastMessageId=
-			if err != nil {
-				if errors.Is(err, context.Canceled) {
-					fmt.Println("Canceled stopping")
-					return 0
-				} else if !errors.Is(err, io.EOF) {
-					fmt.Printf("Failed to get message, waiting 10 sec before retry: %v\n", err.Error())
-					select {
-					case <-ctx.Done():
-						fmt.Println("Canceled stopping")
-						return 0
-					case <-time.After(10 * time.Second):
-					}
-				}
-			} else {
-				if firstJobReceived && strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
-					// It seems run once isn't supported by the backend, do the same as the official runner
-					// Skip deleting the job message and cancel earlier
-					fmt.Println("Received a second job, but running in run once mode abort")
-					return 1
-				}
-				success = true
-				err := vssConnection.Request("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "DELETE", map[string]string{
-					"poolId":    fmt.Sprint(instance.PoolId),
-					"messageId": fmt.Sprint(message.MessageId),
-				}, map[string]string{
-					"sessionId": session.TaskAgentSession.SessionId,
-				}, nil, nil)
-				if err != nil {
-					fmt.Println("Failed to delete Message")
-					success = false
-				}
-				if success {
-					if strings.EqualFold(message.MessageType, "JobCancellation") && cancelJob != nil {
-						cancelJob()
-					} else if strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
-						if run.Once {
-							fmt.Println("First job received")
-							firstJobReceived = true
+					go func() {
+						for i := 0; ; i++ {
+							if err := vssConnection.FinishJob(finish, jobrun); err != nil {
+								fmt.Printf("Failed to finish previous stuck job with Status Failed: %v\n", err.Error())
+							} else {
+								fmt.Println("Finished previous stuck job with Status Failed")
+								break
+							}
+							if i < 10 {
+								fmt.Printf("Retry finishing the job in 10 seconds attempt %v of 10\n", i+1)
+								<-time.After(time.Second * 10)
+							} else {
+								break
+							}
 						}
-						var finishJob context.CancelFunc
-						jobctx, finishJob = context.WithCancel(context.Background())
-						var jobExecCtx context.Context
-						jobExecCtx, cancelJob = context.WithCancel(context.Background())
-						runJob(vssConnection, run, cancel, cancelJob, finishJob, jobExecCtx, jobctx, session, *message, instance)
-					} else {
-						fmt.Println("Ignoring incoming message of type: " + message.MessageType)
+					}()
+					os.Remove("jobrun.json")
+				}
+				var session *AgentMessageConnection
+				defer func() {
+					if session != nil {
+						if err := session.Delete(); err != nil {
+							fmt.Printf("WARNING: Failed to delete active session: %v\n", err)
+						} else {
+							mu.Lock()
+							for i, _session := range sessions {
+								if session.TaskAgentSession == _session {
+									sessions[i] = sessions[len(sessions)-1]
+									sessions = sessions[:len(sessions)-1]
+								}
+							}
+							WriteJson("sessions.json", sessions)
+							mu.Unlock()
+						}
+					}
+				}()
+				xctx, _c := context.WithCancel(joblisteningctx)
+				defer _c()
+				for {
+					message := &TaskAgentMessage{}
+					success := false
+					for !success {
+						select {
+						case <-joblisteningctx.Done():
+							return 0
+						default:
+						}
+						if session == nil {
+							session2, err := vssConnection.CreateSession()
+							if err != nil {
+								fmt.Printf("Failed to recreate Session, waiting 30 sec before retry: %v\n", err.Error())
+								select {
+								case <-joblisteningctx.Done():
+									return 0
+								case <-time.After(30 * time.Second):
+								}
+								continue
+							} else if session2 != nil {
+								session = session2
+								mu.Lock()
+								sessions = append(sessions, session.TaskAgentSession)
+								err := WriteJson("sessions.json", sessions)
+								if err != nil {
+									fmt.Printf("error: %v\n", err)
+								} else {
+									fmt.Println("Listening for Jobs")
+								}
+								mu.Unlock()
+							} else {
+								fmt.Println("Failed to recreate Session, waiting 30 sec before retry")
+								select {
+								case <-joblisteningctx.Done():
+									return 0
+								case <-time.After(30 * time.Second):
+								}
+								continue
+							}
+						}
+						err := vssConnection.RequestWithContext(xctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "GET", map[string]string{
+							"poolId": fmt.Sprint(instance.PoolId),
+						}, map[string]string{
+							"sessionId": session.TaskAgentSession.SessionId,
+						}, nil, message)
+						//TODO lastMessageId=
+						if err != nil {
+							if errors.Is(err, context.Canceled) {
+								return 0
+							} else if !errors.Is(err, io.EOF) {
+								fmt.Printf("Failed to get message, waiting 10 sec before retry: %v\n", err.Error())
+								select {
+								case <-ctx.Done():
+									fmt.Println("Canceled stopping")
+									return 0
+								case <-time.After(10 * time.Second):
+								}
+							}
+						} else {
+							if firstJobReceived && strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
+								// It seems run once isn't supported by the backend, do the same as the official runner
+								// Skip deleting the job message and cancel earlier
+								fmt.Println("Received a second job, but running in run once mode abort")
+								return 1
+							}
+							success = true
+							err := vssConnection.Request("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "DELETE", map[string]string{
+								"poolId":    fmt.Sprint(instance.PoolId),
+								"messageId": fmt.Sprint(message.MessageId),
+							}, map[string]string{
+								"sessionId": session.TaskAgentSession.SessionId,
+							}, nil, nil)
+							if err != nil {
+								fmt.Println("Failed to delete Message")
+								success = false
+							}
+						}
+					}
+					if success {
+						if strings.EqualFold(message.MessageType, "JobCancellation") && cancelJob != nil {
+							cancelJob()
+						} else if strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
+							if run.Once {
+								fmt.Println("First job received")
+								firstJobReceived = true
+							}
+							var finishJob context.CancelFunc
+							jobctx, finishJob = context.WithCancel(context.Background())
+							var jobExecCtx context.Context
+							jobExecCtx, cancelJob = context.WithCancel(context.Background())
+							runJob(vssConnection, run, cancel, cancelJob, finishJob, jobExecCtx, jobctx, session, *message, instance)
+							{
+								cancelJobListening()
+								for {
+									message, err := session.GetNextMessage(jobExecCtx)
+									if errors.Is(err, context.Canceled) {
+										break
+									} else if strings.EqualFold(message.MessageType, "JobCancellation") && cancelJob != nil {
+										cancelJob()
+									}
+									session.DeleteMessage(message)
+								}
+							}
+						} else {
+							fmt.Println("Ignoring incoming message of type: " + message.MessageType)
+						}
 					}
 				}
-			}
+			}(instance)
+		}
+		<-joblisteningctx.Done()
+		<-jobctx.Done()
+		wg.Wait()
+		if run.Once {
+			return 0
 		}
 	}
 }
@@ -1612,9 +1691,11 @@ func runJob(vssConnection *VssConnection, run *RunRunner, cancel context.CancelF
 			dec.Decode(jobreq)
 		}
 		jobrun := &JobRun{
-			RequestId: jobreq.RequestId,
-			JobId:     jobreq.JobId,
-			Plan:      jobreq.Plan,
+			RequestId:       jobreq.RequestId,
+			JobId:           jobreq.JobId,
+			Plan:            jobreq.Plan,
+			RegistrationUrl: instance.RegistrationUrl,
+			Name:            instance.Agent.Name,
 		}
 		{
 			if err := WriteJson("jobrun.json", jobrun); err != nil {
