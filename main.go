@@ -847,30 +847,29 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	b := &bytes.Buffer{}
 
 	if f.current == nil || f.current.RefName != f.rc.CurrentStep {
-		f.startLine = 1
-		if f.current != nil {
-			if f.rc.StepResults[f.current.RefName].Success {
-				f.current.Complete("Succeeded")
-			} else {
-				f.current.Complete("Failed")
+		res, ok := f.rc.StepResults[f.current.RefName]
+		if ok {
+			f.startLine = 1
+			if f.current != nil {
+				if res.Success {
+					f.current.Complete("Succeeded")
+				} else {
+					f.current.Complete("Failed")
+				}
+				if f.stepBuffer.Len() > 0 {
+					f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
+				}
 			}
-			if f.stepBuffer.Len() > 0 {
-				f.current.Log = &TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
+			f.stepBuffer = &bytes.Buffer{}
+			for i := range f.wrap.Value {
+				if f.wrap.Value[i].RefName == f.rc.CurrentStep {
+					f.current = &f.wrap.Value[i]
+					f.current.Start()
+					break
+				}
 			}
-			if sd, ok := f.rqt.Variables["ACTIONS_STEP_DEBUG"]; !ok || (sd.Value != "true" && sd.Value != "1") {
-				logrus.SetLevel(logrus.InfoLevel)
-			}
-
+			f.updateTimeLine()
 		}
-		f.stepBuffer = &bytes.Buffer{}
-		for i := range f.wrap.Value {
-			if f.wrap.Value[i].RefName == f.rc.CurrentStep {
-				f.current = &f.wrap.Value[i]
-				f.current.Start()
-				break
-			}
-		}
-		f.updateTimeLine()
 	}
 	if f.rqt.MaskHints != nil {
 		for _, v := range f.rqt.MaskHints {
