@@ -17,6 +17,7 @@ Unlike the [official runner](https://github.com/actions/runner), this works on m
 |composite actions with uses|v0.0.10+|v0.0.10+|
 |composite actions with if|v0.0.10+|v0.0.10+|
 |composite actions with continue-on-error|v0.0.10+|v0.0.10+|
+
 (*1) Reachable docker daemon use `DOCKER_HOST` to specify a remote host.
 
 (*2) For best compatibility with existing nodejs actions, please add nodejs in version 12 to your `PATH`, newer nodejs versions might lead to workflow failures.
