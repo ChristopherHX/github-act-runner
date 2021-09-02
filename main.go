@@ -1953,26 +1953,10 @@ func (run *RunRunner) Run() int {
 											return
 										}
 									}
-									env := make(map[string]string)
+
+									env := &yaml.Node{}
 									if step.Environment != nil {
-										if tmpenvs, ok := step.Environment.ToRawObject().(map[interface{}]interface{}); ok {
-											for k, v := range tmpenvs {
-												key, ok := k.(string)
-												if !ok {
-													failInitJob("env key: act doesn't support non strings")
-													return
-												}
-												value, ok := v.(string)
-												if !ok {
-													failInitJob("env value: act doesn't support non strings")
-													return
-												}
-												env[key] = value
-											}
-										} else {
-											failInitJob("step.Inputs: not a map")
-											return
-										}
+										env = step.Environment.ToYamlNode()
 									}
 
 									continueOnError := false
@@ -2042,7 +2026,7 @@ func (run *RunRunner) Run() int {
 												Shell:            shell,
 												ContinueOnError:  continueOnError,
 												TimeoutMinutes:   timeoutMinutes,
-												Env:              env,
+												Env:              *env,
 											})
 										} else {
 											failInitJob("Missing script")
@@ -2085,7 +2069,7 @@ func (run *RunRunner) Run() int {
 											With:             with,
 											ContinueOnError:  continueOnError,
 											TimeoutMinutes:   timeoutMinutes,
-											Env:              env,
+											Env:              *env,
 										})
 									}
 								}
@@ -2098,7 +2082,7 @@ func (run *RunRunner) Run() int {
 										If:               yaml.Node{Kind: yaml.ScalarNode, Value: "false"},
 										Name:             "Finish Job",
 										Run:              "",
-										Env:              make(map[string]string),
+										Env:              yaml.Node{},
 										ContinueOnError:  true,
 										WorkingDirectory: "",
 										Shell:            "",
@@ -2154,6 +2138,11 @@ func (run *RunRunner) Run() int {
 										GitHubInstance:      githubCtxMap["server_url"].(string)[8:],
 										ForceRemoteCheckout: true, // Needed to avoid copy the non exiting working dir
 										ReuseContainers:     false,
+										CompositeRestrictions: &model.CompositeRestrictions{
+											AllowCompositeUses:            true,
+											AllowCompositeIf:              true,
+											AllowCompositeContinueOnError: true,
+										},
 									},
 									Env: env,
 									Run: &model.Run{
