@@ -1561,7 +1561,7 @@ func (run *RunRunner) Run() int {
 								if err != nil {
 									fmt.Printf("error: %v\n", err)
 								} else {
-									fmt.Println("Listening for Jobs")
+									fmt.Printf("Listening for Jobs: %v (%v)\n", instance.Agent.Name, instance.RegistrationUrl)
 								}
 								mu.Unlock()
 							} else {
