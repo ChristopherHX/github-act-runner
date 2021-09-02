@@ -1429,6 +1429,33 @@ func (run *RunRunner) Run() int {
 		Trace:     run.Trace,
 	}
 	vssConnection.ConnectionData = vssConnection.GetConnectionData()
+	jobrun := &JobRun{}
+	if ReadJson("jobrun.json", jobrun) == nil {
+		result := "Failed"
+		finish := &JobEvent{
+			Name:      "JobCompleted",
+			JobId:     jobrun.JobId,
+			RequestId: jobrun.RequestId,
+			Result:    result,
+		}
+		go func() {
+			for i := 0; ; i++ {
+				if err := vssConnection.FinishJob(finish, jobrun); err != nil {
+					fmt.Printf("Failed to finish previous stuck job with Status Failed: %v\n", err.Error())
+				} else {
+					fmt.Println("Finished previous stuck job with Status Failed")
+					break
+				}
+				if i < 10 {
+					fmt.Printf("Retry finishing the job in 10 seconds attempt %v of 10\n", i+1)
+					<-time.After(time.Second * 10)
+				} else {
+					break
+				}
+			}
+		}()
+		os.Remove("jobrun.json")
+	}
 
 	var session *AgentMessageConnection
 	defer func() {
@@ -1451,33 +1478,6 @@ func (run *RunRunner) Run() int {
 			default:
 			}
 			if session == nil {
-				jobrun := &JobRun{}
-				if ReadJson("jobrun.json", jobrun) == nil {
-					result := "Failed"
-					finish := &JobEvent{
-						Name:      "JobCompleted",
-						JobId:     jobrun.JobId,
-						RequestId: jobrun.RequestId,
-						Result:    result,
-					}
-					go func() {
-						for i := 0; ; i++ {
-							if err := vssConnection.FinishJob(finish, jobrun); err != nil {
-								fmt.Printf("Failed to finish previous stuck job with Status Failed: %v\n", err.Error())
-							} else {
-								fmt.Println("Finished previous stuck job with Status Failed")
-								break
-							}
-							if i < 10 {
-								fmt.Printf("Retry finishing the job in 10 seconds attempt %v of 10\n", i+1)
-								<-time.After(time.Second * 10)
-							} else {
-								break
-							}
-						}
-					}()
-					os.Remove("jobrun.json")
-				}
 				var _session = &TaskAgentSession{}
 				if err := ReadJson("session.json", _session); err == nil {
 					session, _ := vssConnection.LoadSession(_session)
@@ -1513,7 +1513,7 @@ func (run *RunRunner) Run() int {
 					continue
 				}
 			}
-			err := vssConnection.Request("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "GET", map[string]string{
+			err := vssConnection.RequestWithContext(ctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "GET", map[string]string{
 				"poolId": fmt.Sprint(instance.PoolId),
 			}, map[string]string{
 				"sessionId": session.TaskAgentSession.SessionId,
