@@ -2225,8 +2225,12 @@ func (run *RunRunner) Run() int {
 
 								logger.SetFormatter(formatter)
 								logger.SetOutput(io.MultiWriter())
-								logger.SetLevel(logrus.DebugLevel)
-								logrus.SetLevel(logrus.DebugLevel)
+								level := logrus.InfoLevel
+								if sd, ok := rqt.Variables["ACTIONS_STEP_DEBUG"]; !ok || sd.Value == "true" || sd.Value == "1" {
+									level = logrus.DebugLevel
+								}
+								logger.SetLevel(level)
+								logrus.SetLevel(level)
 								logrus.SetFormatter(formatter)
 								logrus.SetOutput(io.MultiWriter())
 
