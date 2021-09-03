@@ -2076,20 +2076,26 @@ func (run *RunRunner) Run() int {
 										})
 									}
 								}
+								actions_step_debug := false
+								if sd, ok := rqt.Variables["ACTIONS_STEP_DEBUG"]; ok && (sd.Value == "true" || sd.Value == "1") {
+									actions_step_debug = true
+								}
 								rawContainer := yaml.Node{}
 								if rqt.JobContainer != nil {
 									rawContainer = *rqt.JobContainer.ToYamlNode()
-									// Fake step to catch the post log
-									steps = append(steps, &model.Step{
-										ID:               "___finish_job",
-										If:               yaml.Node{Kind: yaml.ScalarNode, Value: "false"},
-										Name:             "Finish Job",
-										Run:              "",
-										Env:              yaml.Node{},
-										ContinueOnError:  true,
-										WorkingDirectory: "",
-										Shell:            "",
-									})
+									if actions_step_debug {
+										// Fake step to catch the post log
+										steps = append(steps, &model.Step{
+											ID:               "___finish_job",
+											If:               yaml.Node{Kind: yaml.ScalarNode, Value: "false"},
+											Name:             "Finish Job",
+											Run:              "",
+											Env:              yaml.Node{},
+											ContinueOnError:  true,
+											WorkingDirectory: "",
+											Shell:            "",
+										})
+									}
 								}
 								services := make(map[string]*model.ContainerSpec)
 								if rqt.JobServiceContainers != nil {
@@ -2225,12 +2231,13 @@ func (run *RunRunner) Run() int {
 
 								logger.SetFormatter(formatter)
 								logger.SetOutput(io.MultiWriter())
-								level := logrus.InfoLevel
-								if sd, ok := rqt.Variables["ACTIONS_STEP_DEBUG"]; ok && (sd.Value == "true" || sd.Value == "1") {
-									level = logrus.DebugLevel
+								if actions_step_debug {
+									logger.SetLevel(logrus.DebugLevel)
+									logrus.SetLevel(logrus.DebugLevel)
+								} else {
+									logger.SetLevel(logrus.InfoLevel)
+									logrus.SetLevel(logrus.InfoLevel)
 								}
-								logger.SetLevel(level)
-								logrus.SetLevel(level)
 								logrus.SetFormatter(formatter)
 								logrus.SetOutput(io.MultiWriter())
 
@@ -2352,10 +2359,13 @@ func (run *RunRunner) Run() int {
 									}
 									formatter.wrap = wrap
 
-									logger.Log(logrus.DebugLevel, "Runner Name: "+taskAgent.Name)
-									logger.Log(logrus.DebugLevel, "Runner OSDescription: github-act-runner "+runtime.GOOS+"/"+runtime.GOARCH)
-									logger.Log(logrus.DebugLevel, "Runner Version: "+version)
-									rc.Executor()(common.WithLogger(jobExecCtx, logger))
+									logger.Log(logrus.InfoLevel, "Runner Name: "+taskAgent.Name)
+									logger.Log(logrus.InfoLevel, "Runner OSDescription: github-act-runner "+runtime.GOOS+"/"+runtime.GOARCH)
+									logger.Log(logrus.InfoLevel, "Runner Version: "+version)
+									err := rc.Executor()(common.WithLogger(jobExecCtx, logger))
+									if err != nil {
+										logger.Logf(logrus.InfoLevel, "##[Error] %v", err.Error())
+									}
 
 									// Prepare results for github server
 									if rqt.JobOutputs != nil {
