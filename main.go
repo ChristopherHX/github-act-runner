@@ -1515,12 +1515,13 @@ func (run *RunRunner) Run() int {
 					os.Remove("jobrun.json")
 				}
 				var session *AgentMessageConnection
-				defer func() {
+				deleteSession := func() {
 					if session != nil {
 						if err := session.Delete(); err != nil {
 							fmt.Printf("WARNING: Failed to delete active session: %v\n", err)
 						} else {
 							mu.Lock()
+							defer mu.Unlock()
 							for i, _session := range sessions {
 								if session.TaskAgentSession == _session {
 									sessions[i] = sessions[len(sessions)-1]
@@ -1528,11 +1529,13 @@ func (run *RunRunner) Run() int {
 								}
 							}
 							WriteJson("sessions.json", sessions)
-							mu.Unlock()
+							session = nil
 						}
 					}
-				}()
+				}
+				defer deleteSession()
 				xctx, _c := context.WithCancel(joblisteningctx)
+				lastSuccess := time.Now()
 				defer _c()
 				for {
 					message := &TaskAgentMessage{}
@@ -1543,7 +1546,8 @@ func (run *RunRunner) Run() int {
 							return 0
 						default:
 						}
-						if session == nil {
+						if session == nil || time.Now().After(lastSuccess.Add(5*time.Minute)) {
+							deleteSession()
 							session2, err := vssConnection.CreateSession()
 							if err != nil {
 								fmt.Printf("Failed to recreate Session, waiting 30 sec before retry: %v\n", err.Error())
@@ -1556,6 +1560,7 @@ func (run *RunRunner) Run() int {
 							} else if session2 != nil {
 								session = session2
 								mu.Lock()
+								defer mu.Unlock()
 								sessions = append(sessions, session.TaskAgentSession)
 								err := WriteJson("sessions.json", sessions)
 								if err != nil {
@@ -1563,7 +1568,6 @@ func (run *RunRunner) Run() int {
 								} else {
 									fmt.Printf("Listening for Jobs: %v (%v)\n", instance.Agent.Name, instance.RegistrationUrl)
 								}
-								mu.Unlock()
 							} else {
 								fmt.Println("Failed to recreate Session, waiting 30 sec before retry")
 								select {
@@ -1590,8 +1594,11 @@ func (run *RunRunner) Run() int {
 									return 0
 								case <-time.After(10 * time.Second):
 								}
+							} else {
+								lastSuccess = time.Now()
 							}
 						} else {
+							lastSuccess = time.Now()
 							if firstJobReceived && strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
 								// It seems run once isn't supported by the backend, do the same as the official runner
 								// Skip deleting the job message and cancel earlier
