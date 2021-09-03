@@ -1629,7 +1629,7 @@ func (run *RunRunner) Run() int {
 							var finishJob context.CancelFunc
 							jobctx, finishJob = context.WithCancel(context.Background())
 							var jobExecCtx context.Context
-							jobExecCtx, cancelJob = context.WithCancel(context.Background())
+							jobExecCtx, cancelJob = context.WithCancel(ctx)
 							runJob(vssConnection, run, cancel, cancelJob, finishJob, jobExecCtx, jobctx, session, *message, instance)
 							{
 								cancelJobListening()
@@ -2053,20 +2053,26 @@ func runJob(vssConnection *VssConnection, run *RunRunner, cancel context.CancelF
 				})
 			}
 		}
+		actions_step_debug := false
+		if sd, ok := rqt.Variables["ACTIONS_STEP_DEBUG"]; ok && (sd.Value == "true" || sd.Value == "1") {
+			actions_step_debug = true
+		}
 		rawContainer := yaml.Node{}
 		if rqt.JobContainer != nil {
 			rawContainer = *rqt.JobContainer.ToYamlNode()
-			// Fake step to catch the post log
-			steps = append(steps, &model.Step{
-				ID:               "___finish_job",
-				If:               yaml.Node{Kind: yaml.ScalarNode, Value: "false"},
-				Name:             "Finish Job",
-				Run:              "",
-				Env:              yaml.Node{},
-				ContinueOnError:  true,
-				WorkingDirectory: "",
-				Shell:            "",
-			})
+			if actions_step_debug {
+				// Fake step to catch the post debug log
+				steps = append(steps, &model.Step{
+					ID:               "___finish_job",
+					If:               yaml.Node{Kind: yaml.ScalarNode, Value: "false"},
+					Name:             "Finish Job",
+					Run:              "",
+					Env:              yaml.Node{},
+					ContinueOnError:  true,
+					WorkingDirectory: "",
+					Shell:            "",
+				})
+			}
 		}
 		services := make(map[string]*model.ContainerSpec)
 		if rqt.JobServiceContainers != nil {
@@ -2202,9 +2208,12 @@ func runJob(vssConnection *VssConnection, run *RunRunner, cancel context.CancelF
 
 		logger.SetFormatter(formatter)
 		logger.SetOutput(io.MultiWriter())
-		if sd, ok := rqt.Variables["ACTIONS_STEP_DEBUG"]; ok && (sd.Value == "true" || sd.Value == "1") {
+		if actions_step_debug {
 			logger.SetLevel(logrus.DebugLevel)
 			logrus.SetLevel(logrus.DebugLevel)
+		} else {
+			logger.SetLevel(logrus.InfoLevel)
+			logrus.SetLevel(logrus.InfoLevel)
 		}
 		logrus.SetFormatter(formatter)
 		logrus.SetOutput(io.MultiWriter())
