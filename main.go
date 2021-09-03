@@ -1521,7 +1521,6 @@ func (run *RunRunner) Run() int {
 							fmt.Printf("WARNING: Failed to delete active session: %v\n", err)
 						} else {
 							mu.Lock()
-							defer mu.Unlock()
 							for i, _session := range sessions {
 								if session.TaskAgentSession == _session {
 									sessions[i] = sessions[len(sessions)-1]
@@ -1530,6 +1529,7 @@ func (run *RunRunner) Run() int {
 							}
 							WriteJson("sessions.json", sessions)
 							session = nil
+							mu.Unlock()
 						}
 					}
 				}
@@ -1560,7 +1560,6 @@ func (run *RunRunner) Run() int {
 							} else if session2 != nil {
 								session = session2
 								mu.Lock()
-								defer mu.Unlock()
 								sessions = append(sessions, session.TaskAgentSession)
 								err := WriteJson("sessions.json", sessions)
 								if err != nil {
@@ -1568,6 +1567,7 @@ func (run *RunRunner) Run() int {
 								} else {
 									fmt.Printf("Listening for Jobs: %v (%v)\n", instance.Agent.Name, instance.RegistrationUrl)
 								}
+								mu.Unlock()
 							} else {
 								fmt.Println("Failed to recreate Session, waiting 30 sec before retry")
 								select {
