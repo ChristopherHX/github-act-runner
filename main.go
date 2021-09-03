@@ -2196,7 +2196,7 @@ func runJob(vssConnection *VssConnection, run *RunRunner, cancel context.CancelF
 		logger.SetFormatter(formatter)
 		logger.SetOutput(io.MultiWriter())
 		level := logrus.InfoLevel
-		if sd, ok := rqt.Variables["ACTIONS_STEP_DEBUG"]; !ok || sd.Value == "true" || sd.Value == "1" {
+		if sd, ok := rqt.Variables["ACTIONS_STEP_DEBUG"]; ok && (sd.Value == "true" || sd.Value == "1") {
 			level = logrus.DebugLevel
 		}
 		logger.SetLevel(level)
