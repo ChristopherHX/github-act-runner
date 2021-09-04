@@ -1469,8 +1469,10 @@ func (run *RunRunner) Run() int {
 	{
 		// Backward compatibility
 		var session TaskAgentSession
-		if err := ReadJson("session.json", &session); err != nil && run.Trace {
-			fmt.Printf("session.json is corrupted or does not exist: %v\n", err.Error())
+		if err := ReadJson("session.json", &session); err != nil {
+			if run.Trace {
+				fmt.Printf("session.json is corrupted or does not exist: %v\n", err.Error())
+			}
 		} else {
 			sessions = append(sessions, &session)
 		}
@@ -1532,6 +1534,13 @@ func (run *RunRunner) Run() int {
 					if session.Agent.Name == instance.Agent.Name && session.Agent.Authorization.PublicKey == instance.Agent.Authorization.PublicKey {
 						session, _ := vssConnection.LoadSession(session)
 						session.Delete()
+						for i, _session := range sessions {
+							if session.TaskAgentSession.SessionId == _session.SessionId {
+								sessions[i] = sessions[len(sessions)-1]
+								sessions = sessions[:len(sessions)-1]
+							}
+						}
+						WriteJson("sessions.json", sessions)
 					}
 				}
 				mu.Unlock()
@@ -1543,7 +1552,7 @@ func (run *RunRunner) Run() int {
 						} else {
 							mu.Lock()
 							for i, _session := range sessions {
-								if session.TaskAgentSession == _session {
+								if session.TaskAgentSession.SessionId == _session.SessionId {
 									sessions[i] = sessions[len(sessions)-1]
 									sessions = sessions[:len(sessions)-1]
 								}
