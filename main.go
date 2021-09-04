@@ -2342,7 +2342,7 @@ func runJob(vssConnection *VssConnection, run *RunRunner, cancel context.CancelF
 			logger.Log(logrus.InfoLevel, "Runner Version: "+version)
 			err := rc.Executor()(common.WithLogger(jobExecCtx, logger))
 			if err != nil {
-				logger.Logf(logrus.InfoLevel, "##[Error] %v", err.Error())
+				logger.Logf(logrus.InfoLevel, "##[Error]%v", err.Error())
 			}
 			// Prepare results for github server
 			if rqt.JobOutputs != nil {
