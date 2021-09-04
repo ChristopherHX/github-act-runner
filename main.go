@@ -1462,8 +1462,21 @@ func (run *RunRunner) Run() int {
 		fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
 		return 1
 	}
+	var sessions []*TaskAgentSession
+	if err := ReadJson("sessions.json", &sessions); err != nil && run.Trace {
+		fmt.Printf("sessions.json is corrupted or does not exist: %v\n", err.Error())
+	}
+	{
+		// Backward compatibility
+		var session TaskAgentSession
+		if err := ReadJson("session.json", &session); err != nil && run.Trace {
+			fmt.Printf("session.json is corrupted or does not exist: %v\n", err.Error())
+		} else {
+			sessions = append(sessions, &session)
+		}
+	}
+
 	for {
-		var sessions []*TaskAgentSession
 		mu := &sync.Mutex{}
 		joblisteningctx, cancelJobListening := context.WithCancel(ctx)
 		defer cancelJobListening()
@@ -1514,6 +1527,14 @@ func (run *RunRunner) Run() int {
 					}()
 					os.Remove("jobrun.json")
 				}
+				mu.Lock()
+				for _, session := range sessions {
+					if session.Agent.Name == instance.Agent.Name && session.Agent.Authorization.PublicKey == instance.Agent.Authorization.PublicKey {
+						session, _ := vssConnection.LoadSession(session)
+						session.Delete()
+					}
+				}
+				mu.Unlock()
 				var session *AgentMessageConnection
 				deleteSession := func() {
 					if session != nil {
