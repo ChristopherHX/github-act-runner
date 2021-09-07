@@ -1,0 +1,8 @@
+on: push
+jobs:
+  test_container_fail_step:
+    container: ubuntu:latest
+    runs-on: [self-hosted]
+    steps:
+    - name: Test
+      run: exit 1
