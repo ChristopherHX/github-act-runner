@@ -189,9 +189,9 @@ jobs:
         # Create a folder
         mkdir actions-runner && cd actions-runner
         # Download the latest runner package
-        curl -O -L https://github.com/ChristopherHX/runner.server/releases/download/v3.2.1/actions-runner-linux-x64-3.2.1.tar.gz
+        curl -O -L https://github.com/ChristopherHX/runner.server/releases/download/v3.2.3/actions-runner-linux-x64-3.2.3.tar.gz
         # Extract the installer
-        tar xzf ./actions-runner-linux-x64-3.2.1.tar.gz
+        tar xzf ./actions-runner-linux-x64-3.2.3.tar.gz
     - name: Download Artifact
       uses: actions/download-artifact@v2
       with:
