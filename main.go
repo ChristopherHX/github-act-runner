@@ -894,6 +894,7 @@ type ghaFormatter struct {
 	uploadLogFile  func(log string) int
 	startLine      int64
 	stepBuffer     *bytes.Buffer
+	linefeedregex  *regexp.Regexp
 }
 
 func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
@@ -940,18 +941,24 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		}
 	}
 
-	entry.Message = strings.Trim(entry.Message, "\r\n")
-	if entry.Level == logrus.DebugLevel {
-		entry.Message = "##[debug]" + entry.Message
-	} else if entry.Level == logrus.WarnLevel {
-		entry.Message = "##[warning]" + entry.Message
-	} else if entry.Level == logrus.ErrorLevel {
-		entry.Message = "##[error]" + entry.Message
+	if f.linefeedregex == nil {
+		f.linefeedregex = regexp.MustCompile(`(\r\n|\r|\n)`)
 	}
+
+	prefix := ""
+	if entry.Level == logrus.DebugLevel {
+		prefix = "##[debug]"
+	} else if entry.Level == logrus.WarnLevel {
+		prefix = "##[warning]"
+	} else if entry.Level == logrus.ErrorLevel {
+		prefix = "##[error]"
+	}
+	entry.Message = f.linefeedregex.ReplaceAllString(prefix+strings.Trim(entry.Message, "\r\n"), "\n"+prefix)
+
 	b.WriteString(entry.Message)
 	b.WriteByte('\n')
 	f.logline(f.startLine, f.current.Id, entry.Message)
-	f.startLine++
+	f.startLine += 1 + int64(strings.Count(entry.Message, "\n"))
 	f.stepBuffer.Write(b.Bytes())
 	return b.Bytes(), nil
 }
@@ -2358,7 +2365,7 @@ func runJob(vssConnection *VssConnection, run *RunRunner, cancel context.CancelF
 			logger.Log(logrus.InfoLevel, "Runner Version: "+version)
 			err := rc.Executor()(common.WithLogger(jobExecCtx, logger))
 			if err != nil {
-				logger.Logf(logrus.InfoLevel, "##[Error]%v", err.Error())
+				logger.Logf(logrus.ErrorLevel, "%v", err.Error())
 			}
 			// Prepare results for github server
 			if rqt.JobOutputs != nil {
