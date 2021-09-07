@@ -1,0 +1,33 @@
+name: matrix
+on: push
+jobs:
+  firstjob:
+    runs-on: [self-hosted]
+    steps:
+    - name: View context attributes
+      id: firststep
+      uses: actions/github-script@v4
+      with:
+        token: why?
+        script: |
+          console.log(context)
+          core.setOutput('outputKey', 'outputVal1');
+    - name: View context attributes
+      id: secondstep
+      uses: actions/github-script@v4
+      with:
+        token: why?
+        script: |
+          console.log(context)
+          core.setOutput('outputKey', 'outputVal2');
+    outputs:
+      outputKey: ${{steps.firststep.outputs.outputKey}}-${{steps.secondstep.outputs.outputKey}}
+  verifyneedsctx:
+    runs-on: [self-hosted]
+    needs: firstjob
+    steps:
+    - name: Print needs
+      run: echo '${{toJSON(needs)}}'
+    - name: Verify needs
+      if: needs.firstjob.outputs.outputKey != 'outputVal1-outputVal2'
+      run: exit 1
