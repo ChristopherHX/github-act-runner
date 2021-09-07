@@ -941,6 +941,13 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	}
 
 	entry.Message = strings.Trim(entry.Message, "\r\n")
+	if entry.Level == logrus.DebugLevel {
+		entry.Message = "##[debug]" + entry.Message
+	} else if entry.Level == logrus.WarnLevel {
+		entry.Message = "##[warning]" + entry.Message
+	} else if entry.Level == logrus.ErrorLevel {
+		entry.Message = "##[error]" + entry.Message
+	}
 	b.WriteString(entry.Message)
 	b.WriteByte('\n')
 	f.logline(f.startLine, f.current.Id, entry.Message)
