@@ -1,0 +1,7 @@
+on: push
+jobs:
+  test_host_fail_step:
+    runs-on: [self-hosted]
+    steps:
+    - name: Test
+      run: exit 1
