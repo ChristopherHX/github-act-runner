@@ -743,12 +743,20 @@ func (vssConnection *VssConnection) RequestWithContext(ctx context.Context, serv
 			body := ""
 			if _buf, ok := buf.(*bytes.Buffer); ok {
 				body = _buf.String()
+			} else if requestBody != nil {
+				if b, err := json.Marshal(requestBody); err == nil {
+					body = string(b)
+				}
 			}
 			bytes, err := ioutil.ReadAll(response.Body)
 			if err != nil {
 				bytes = []byte("no response: " + err.Error())
 			}
-			return fmt.Errorf("request %v %v failed with status %v, requestBody: `%v` and responseBody: `%v`", method, url, response.StatusCode, body, string(bytes))
+			err = fmt.Errorf("request %v %v failed with status %v, requestBody: `%v` and responseBody: `%v`", method, url, response.StatusCode, body, string(bytes))
+			if vssConnection.Trace {
+				fmt.Println(err.Error())
+			}
+			return err
 		}
 		if responseBody != nil {
 			if response.StatusCode != 200 {
