@@ -133,6 +133,7 @@ type ConfigureRunner struct {
 	Unattended      bool
 	RunnerGroup     string
 	Trace           bool
+	Ephemeral       bool
 }
 
 type RunnerInstance struct {
@@ -171,6 +172,11 @@ func (config *ConfigureRunner) Configure() int {
 	settings := &RunnerSettings{RegistrationUrl: config.Url}
 	_ = ReadJson("settings.json", settings)
 	instance := &RunnerInstance{}
+	loadConfiguration()
+	if config.Ephemeral && len(settings.Instances) > 0 || containsEphemeralConfiguration() {
+		fmt.Println("Ephemeral is not supported for multi runners, runner already configured.")
+		return 1
+	}
 	settings.Instances = append(settings.Instances, instance)
 	if len(config.Url) == 0 {
 		if !config.Unattended {
@@ -364,6 +370,7 @@ func (config *ConfigureRunner) Configure() int {
 	taskAgent.MaxParallelism = 1
 	taskAgent.ProvisioningState = "Provisioned"
 	taskAgent.CreatedOn = time.Now().UTC().Format("2006-01-02T15:04:05")
+	taskAgent.Ephemeral = config.Ephemeral
 	{
 		err := vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "POST", map[string]string{
 			"poolId": fmt.Sprint(vssConnection.PoolId),
@@ -512,6 +519,19 @@ func loadConfiguration() (*RunnerSettings, error) {
 	return settings, nil
 }
 
+func containsEphemeralConfiguration() bool {
+	settings, err := loadConfiguration()
+	if err != nil || settings == nil {
+		return false
+	}
+	for _, instance := range settings.Instances {
+		if instance.Agent != nil && instance.Agent.Ephemeral {
+			return true
+		}
+	}
+	return false
+}
+
 func (run *RunRunner) Run() int {
 	container.SetContainerAllocateTerminal(run.Terminal)
 	// trap Ctrl+C
@@ -531,7 +551,6 @@ func (run *RunRunner) Run() int {
 			fmt.Println("CTRL+C received, stop accepting new jobs and exit after the current job finishs")
 			// Switch to run once mode
 			run.Once = true
-			firstJobReceived = true
 		}
 		for {
 			select {
@@ -555,6 +574,16 @@ func (run *RunRunner) Run() int {
 		fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
 		return 1
 	}
+	isEphemeral := len(settings.Instances) == 1 && settings.Instances[0].Agent.Ephemeral
+	// isEphemeral => run.Once
+	run.Once = run.Once || isEphemeral
+	defer func() {
+		if firstJobReceived && isEphemeral {
+			if err := os.Remove("settings.json"); err != nil {
+				fmt.Printf("Warning: Cannot delete settings.json after ephemeral exit: %v\n", err.Error())
+			}
+		}
+	}()
 	var sessions []*protocol.TaskAgentSession
 	if err := ReadJson("sessions.json", &sessions); err != nil && run.Trace {
 		fmt.Printf("sessions.json is corrupted or does not exist: %v\n", err.Error())
@@ -1770,6 +1799,7 @@ func main() {
 	cmdConfigure.Flags().StringVar(&config.Token, "runnergroup", "", "name of the runner group to use will ask if more than one is available")
 	cmdConfigure.Flags().BoolVar(&config.Unattended, "unattended", false, "suppress shell prompts during configure")
 	cmdConfigure.Flags().BoolVar(&config.Trace, "trace", false, "trace http communication with the github action service")
+	cmdConfigure.Flags().BoolVar(&config.Ephemeral, "ephemeral", false, "configure a single use runner, runner deletes it's setting.json ( and the actions service should remove their registrations at the same time ) after executing one job ( implies '--once' on run ). This is not supported for multi runners.")
 	var cmdRun = &cobra.Command{
 		Use:   "run",
 		Short: "run your self-hosted runner",

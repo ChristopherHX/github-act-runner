@@ -43,6 +43,7 @@ type TaskAgent struct {
 	ProvisioningState string
 	AccessPoint       string `json:",omitempty"`
 	CreatedOn         string
+	Ephemeral         bool `json:",omitempty"`
 }
 
 type TaskAgents struct {
