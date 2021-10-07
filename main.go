@@ -134,6 +134,7 @@ type ConfigureRunner struct {
 	RunnerGroup     string
 	Trace           bool
 	Ephemeral       bool
+	RunnerGuard     string
 }
 
 type RunnerInstance struct {
@@ -171,7 +172,9 @@ func ReadJson(path string, value interface{}) error {
 func (config *ConfigureRunner) Configure() int {
 	settings := &RunnerSettings{RegistrationUrl: config.Url}
 	_ = ReadJson("settings.json", settings)
-	instance := &RunnerInstance{}
+	instance := &RunnerInstance{
+		RunnerGuard: config.RunnerGuard,
+	}
 	loadConfiguration()
 	if config.Ephemeral && len(settings.Instances) > 0 || containsEphemeralConfiguration() {
 		fmt.Println("Ephemeral is not supported for multi runners, runner already configured.")
@@ -861,6 +864,9 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		if src[0] == 239 && src[1] == 187 && src[2] == 191 {
 			off = 3
 		}
+		if run.Trace {
+			fmt.Println(string(src[off:validlen]))
+		}
 		jobreq := &protocol.AgentJobRequestMessage{}
 		{
 			dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
@@ -906,6 +912,26 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		finishJob := func(result string) {
 			finishJob2(result, nil)
 		}
+		rqt := jobreq
+		secrets := map[string]string{}
+		if rqt.Variables != nil {
+			for k, v := range rqt.Variables {
+				if v.IsSecret && k != "system.github.token" {
+					secrets[k] = v.Value
+				}
+			}
+			if rawGithubToken, ok := rqt.Variables["system.github.token"]; ok {
+				secrets["GITHUB_TOKEN"] = rawGithubToken.Value
+			}
+		}
+		runnerConfig := &runner.Config{
+			Secrets: secrets,
+			CompositeRestrictions: &model.CompositeRestrictions{
+				AllowCompositeUses:            true,
+				AllowCompositeIf:              true,
+				AllowCompositeContinueOnError: true,
+			},
+		}
 		if len(instance.RunnerGuard) > 0 {
 			vm := otto.New()
 			{
@@ -915,6 +941,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				vm.Set("runnerInstance", instance)
 				vm.Set("jobrequest", req)
 				vm.Set("jobrun", jobrun)
+				vm.Set("runnerConfig", runnerConfig)
 				//otto panics
 				vm.Set("TemplateTokenToObject", func(p interface{}) interface{} {
 					val, err := vm.Call("JSON.stringify", nil, p)
@@ -942,6 +969,8 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				val, err := vm.Run(instance.RunnerGuard)
 				if err != nil {
 					fmt.Printf("Failed to run `%v`: %v", instance.RunnerGuard, err)
+					finishJob("Failed")
+					return
 				}
 				res, _ := val.ToBoolean()
 				if !res {
@@ -950,7 +979,6 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				}
 			}
 		}
-		rqt := jobreq
 		wrap := &protocol.TimelineRecordWrapper{}
 		wrap.Count = 2
 		wrap.Value = make([]protocol.TimelineRecord, wrap.Count)
@@ -1041,17 +1069,6 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			return
 		}
 		githubCtx := rawGithubCtx.ToRawObject()
-		secrets := map[string]string{}
-		if rqt.Variables != nil {
-			for k, v := range rqt.Variables {
-				if v.IsSecret && k != "system.github.token" {
-					secrets[k] = v.Value
-				}
-			}
-			if rawGithubToken, ok := rqt.Variables["system.github.token"]; ok {
-				secrets["GITHUB_TOKEN"] = rawGithubToken.Value
-			}
-		}
 		matrix := make(map[string]interface{})
 		if rawMatrix, ok := rqt.ContextData["matrix"]; ok {
 			rawobj := rawMatrix.ToRawObject()
@@ -1294,26 +1311,19 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			e, _ := json.Marshal(githubCtxMap["event"])
 			payload = string(e)
 		}
+		// Non customizable config
+		runnerConfig.Workdir = "."
+		runnerConfig.Platforms = map[string]string{
+			"dummy": "-self-hosted",
+		}
+		runnerConfig.LogOutput = true
+		runnerConfig.EventName = githubCtxMap["event_name"].(string)
+		runnerConfig.GitHubInstance = strings.TrimPrefix(githubCtxMap["server_url"].(string), "https://")
+		runnerConfig.ForceRemoteCheckout = true // Needed to avoid copy the non exiting working dir
 		rc := &runner.RunContext{
-			Name: uuid.New().String(),
-			Config: &runner.Config{
-				Workdir: ".",
-				Secrets: secrets,
-				Platforms: map[string]string{
-					"dummy": "-self-hosted",
-				},
-				LogOutput:           true,
-				EventName:           githubCtxMap["event_name"].(string),
-				GitHubInstance:      githubCtxMap["server_url"].(string)[8:],
-				ForceRemoteCheckout: true, // Needed to avoid copy the non exiting working dir
-				ReuseContainers:     false,
-				CompositeRestrictions: &model.CompositeRestrictions{
-					AllowCompositeUses:            true,
-					AllowCompositeIf:              true,
-					AllowCompositeContinueOnError: true,
-				},
-			},
-			Env: env,
+			Name:   uuid.New().String(),
+			Config: runnerConfig,
+			Env:    env,
 			Run: &model.Run{
 				JobID: rqt.JobId,
 				Workflow: &model.Workflow{
@@ -1800,6 +1810,7 @@ func main() {
 	cmdConfigure.Flags().BoolVar(&config.Unattended, "unattended", false, "suppress shell prompts during configure")
 	cmdConfigure.Flags().BoolVar(&config.Trace, "trace", false, "trace http communication with the github action service")
 	cmdConfigure.Flags().BoolVar(&config.Ephemeral, "ephemeral", false, "configure a single use runner, runner deletes it's setting.json ( and the actions service should remove their registrations at the same time ) after executing one job ( implies '--once' on run ). This is not supported for multi runners.")
+	cmdConfigure.Flags().StringVar(&config.RunnerGuard, "runner-guard", "", "reject jobs and configure act")
 	var cmdRun = &cobra.Command{
 		Use:   "run",
 		Short: "run your self-hosted runner",
