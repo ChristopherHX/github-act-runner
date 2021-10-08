@@ -1037,6 +1037,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		}
 		// orchid := ""
 		cacheUrl := ""
+		idTokenUrl := ""
 		for _, endpoint := range jobreq.Resources.Endpoints {
 			if strings.EqualFold(endpoint.Name, "SystemVssConnection") && endpoint.Authorization.Parameters != nil && endpoint.Authorization.Parameters["AccessToken"] != "" {
 				jobToken := endpoint.Authorization.Parameters["AccessToken"]
@@ -1051,6 +1052,10 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				_cacheUrl, ok := endpoint.Data["CacheServerUrl"]
 				if ok {
 					cacheUrl = _cacheUrl
+				}
+				_idTokenUrl, ok := endpoint.Data["GenerateIdTokenUrl"]
+				if ok {
+					idTokenUrl = _idTokenUrl
 				}
 				vssConnection = &protocol.VssConnection{
 					Client:    vssConnection.Client,
@@ -1106,6 +1111,10 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		env["ACTIONS_RUNTIME_TOKEN"] = vssConnection.Token
 		if len(cacheUrl) > 0 {
 			env["ACTIONS_CACHE_URL"] = cacheUrl
+		}
+		if len(idTokenUrl) > 0 {
+			env["ACTIONS_ID_TOKEN_REQUEST_URL"] = idTokenUrl
+			env["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] = vssConnection.Token
 		}
 
 		defaults := model.Defaults{}
