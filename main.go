@@ -1524,6 +1524,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			err := rc.Executor()(common.WithLogger(jobExecCtx, logger))
 			if err != nil {
 				logger.Logf(logrus.ErrorLevel, "%v", err.Error())
+				jobStatus = "failure"
 			}
 			// Prepare results for github server
 			if rqt.JobOutputs != nil {
