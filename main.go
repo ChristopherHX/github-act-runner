@@ -135,6 +135,7 @@ type ConfigureRunner struct {
 	Trace           bool
 	Ephemeral       bool
 	RunnerGuard     string
+	Replace         bool
 }
 
 type RunnerInstance struct {
@@ -411,8 +412,39 @@ func (config *ConfigureRunner) Configure() int {
 		// 	}
 		// }
 		if err != nil {
-			fmt.Printf("Failed to create taskAgent: %v\n", err.Error())
-			return 1
+			if !config.Replace {
+				fmt.Printf("Failed to create taskAgent: %v\n", err.Error())
+				return 1
+			}
+			// Try replaceing runner if creation failed
+			taskAgents := &protocol.TaskAgents{}
+			err := vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "GET", map[string]string{
+				"poolId": fmt.Sprint(vssConnection.PoolId),
+			}, map[string]string{}, nil, taskAgents)
+			if err != nil {
+				fmt.Printf("Failed to update taskAgent: %v\n", err.Error())
+				return 1
+			}
+			invalid := true
+			for i := 0; i < len(taskAgents.Value); i++ {
+				if taskAgents.Value[i].Name == taskAgent.Name {
+					taskAgent.Id = taskAgents.Value[i].Id
+					invalid = false
+					break
+				}
+			}
+			if invalid {
+				fmt.Println("Failed to update taskAgent: Failed to find agent")
+				return 1
+			}
+			err = vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "PUT", map[string]string{
+				"poolId":  fmt.Sprint(vssConnection.PoolId),
+				"agentId": fmt.Sprint(taskAgent.Id),
+			}, map[string]string{}, taskAgent, taskAgent)
+			if err != nil {
+				fmt.Printf("Failed to update taskAgent: %v\n", err.Error())
+				return 1
+			}
 		}
 	}
 	instance.Agent = taskAgent
@@ -1821,6 +1853,7 @@ func main() {
 	cmdConfigure.Flags().BoolVar(&config.Trace, "trace", false, "trace http communication with the github action service")
 	cmdConfigure.Flags().BoolVar(&config.Ephemeral, "ephemeral", false, "configure a single use runner, runner deletes it's setting.json ( and the actions service should remove their registrations at the same time ) after executing one job ( implies '--once' on run ). This is not supported for multi runners.")
 	cmdConfigure.Flags().StringVar(&config.RunnerGuard, "runner-guard", "", "reject jobs and configure act")
+	cmdConfigure.Flags().BoolVar(&config.Replace, "replace", false, "replace any existing runner with the same name")
 	var cmdRun = &cobra.Command{
 		Use:   "run",
 		Short: "run your self-hosted runner",
