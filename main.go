@@ -1354,7 +1354,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			payload = string(e)
 		}
 		// Non customizable config
-		runnerConfig.Workdir = "."
+		runnerConfig.Workdir = "./"
 		runnerConfig.Platforms = map[string]string{
 			"dummy": "-self-hosted",
 		}
