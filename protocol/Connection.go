@@ -190,7 +190,6 @@ func (vssConnection *VssConnection) GetAgentPools() (*TaskAgentPools, error) {
 	return _taskAgentPools, nil
 }
 func (vssConnection *VssConnection) CreateSession() (*AgentMessageConnection, error) {
-	fmt.Printf("Creating session for %v\n", vssConnection.TaskAgent.Name)
 	session := &TaskAgentSession{}
 	session.Agent = *vssConnection.TaskAgent
 	session.UseFipsEncryption = false // Have to be set to false for "GitHub Enterprise Server 3.0.11", github.com reset it to false 24-07-2021
@@ -198,10 +197,8 @@ func (vssConnection *VssConnection) CreateSession() (*AgentMessageConnection, er
 	if err := vssConnection.Request("134e239e-2df3-4794-a6f6-24f1f19ec8dc", "5.1-preview", "POST", map[string]string{
 		"poolId": fmt.Sprint(vssConnection.PoolId),
 	}, map[string]string{}, session, session); err != nil {
-		fmt.Printf("Finish creating session for %v\n", vssConnection.TaskAgent.Name)
 		return nil, err
 	}
-	fmt.Printf("Finish creating session for %v\n", vssConnection.TaskAgent.Name)
 
 	con := &AgentMessageConnection{VssConnection: vssConnection, TaskAgentSession: session}
 	var err error
