@@ -1387,6 +1387,13 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			EventJSON: payload,
 		}
 
+		// Prepare act to provide inputs for workflow_run
+		if rawInputsCtx, ok := rqt.ContextData["inputs"]; ok {
+			rawInputs := rawInputsCtx.ToRawObject()
+			if rawInputsMap, ok := rawInputs.(map[string]interface{}); ok {
+				rc.Inputs = rawInputsMap
+			}
+		}
 		// Prepare act to fill previous job outputs
 		if rawNeedstx, ok := rqt.ContextData["needs"]; ok {
 			needsCtx := rawNeedstx.ToRawObject()
