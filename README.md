@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/ChristopherHX/github-act-runner/actions/workflows/build.yml/badge.svg)](https://github.com/ChristopherHX/github-act-runner/actions/workflows/build.yml) [![awesome-runners](https://img.shields.io/badge/listed%20on-awesome--runners-blue.svg)](https://github.com/jonico/awesome-runners)
 
-A reverse engineered github actions compatible self-hosted runner using [act](https://github.com/nektos/act) to execute your workflow steps.
-Unlike the [official runner](https://github.com/actions/runner), this works on more systems like freebsd.
+A reverse engineered github actions compatible self-hosted runner using [nektos/act](https://github.com/nektos/act) to execute your workflow steps.
+Unlike the official [actions/runner](https://github.com/actions/runner), this works on more systems like freebsd.
 
 # Usage
 
@@ -24,11 +24,11 @@ Unlike the [official runner](https://github.com/actions/runner), this works on m
 ### NodeJS via PATH
 (*2) For best compatibility with existing nodejs actions, please add nodejs in version 12 to your `PATH`, newer nodejs versions might lead to workflow failures.
 
-## usage from prebuilds
+## Usage for github releases
 
 Follow the instruction of https://github.com/ChristopherHX/github-act-runner/releases/latest.
 
-## usage from debian repo
+## Usage for debian repository
 
 ### add debian repository
 `/etc/apt/sources.list.d/github-act-runner.list` file:
@@ -36,18 +36,18 @@ Follow the instruction of https://github.com/ChristopherHX/github-act-runner/rel
 deb http://gagis.hopto.org/repo/chrishx/deb all main
 ```
 
-### import repository public key
+### Import repository public key
 ```console
 curl -sS http://gagis.hopto.org/repo/chrishx/pubkey.gpg | sudo tee -a /etc/apt/trusted.gpg.d/chrishx-github-act-runner.asc
 ```
 
-### install the runner
+### Install the runner
 ```console
 sudo apt update
 sudo apt install github-act-runner
 ```
 
-### add new runner
+### Add new runner
 ```console
 github-act-runner new --url <url> --name <runner-name> --labels <labels> --token <runner-registration-token>
 ```
@@ -67,7 +67,7 @@ For more info about managing runners.
 
 ## Usage from source
 
-You need at least go 1.16 to use this runner from source.
+You need at least go 1.16 to use this runner from source. Some targets fail to build with go 1.17.
 
 ### Getting Source
 ```
@@ -111,3 +111,9 @@ Replace `label1,label2` with a custom list of runner labels.
 ```
 go run . run
 ```
+
+# How does it work?
+This runner implements the same protocol as the [actions/runner](https://github.com/actions/runner) in a different way, as such it can act as a self-hosted runner. To get this working, I initially build an actions service replacement [ChristopherHX/runner.server](https://github.com/ChristopherHX/runner.server) for the official [actions/runner](https://github.com/actions/runner). My own actions service allowed me to implement the base protocol for this runner and debug how the protocol is serializeing and parsing json messages, while still being incompatible with github.com. The first thing happend was loosing the ability to run any github action workflows on my test repository, because my invalid attempts to register a custom runner. After some work everything worked and it is safe to register this runner against github. To execute steps this runner translates the github actions job request to be compatible with a modified version of [nektos/act](https://github.com/nektos/act) ( [ChristopherHX/act](https://github.com/ChristopherHX/act) ), which adds a local task runner without the need for docker and increased platform support, also the log output of act gets redirected to github for live logs and storing log files.
+
+# Does this runner work without github?
+Yes, you can use this runner together with [ChristopherHX/runner.server](https://github.com/ChristopherHX/runner.server) locally on your PC without depending on compatibility with github. Also CI tests for this runner are using [ChristopherHX/runner.server](https://github.com/ChristopherHX/runner.server), this avoids requiring a PAT for github to run tests and enshures that you are always able to run it locally without github.
