@@ -30,7 +30,7 @@ Follow the instruction of https://github.com/ChristopherHX/github-act-runner/rel
 
 ## Usage for debian repository
 
-### add debian repository
+### Add debian repository
 `/etc/apt/sources.list.d/github-act-runner.list` file:
 ```
 deb http://gagis.hopto.org/repo/chrishx/deb all main
