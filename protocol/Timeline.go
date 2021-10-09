@@ -55,7 +55,7 @@ type TimelineRecordWrapper struct {
 }
 
 type TimelineRecordFeedLinesWrapper struct {
-	Count     int32
+	Count     int64
 	Value     []string
 	StepId    string
 	StartLine *int64

@@ -49,7 +49,7 @@ type ghaFormatter struct {
 	wrap           *protocol.TimelineRecordWrapper
 	current        *protocol.TimelineRecord
 	updateTimeLine func()
-	logline        func(startLine int64, recordId string, line string)
+	logline        func(startLine int64, recordId string, lines []string)
 	uploadLogFile  func(log string) int
 	startLine      int64
 	stepBuffer     *bytes.Buffer
@@ -116,8 +116,9 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 
 	b.WriteString(entry.Message)
 	b.WriteByte('\n')
-	f.logline(f.startLine, f.current.Id, entry.Message)
-	f.startLine += 1 + int64(strings.Count(entry.Message, "\n"))
+	lines := strings.Split(entry.Message, "\n")
+	f.logline(f.startLine, f.current.Id, lines)
+	f.startLine += int64(len(lines))
 	f.stepBuffer.Write(b.Bytes())
 	return b.Bytes(), nil
 }
@@ -746,7 +747,7 @@ func (run *RunRunner) Run() int {
 							deleteSession()
 							session2, err := vssConnection.CreateSession()
 							if err != nil {
-								fmt.Printf("Failed to recreate Session, waiting 30 sec before retry: %v\n", err.Error())
+								fmt.Printf("Failed to recreate Session for %v ( %v ), waiting 30 sec before retry: %v\n", instance.Agent.Name, instance.RegistrationUrl, err.Error())
 								select {
 								case <-joblisteningctx.Done():
 									return 0
@@ -761,7 +762,7 @@ func (run *RunRunner) Run() int {
 								if err != nil {
 									fmt.Printf("error: %v\n", err)
 								} else {
-									fmt.Printf("Listening for Jobs: %v (%v)\n", instance.Agent.Name, instance.RegistrationUrl)
+									fmt.Printf("Listening for Jobs: %v ( %v )\n", instance.Agent.Name, instance.RegistrationUrl)
 								}
 								mu.Unlock()
 							} else {
@@ -916,7 +917,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				fmt.Printf("INFO: Failed to create jobrun.json: %v\n", err)
 			}
 		}
-		fmt.Printf("Running Job '%v' of %v (%v)\n", jobreq.JobDisplayName, instance.Agent.Name, instance.RegistrationUrl)
+		fmt.Printf("Running Job '%v' of %v ( %v )\n", jobreq.JobDisplayName, instance.Agent.Name, instance.RegistrationUrl)
 		finishJob2 := func(result string, outputs *map[string]protocol.VariableValue) {
 			finish := &protocol.JobEvent{
 				Name:      "JobCompleted",
@@ -929,7 +930,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				if err := vssConnection.FinishJob(finish, jobrun.Plan); err != nil {
 					fmt.Printf("Failed to finish Job '%v' with Status %v: %v\n", jobreq.JobDisplayName, result, err.Error())
 				} else {
-					fmt.Printf("Finished Job '%v' with Status %v of %v (%v)\n", jobreq.JobDisplayName, result, instance.Agent.Name, instance.RegistrationUrl)
+					fmt.Printf("Finished Job '%v' with Status %v of %v ( %v )\n", jobreq.JobDisplayName, result, instance.Agent.Name, instance.RegistrationUrl)
 					break
 				}
 				if i < 10 {
@@ -1475,23 +1476,24 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		cancelled := false
 		{
 			runCtx, cancelRun := context.WithCancel(context.Background())
-			logctx, cancelLog := context.WithCancel(context.Background())
+			logwg := new(sync.WaitGroup)
 			defer func() {
 				cancelRun()
-				<-logctx.Done()
+				logwg.Wait()
 			}()
 			{
 				logchan := make(chan *protocol.TimelineRecordFeedLinesWrapper, 64)
-				formatter.logline = func(startLine int64, recordId string, line string) {
-					lines := &protocol.TimelineRecordFeedLinesWrapper{}
-					lines.Count = 1
-					lines.StartLine = &startLine
-					lines.StepId = recordId
-					lines.Value = []string{line}
-					logchan <- lines
+				formatter.logline = func(startLine int64, recordId string, lines []string) {
+					wrapper := &protocol.TimelineRecordFeedLinesWrapper{}
+					wrapper.Value = lines
+					wrapper.Count = int64(len(lines))
+					wrapper.StartLine = &startLine
+					wrapper.StepId = recordId
+					logchan <- wrapper
 				}
+				logwg.Add(1)
 				go func() {
-					defer cancelLog()
+					defer logwg.Done()
 					sendLog := func(lines *protocol.TimelineRecordFeedLinesWrapper) {
 						err := vssConnection.Request("858983e4-19bd-4c5e-864c-507b59b58b12", "5.1-preview", "POST", map[string]string{
 							"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
@@ -1500,19 +1502,15 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 							"timelineId":      jobreq.Timeline.Id,
 							"recordId":        lines.StepId,
 						}, map[string]string{}, lines, nil)
-
 						if err != nil {
 							fmt.Println("Failed to upload logline: " + err.Error())
 						}
 					}
 					for {
 						select {
-						case <-runCtx.Done():
-							return
 						case lines := <-logchan:
 							st := time.Now()
 							lp := st
-							logsexit := false
 							for {
 								b := false
 								div := lp.Sub(st)
@@ -1522,8 +1520,8 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 								select {
 								case line := <-logchan:
 									if line.StepId == lines.StepId {
-										lines.Count++
-										lines.Value = append(lines.Value, line.Value[0])
+										lines.Count += line.Count
+										lines.Value = append(lines.Value, line.Value...)
 									} else {
 										sendLog(lines)
 										lines = line
@@ -1531,9 +1529,6 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 									}
 								case <-time.After(time.Second - div):
 									b = true
-								case <-runCtx.Done():
-									b = true
-									logsexit = true
 								}
 								if b {
 									break
@@ -1541,9 +1536,8 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 								lp = time.Now()
 							}
 							sendLog(lines)
-							if logsexit {
-								return
-							}
+						case <-runCtx.Done():
+							return
 						}
 					}
 				}()
@@ -1555,7 +1549,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			logger.Log(logrus.InfoLevel, "Runner Version: "+version)
 			err := rc.Executor()(common.WithLogger(jobExecCtx, logger))
 			if err != nil {
-				logger.Logf(logrus.ErrorLevel, "%v", err.Error())
+				logger.Logf(logrus.ErrorLevel, "%v\n", err.Error())
 				jobStatus = "failure"
 			}
 			// Prepare results for github server
@@ -1667,7 +1661,7 @@ func (config *RemoveRunner) Remove() int {
 	if !config.Unattended && len(instancesToRemove) > 1 {
 		options := make([]string, len(instancesToRemove))
 		for i, instance := range instancesToRemove {
-			options[i] = fmt.Sprintf("%v (%v)", instance.Agent.Name, instance.RegistrationUrl)
+			options[i] = fmt.Sprintf("%v ( %v )", instance.Agent.Name, instance.RegistrationUrl)
 		}
 		result := GetMultiSelectInput("Please select the instances to remove, use --unattended to remove all", options)
 		var instancesToRemoveFiltered []*RunnerInstance
