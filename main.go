@@ -1483,10 +1483,10 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		cancelled := false
 		{
 			runCtx, cancelRun := context.WithCancel(context.Background())
-			logwg := new(sync.WaitGroup)
+			logctx, cancelLog := context.WithCancel(context.Background())
 			defer func() {
 				cancelRun()
-				logwg.Wait()
+				<-logctx.Done()
 			}()
 			{
 				logchan := make(chan *protocol.TimelineRecordFeedLinesWrapper, 64)
@@ -1498,9 +1498,8 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 					wrapper.StepId = recordId
 					logchan <- wrapper
 				}
-				logwg.Add(1)
 				go func() {
-					defer logwg.Done()
+					defer cancelLog()
 					sendLog := func(lines *protocol.TimelineRecordFeedLinesWrapper) {
 						err := vssConnection.Request("858983e4-19bd-4c5e-864c-507b59b58b12", "5.1-preview", "POST", map[string]string{
 							"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
@@ -1515,9 +1514,12 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 					}
 					for {
 						select {
+						case <-runCtx.Done():
+							return
 						case lines := <-logchan:
 							st := time.Now()
 							lp := st
+							logsexit := false
 							for {
 								b := false
 								div := lp.Sub(st)
@@ -1536,6 +1538,9 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 									}
 								case <-time.After(time.Second - div):
 									b = true
+								case <-runCtx.Done():
+									b = true
+									logsexit = true
 								}
 								if b {
 									break
@@ -1543,8 +1548,9 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 								lp = time.Now()
 							}
 							sendLog(lines)
-						case <-runCtx.Done():
-							return
+							if logsexit {
+								return
+							}
 						}
 					}
 				}()
@@ -1556,7 +1562,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			logger.Log(logrus.InfoLevel, "Runner Version: "+version)
 			err := rc.Executor()(common.WithLogger(jobExecCtx, logger))
 			if err != nil {
-				logger.Logf(logrus.ErrorLevel, "%v\n", err.Error())
+				logger.Logf(logrus.ErrorLevel, "%v", err.Error())
 				jobStatus = "failure"
 			}
 			// Prepare results for github server
