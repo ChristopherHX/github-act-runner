@@ -1355,6 +1355,9 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		}
 		// Non customizable config
 		runnerConfig.Workdir = "./"
+		if runtime.GOOS == "windows" {
+			runnerConfig.Workdir = ".\\"
+		}
 		runnerConfig.Platforms = map[string]string{
 			"dummy": "-self-hosted",
 		}
