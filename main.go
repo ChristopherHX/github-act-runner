@@ -646,9 +646,17 @@ func (run *RunRunner) Run() int {
 		wg.Add(len(settings.Instances))
 		deleteSessions := firstRun
 		firstRun = false
+		// No retry on Fatal failures, like runner was removed or we received multiple jobs
+		fatalFailure := false
 		for _, instance := range settings.Instances {
-			go func(instance *RunnerInstance) int {
+			go func(instance *RunnerInstance) (exitcode int) {
 				defer wg.Done()
+				defer func() {
+					// Without this the inner return 1 got lost and we would retry it
+					if exitcode != 0 {
+						fatalFailure = true
+					}
+				}()
 				vssConnection := &protocol.VssConnection{
 					Client: &http.Client{Transport: &http.Transport{
 						MaxIdleConns:    1,
@@ -747,6 +755,10 @@ func (run *RunRunner) Run() int {
 							deleteSession()
 							session2, err := vssConnection.CreateSession()
 							if err != nil {
+								if strings.Contains(err.Error(), "invalid_client") || strings.Contains(err.Error(), "TaskAgentNotFoundException") {
+									fmt.Printf("Fatal: It seems this runner was removed from GitHub, Failed to recreate Session for %v ( %v ): %v\n", instance.Agent.Name, instance.RegistrationUrl, err.Error())
+									return 1
+								}
 								fmt.Printf("Failed to recreate Session for %v ( %v ), waiting 30 sec before retry: %v\n", instance.Agent.Name, instance.RegistrationUrl, err.Error())
 								select {
 								case <-joblisteningctx.Done():
@@ -785,11 +797,17 @@ func (run *RunRunner) Run() int {
 							if errors.Is(err, context.Canceled) {
 								return 0
 							} else if !errors.Is(err, io.EOF) {
-								fmt.Printf("Failed to get message, waiting 10 sec before retry: %v\n", err.Error())
-								select {
-								case <-joblisteningctx.Done():
-									return 0
-								case <-time.After(10 * time.Second):
+								if strings.Contains(err.Error(), "AccessDeniedException") {
+									fmt.Printf("Failed to get message, GitHub has rejected our authorization, recreate Session earlier: %v\n", err.Error())
+									session = nil
+									continue
+								} else {
+									fmt.Printf("Failed to get message, waiting 10 sec before retry: %v\n", err.Error())
+									select {
+									case <-joblisteningctx.Done():
+										return 0
+									case <-time.After(10 * time.Second):
+									}
 								}
 							} else {
 								lastSuccess = time.Now()
@@ -850,8 +868,10 @@ func (run *RunRunner) Run() int {
 				}
 			}(instance)
 		}
-		<-joblisteningctx.Done()
 		wg.Wait()
+		if fatalFailure {
+			return 1
+		}
 		select {
 		case <-jobctx.Done():
 			if run.Once {
