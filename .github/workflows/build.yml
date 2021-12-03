@@ -10,6 +10,7 @@ on:
   
 env:
   RUNNER_DEV_VERSION: "0.0.9"
+  RUNNER_SERVER_VERSION: "3.4.0"
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -190,9 +191,9 @@ jobs:
         # Create a folder
         mkdir actions-runner && cd actions-runner
         # Download the latest runner package
-        curl -O -L https://github.com/ChristopherHX/runner.server/releases/download/v3.3.2/actions-runner-linux-x64-3.3.2.tar.gz
+        curl -O -L https://github.com/ChristopherHX/runner.server/releases/download/v${{env.RUNNER_SERVER_VERSION}}/actions-runner-linux-x64-${{env.RUNNER_SERVER_VERSION}}.tar.gz
         # Extract the installer
-        tar xzf ./actions-runner-linux-x64-3.3.2.tar.gz
+        tar xzf ./actions-runner-linux-x64-${{env.RUNNER_SERVER_VERSION}}.tar.gz
     - name: Download Artifact
       uses: actions/download-artifact@v2
       with:
