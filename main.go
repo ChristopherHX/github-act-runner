@@ -64,7 +64,7 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		if ok {
 			f.startLine = 1
 			if f.current != nil {
-				if res.Success {
+				if res.Conclusion == 0 {
 					f.current.Complete("Succeeded")
 				} else {
 					f.current.Complete("Failed")
@@ -1598,7 +1598,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			}
 
 			for _, stepStatus := range rc.StepResults {
-				if !stepStatus.Success {
+				if stepStatus.Conclusion != 0 {
 					jobStatus = "failure"
 					break
 				}
@@ -1620,7 +1620,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 							jobStatus = "failure"
 							f.current.Complete("Failed")
 						}
-					} else if f.rc.StepResults[f.current.RefName].Success {
+					} else if f.rc.StepResults[f.current.RefName].Conclusion == 0 {
 						f.current.Complete("Succeeded")
 					} else {
 						f.current.Complete("Failed")
