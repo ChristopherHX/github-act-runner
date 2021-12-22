@@ -587,6 +587,7 @@ func (run *RunRunner) Run() int {
 			fmt.Println("CTRL+C received, stop accepting new jobs and exit after the current job finishs")
 			// Switch to run once mode
 			run.Once = true
+			firstJobReceived = true
 		}
 		for {
 			select {
@@ -834,34 +835,42 @@ func (run *RunRunner) Run() int {
 						}
 					}
 					if success {
-						if strings.EqualFold(message.MessageType, "JobCancellation") && cancelJob != nil {
-							cancelJob()
-						} else if strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
-							if run.Once {
-								fmt.Println("First job received")
-								firstJobReceived = true
-							}
-							var finishJob context.CancelFunc
-							jobctx, finishJob = context.WithCancel(context.Background())
-							var jobExecCtx context.Context
-							jobExecCtx, cancelJob = context.WithCancel(ctx)
-							runJob(vssConnection, run, cancel, cancelJob, finishJob, jobExecCtx, jobctx, session, *message, instance)
-							{
-								cancelJobListening()
-								for {
-									message, err := session.GetNextMessage(jobExecCtx)
-									if errors.Is(err, context.Canceled) {
-										if !run.Once {
-											session = nil
+						if message != nil && strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
+							cancelJobListening()
+							for message != nil && !firstJobReceived && strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
+								if run.Once {
+									firstJobReceived = true
+								}
+								var finishJob context.CancelFunc
+								jobctx, finishJob = context.WithCancel(context.Background())
+								var jobExecCtx context.Context
+								jobExecCtx, cancelJob = context.WithCancel(ctx)
+								runJob(vssConnection, run, cancel, cancelJob, finishJob, jobExecCtx, jobctx, session, *message, instance)
+								{
+									message, err = session.GetNextMessage(jobExecCtx)
+									if !errors.Is(err, context.Canceled) && message != nil {
+										if firstJobReceived && strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
+											fmt.Println("Skip deleting the duplicated job request, we hope that the actions service reschedules your job to a different runner")
+										} else {
+											session.DeleteMessage(message)
 										}
-										break
-									} else if strings.EqualFold(message.MessageType, "JobCancellation") && cancelJob != nil {
-										cancelJob()
+										if strings.EqualFold(message.MessageType, "JobCancellation") && cancelJob != nil {
+											message = nil
+											fmt.Println("JobCancellation request received, cancel running job")
+											cancelJob()
+										} else {
+											fmt.Println("Received message, while still executing a job, of type: " + message.MessageType)
+										}
+										fmt.Println("Wait for worker to finish current job")
+										<-jobctx.Done()
 									}
-									session.DeleteMessage(message)
 								}
 							}
-						} else {
+							if !run.Once {
+								session = nil
+							}
+						}
+						if message != nil {
 							fmt.Println("Ignoring incoming message of type: " + message.MessageType)
 						}
 					}
