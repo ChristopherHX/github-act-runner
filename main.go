@@ -208,7 +208,9 @@ func (config *ConfigureRunner) Configure() int {
 		apiscope = "/api/v3"
 	}
 
-	c := &http.Client{}
+	c := &http.Client{
+		Timeout: 100 * time.Second,
+	}
 	if len(config.Token) == 0 {
 		if len(config.Pat) > 0 {
 			paths := strings.Split(strings.TrimPrefix(registerUrl.Path, "/"), "/")
@@ -659,17 +661,38 @@ func (run *RunRunner) Run() int {
 					}
 				}()
 				vssConnection := &protocol.VssConnection{
-					Client: &http.Client{Transport: &http.Transport{
-						MaxIdleConns:    1,
-						IdleConnTimeout: 100 * time.Second,
-					}},
+					Client: &http.Client{
+						Timeout: 100 * time.Second,
+						Transport: &http.Transport{
+							MaxIdleConns:    1,
+							IdleConnTimeout: 100 * time.Second,
+						},
+					},
 					TenantUrl: instance.Auth.TenantUrl,
 					PoolId:    instance.PoolId,
 					TaskAgent: instance.Agent,
 					Key:       instance.PKey,
 					Trace:     run.Trace,
 				}
-				vssConnection.ConnectionData = vssConnection.GetConnectionData()
+				for i := 1; ; {
+					vssConnection.ConnectionData = vssConnection.GetConnectionData()
+					if vssConnection.ConnectionData != nil {
+						break
+					}
+					maxtime := 60 * 10
+					var dtime time.Duration = time.Duration(i)
+					if i < maxtime {
+						i *= 2
+					} else {
+						dtime = time.Duration(maxtime)
+					}
+					fmt.Printf("Retry retrieving connectiondata from the server in %v seconds\n", dtime)
+					select {
+					case <-ctx.Done():
+						return 0
+					case <-time.After(time.Second * dtime):
+					}
+				}
 				jobrun := &JobRun{}
 				if ReadJson("jobrun.json", jobrun) == nil && ((jobrun.RegistrationUrl == instance.RegistrationUrl && jobrun.Name == instance.Agent.Name) || (len(settings.Instances) == 1)) {
 					result := "Failed"
@@ -798,7 +821,11 @@ func (run *RunRunner) Run() int {
 							if errors.Is(err, context.Canceled) {
 								return 0
 							} else if !errors.Is(err, io.EOF) {
-								if strings.Contains(err.Error(), "AccessDeniedException") {
+								if strings.Contains(err.Error(), "TaskAgentSessionExpiredException") {
+									fmt.Printf("Failed to get message, Session expired: %v\n", err.Error())
+									session = nil
+									continue
+								} else if strings.Contains(err.Error(), "AccessDeniedException") {
 									fmt.Printf("Failed to get message, GitHub has rejected our authorization, recreate Session earlier: %v\n", err.Error())
 									session = nil
 									continue
