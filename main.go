@@ -1419,7 +1419,9 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		}
 		runnerConfig.LogOutput = true
 		runnerConfig.EventName = githubCtxMap["event_name"].(string)
-		runnerConfig.GitHubInstance = strings.TrimPrefix(githubCtxMap["server_url"].(string), "https://")
+		runnerConfig.GitHubServerUrl = githubCtxMap["server_url"].(string)
+		runnerConfig.GitHubApiServerUrl = githubCtxMap["api_url"].(string)
+		runnerConfig.GitHubGraphQlApiServerUrl = githubCtxMap["graphql_url"].(string)
 		runnerConfig.ForceRemoteCheckout = true // Needed to avoid copy the non exiting working dir
 		rc := &runner.RunContext{
 			Name:   uuid.New().String(),
@@ -1534,7 +1536,8 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		logrus.SetOutput(io.MultiWriter())
 
 		rc.CurrentStep = "__setup"
-		rc.InitStepResults([]string{rc.CurrentStep})
+		rc.StepResults = make(map[string]*model.StepResult)
+		rc.StepResults[rc.CurrentStep] = &model.StepResult{}
 
 		for i := 0; i < len(steps); i++ {
 			wrap.Value = append(wrap.Value, protocol.CreateTimelineEntry(rqt.JobId, steps[i].ID, steps[i].String()))
@@ -1633,7 +1636,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			logger.Log(logrus.InfoLevel, "Runner Name: "+instance.Agent.Name)
 			logger.Log(logrus.InfoLevel, "Runner OSDescription: github-act-runner "+runtime.GOOS+"/"+runtime.GOARCH)
 			logger.Log(logrus.InfoLevel, "Runner Version: "+version)
-			err := rc.Executor()(common.WithLogger(jobExecCtx, logger))
+			err := rc.Executor()(common.WithJobErrorContainer(common.WithLogger(jobExecCtx, logger)))
 			if err != nil {
 				logger.Logf(logrus.ErrorLevel, "%v", err.Error())
 				jobStatus = "failure"
