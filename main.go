@@ -1462,7 +1462,6 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				for k, v := range needsCtxMap {
 					a = append(a, &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: k})
 					outputs := make(map[string]string)
-					result := "success"
 					if jobMap, ok := v.(map[string]interface{}); ok {
 						if jobOutputs, ok := jobMap["outputs"]; ok {
 							if outputMap, ok := jobOutputs.(map[string]interface{}); ok {
@@ -1473,15 +1472,9 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 								}
 							}
 						}
-						if res, ok := jobMap["result"]; ok {
-							if resstr, ok := res.(string); ok {
-								result = resstr
-							}
-						}
 					}
 					rc.Run.Workflow.Jobs[k] = &model.Job{
 						Outputs: outputs,
-						Result:  result,
 					}
 				}
 				rc.Run.Workflow.Jobs[rqt.JobId].RawNeeds = yaml.Node{Kind: yaml.SequenceNode, Content: a}
