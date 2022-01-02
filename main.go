@@ -59,7 +59,7 @@ type ghaFormatter struct {
 func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	b := &bytes.Buffer{}
 
-	if f.current == nil || f.current.RefName != f.rc.CurrentStep {
+	if f.rc.Parent == nil && (f.current == nil || f.current.RefName != f.rc.CurrentStep) {
 		res, ok := f.rc.StepResults[f.current.RefName]
 		if ok {
 			f.startLine = 1
@@ -1432,6 +1432,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 					Defaults: defaults,
 					Jobs: map[string]*model.Job{
 						rqt.JobId: {
+							If:           yaml.Node{Value: "always()"},
 							Name:         rqt.JobDisplayName,
 							RawRunsOn:    yaml.Node{Kind: yaml.ScalarNode, Value: "dummy"},
 							Steps:        steps,
@@ -1461,6 +1462,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				for k, v := range needsCtxMap {
 					a = append(a, &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: k})
 					outputs := make(map[string]string)
+					result := "success"
 					if jobMap, ok := v.(map[string]interface{}); ok {
 						if jobOutputs, ok := jobMap["outputs"]; ok {
 							if outputMap, ok := jobOutputs.(map[string]interface{}); ok {
@@ -1471,9 +1473,15 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 								}
 							}
 						}
+						if res, ok := jobMap["result"]; ok {
+							if resstr, ok := res.(string); ok {
+								result = resstr
+							}
+						}
 					}
 					rc.Run.Workflow.Jobs[k] = &model.Job{
 						Outputs: outputs,
+						Result:  result,
 					}
 				}
 				rc.Run.Workflow.Jobs[rqt.JobId].RawNeeds = yaml.Node{Kind: yaml.SequenceNode, Content: a}
@@ -1493,10 +1501,16 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			}
 		}
 
+		if name, ok := rqt.Variables["system.github.job"]; ok {
+			rc.JobName = name.Value
+			// Add the job name to the overlay, otherwise this property is empty
+			if githubCtxMap != nil {
+				githubCtxMap["job"] = name.Value
+			}
+		}
 		val, _ := json.Marshal(githubCtx)
 		sv := string(val)
 		rc.GithubContextBase = &sv
-		rc.JobName = "beta"
 
 		ee := rc.NewExpressionEvaluator()
 		rc.ExprEval = ee
