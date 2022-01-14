@@ -613,6 +613,10 @@ func (run *RunRunner) Run() int {
 		fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
 		return 1
 	}
+	if len(settings.Instances) <= 0 {
+		fmt.Printf("Please configure the runner")
+		return 1
+	}
 	isEphemeral := len(settings.Instances) == 1 && settings.Instances[0].Agent.Ephemeral
 	// isEphemeral => run.Once
 	run.Once = run.Once || isEphemeral
