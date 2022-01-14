@@ -1437,6 +1437,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		runnerConfig.GitHubApiServerUrl = githubCtxMap["api_url"].(string)
 		runnerConfig.GitHubGraphQlApiServerUrl = githubCtxMap["graphql_url"].(string)
 		runnerConfig.ForceRemoteCheckout = true // Needed to avoid copy the non exiting working dir
+		runnerConfig.AutoRemove = true          // Needed to cleanup always cleanup container
 		rc := &runner.RunContext{
 			Name:   uuid.New().String(),
 			Config: runnerConfig,
