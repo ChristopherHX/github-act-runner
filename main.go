@@ -643,6 +643,12 @@ func (run *RunRunner) Run() int {
 			}
 		} else {
 			sessions = append(sessions, &session)
+			// Save new format
+			WriteJson("sessions.json", sessions)
+			// Cleanup old files
+			if err := os.Remove("session.json"); err != nil {
+				fmt.Printf("Warning: Cannot delete session.json: %v\n", err.Error())
+			}
 		}
 	}
 
