@@ -1924,7 +1924,7 @@ func (config *RemoveRunner) Remove() int {
 	return 0
 }
 
-var version string = "0.0.0"
+var version string = "0.2.x-dev"
 
 func main() {
 	config := &ConfigureRunner{}
