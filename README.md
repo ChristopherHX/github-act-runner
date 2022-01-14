@@ -116,8 +116,8 @@ go run . run
 - This runner ignores pre and post steps of javascript actions
 - [actions/cache](https://github.com/actions/cache) is incompatible and won't be able to **save your cache**
   - Using https://github.com/actions/toolkit/tree/main/packages/cache directly should allow you to save your cache
-- You won't be able to run steps after a failure without using `continue-on-error: true`
-- The expression interpreter of this runner doesn't always behave like you would expect and you might see errors or other expressions which shouldn't work are working here ( based on javascript, not on actions/runner )
+- ~~You won't be able to run steps after a failure without using `continue-on-error: true`~~ Implemented since v0.2.0 via nektos/act contribution ( https://github.com/nektos/act/commit/1891c72ab158508e36009d16b24913fa5836422b )
+- ~~The expression interpreter of this runner doesn't always behave like you would expect and you might see errors or other expressions which shouldn't work are working here ( based on javascript, not on actions/runner )~~ v0.2.0 uses rhysd/actionlint instead with much better compatibility https://github.com/nektos/act/pull/908
 - Most issues of https://github.com/nektos/act/issues applies to this runner as well
 
 # How does it work?
