@@ -625,6 +625,9 @@ func (run *RunRunner) Run() int {
 			if err := os.Remove("settings.json"); err != nil {
 				fmt.Printf("Warning: Cannot delete settings.json after ephemeral exit: %v\n", err.Error())
 			}
+			if err := os.Remove("sessions.json"); err != nil {
+				fmt.Printf("Warning: Cannot delete sessions.json after ephemeral exit: %v\n", err.Error())
+			}
 		}
 	}()
 	var sessions []*protocol.TaskAgentSession
@@ -897,7 +900,8 @@ func (run *RunRunner) Run() int {
 									}
 								}
 							}
-							if !run.Once {
+							// Skip deleting session for ephemeral, since the official actions service throws access denied
+							if !run.Once || isEphemeral {
 								session = nil
 							}
 						}
