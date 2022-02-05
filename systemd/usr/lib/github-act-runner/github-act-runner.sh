@@ -153,7 +153,7 @@ function handle_new_command {
         case $1 in
             --help)
                 echo "usage:"
-                echo "	$(basename $0) <...> add <options>"
+                echo "	$(basename $0) <...> new <options>"
                 echo ""
                 echo "options:"
                 echo "  --help          show this help text and do nothing."
