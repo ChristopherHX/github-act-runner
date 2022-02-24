@@ -34,7 +34,6 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/mtibben/androiddnsfix"
 	"github.com/nektos/act/pkg/common"
-	"github.com/nektos/act/pkg/container"
 	"github.com/nektos/act/pkg/model"
 	"github.com/nektos/act/pkg/runner"
 	"github.com/robertkrimen/otto"
@@ -571,7 +570,8 @@ func containsEphemeralConfiguration() bool {
 }
 
 func (run *RunRunner) Run() int {
-	container.SetContainerAllocateTerminal(run.Terminal)
+	// act fork
+	// container.SetContainerAllocateTerminal(run.Terminal)
 	// trap Ctrl+C
 	channel := make(chan os.Signal, 1)
 	signal.Notify(channel, os.Interrupt)
@@ -1433,11 +1433,20 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		}
 		runnerConfig.LogOutput = true
 		runnerConfig.EventName = githubCtxMap["event_name"].(string)
-		runnerConfig.GitHubServerUrl = githubCtxMap["server_url"].(string)
-		runnerConfig.GitHubApiServerUrl = githubCtxMap["api_url"].(string)
-		runnerConfig.GitHubGraphQlApiServerUrl = githubCtxMap["graphql_url"].(string)
-		runnerConfig.ForceRemoteCheckout = true // Needed to avoid copy the non exiting working dir
-		runnerConfig.AutoRemove = true          // Needed to cleanup always cleanup container
+		// nektos/act
+		serverUrl := githubCtxMap["server_url"].(string)
+		https := "https://"
+		if !strings.HasPrefix(serverUrl, https) {
+			failInitJob("")
+			return
+		}
+		runnerConfig.GitHubInstance = serverUrl[len(https):]
+		// act fork
+		// runnerConfig.GitHubServerUrl = githubCtxMap["server_url"].(string)
+		// runnerConfig.GitHubApiServerUrl = githubCtxMap["api_url"].(string)
+		// runnerConfig.GitHubGraphQlApiServerUrl = githubCtxMap["graphql_url"].(string)
+		// runnerConfig.ForceRemoteCheckout = true // Needed to avoid copy the non exiting working dir
+		runnerConfig.AutoRemove = true // Needed to cleanup always cleanup container
 		rc := &runner.RunContext{
 			Name:   uuid.New().String(),
 			Config: runnerConfig,
@@ -1525,9 +1534,10 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				githubCtxMap["job"] = name.Value
 			}
 		}
-		val, _ := json.Marshal(githubCtx)
-		sv := string(val)
-		rc.GithubContextBase = &sv
+		// act fork
+		// val, _ := json.Marshal(githubCtx)
+		// sv := string(val)
+		// rc.GithubContextBase = &sv
 
 		ee := rc.NewExpressionEvaluator()
 		rc.ExprEval = ee
