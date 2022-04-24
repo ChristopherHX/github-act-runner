@@ -23,6 +23,7 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -1737,8 +1738,14 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			logger.Log(logrus.InfoLevel, "Runner Version: "+version)
 			cacheDir := rc.ActionCacheDir()
 			if cacheFi, err := os.Stat(cacheDir); err != nil || cacheFi.Mode().Perm()&0o600 != 0o600 {
+				errmsg := ""
+				if err != nil {
+					errmsg = err.Error()
+				} else {
+					errmsg = "Unexpected FileMode " + strconv.FormatUint(uint64(cacheFi.Mode().Perm()), 8)
+				}
 				if cacheFi, err := os.Stat(filepath.Dir(cacheDir)); err != nil || cacheFi.Mode().Perm()&0o600 != 0o600 {
-					logger.Warn("github-act-runner might be unable to access \"" + cacheDir + "\". You might want set one of the following environment variables XDG_CACHE_HOME, HOME to a user read and writeable location")
+					logger.Warn("github-act-runner might be unable to access \"" + cacheDir + "\". You might want set one of the following environment variables XDG_CACHE_HOME, HOME to a user read and writeable location. Details: " + errmsg)
 				}
 			}
 			err := rc.Executor()(common.WithJobErrorContainer(common.WithLogger(jobExecCtx, logger)))
