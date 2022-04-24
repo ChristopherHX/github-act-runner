@@ -9,7 +9,7 @@ on:
         description: 'Changelog of the Release'  
   
 env:
-  RUNNER_DEV_VERSION: "0.0.9"
+  RUNNER_DEV_VERSION: "0.2.x"
   RUNNER_SERVER_VERSION: "3.4.0"
 jobs:
   build:
