@@ -11,6 +11,7 @@ require (
 	github.com/robertkrimen/otto v0.0.0-20210614181706-373ff5438452
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/cobra v1.2.1
+	golang.org/x/net v0.0.0-20210917221730-978cfadd31cf // indirect
 	gopkg.in/sourcemap.v1 v1.0.5 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b
 )

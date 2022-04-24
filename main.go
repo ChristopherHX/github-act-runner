@@ -19,14 +19,17 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"runtime/debug"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
+	"golang.org/x/net/websocket"
 
 	// "github.com/AlecAivazis/survey/v2"
 
@@ -174,6 +177,46 @@ func ReadJson(path string, value interface{}) error {
 }
 
 func (config *ConfigureRunner) Configure() int {
+	if len(config.Pat) == 0 {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_PAT"); ok {
+			config.Pat = v
+		}
+	}
+	if len(config.Token) == 0 {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_TOKEN"); ok {
+			config.Token = v
+		}
+	}
+	if !config.Unattended {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_UNATTENDED"); ok {
+			config.Unattended = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+		}
+	}
+	if !config.Ephemeral {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_EPHEMERAL"); ok {
+			config.Ephemeral = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+		}
+	}
+	if len(config.Name) == 0 {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_NAME"); ok {
+			config.Name = v
+		}
+	}
+	if len(config.Url) == 0 {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_URL"); ok {
+			config.Url = v
+		}
+	}
+	if len(config.Labels) == 0 {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_LABELS"); ok {
+			config.Labels = strings.Split(v, ",")
+		}
+	}
+	if !config.Replace {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_REPLACE"); ok {
+			config.Replace = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+		}
+	}
 	settings := &RunnerSettings{RegistrationUrl: config.Url}
 	_ = ReadJson("settings.json", settings)
 	instance := &RunnerInstance{
@@ -576,24 +619,32 @@ func (run *RunRunner) Run() int {
 	container.SetContainerAllocateTerminal(run.Terminal)
 	// trap Ctrl+C
 	channel := make(chan os.Signal, 1)
-	signal.Notify(channel, os.Interrupt)
+	signal.Notify(channel, syscall.SIGTERM, os.Interrupt)
 	ctx, cancel := context.WithCancel(context.Background())
 	firstJobReceived := false
 	jobctx, cancelJob := context.WithCancel(context.Background())
 	cancelJob()
 	go func() {
-		<-channel
-		select {
-		case <-jobctx.Done():
-			fmt.Println("CTRL+C received, no job is running shutdown")
+		sig := <-channel
+		if sig == syscall.SIGTERM {
+			select {
+			case <-jobctx.Done():
+				fmt.Println("SIGTERM received, no job is running shutdown")
+			default:
+				fmt.Println("SIGTERM received, cancel the current job and wait for completion")
+			}
 			cancel()
-		default:
-			fmt.Println("CTRL+C received, stop accepting new jobs and exit after the current job finishs")
-			// Switch to run once mode
-			run.Once = true
-			firstJobReceived = true
-		}
-		for {
+		} else {
+			select {
+			case <-jobctx.Done():
+				fmt.Println("CTRL+C received, no job is running shutdown")
+				cancel()
+			default:
+				fmt.Println("CTRL+C received, stop accepting new jobs and exit after the current job finishes")
+				// Switch to run once mode
+				run.Once = true
+				firstJobReceived = true
+			}
 			select {
 			case <-ctx.Done():
 				return
@@ -1143,6 +1194,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		// orchid := ""
 		cacheUrl := ""
 		idTokenUrl := ""
+		vssConnectionData := make(map[string]string)
 		for _, endpoint := range jobreq.Resources.Endpoints {
 			if strings.EqualFold(endpoint.Name, "SystemVssConnection") && endpoint.Authorization.Parameters != nil && endpoint.Authorization.Parameters["AccessToken"] != "" {
 				jobToken := endpoint.Authorization.Parameters["AccessToken"]
@@ -1162,6 +1214,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				if ok {
 					idTokenUrl = _idTokenUrl
 				}
+				vssConnectionData = endpoint.Data
 				vssConnection = &protocol.VssConnection{
 					Client:    vssConnection.Client,
 					TenantUrl: jobTenant,
@@ -1605,6 +1658,28 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 							fmt.Println("Failed to upload logline: " + err.Error())
 						}
 					}
+					if feedStreamUrl, ok := vssConnectionData["FeedStreamUrl"]; ok {
+						re := regexp.MustCompile("(?i)^http(s?)://")
+						feedStreamUrl2, _ := url.Parse(re.ReplaceAllString(feedStreamUrl, "ws$1://"))
+						origin, _ := url.Parse(vssConnection.TenantUrl)
+						ws, err := websocket.DialConfig(&websocket.Config{
+							Location: feedStreamUrl2,
+							Origin:   origin,
+							Version:  13,
+							Header: http.Header{
+								"Authorization": []string{"Bearer " + vssConnection.Token},
+							},
+						})
+						if err == nil {
+							sendLog = func(lines *protocol.TimelineRecordFeedLinesWrapper) {
+								err := websocket.JSON.Send(ws, lines)
+								if err != nil {
+									fmt.Println("Failed to upload logline: " + err.Error())
+								}
+							}
+							defer ws.Close()
+						}
+					}
 					for {
 						select {
 						case <-runCtx.Done():
@@ -1653,6 +1728,12 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			logger.Log(logrus.InfoLevel, "Runner Name: "+instance.Agent.Name)
 			logger.Log(logrus.InfoLevel, "Runner OSDescription: github-act-runner "+runtime.GOOS+"/"+runtime.GOARCH)
 			logger.Log(logrus.InfoLevel, "Runner Version: "+version)
+			cacheDir := rc.ActionCacheDir()
+			if cacheFi, err := os.Stat(cacheDir); err != nil || cacheFi.Mode().Perm()&0o600 != 0o600 {
+				if cacheFi, err := os.Stat(filepath.Dir(cacheDir)); err != nil || cacheFi.Mode().Perm()&0o600 != 0o600 {
+					logger.Warn("github-act-runner might be unable to access \"" + cacheDir + "\". You might want set one of the following environment variables XDG_CACHE_HOME, HOME to a user read and writeable location")
+				}
+			}
 			err := rc.Executor()(common.WithJobErrorContainer(common.WithLogger(jobExecCtx, logger)))
 			if err != nil {
 				logger.Logf(logrus.ErrorLevel, "%v", err.Error())
@@ -1744,6 +1825,21 @@ type RemoveRunner struct {
 }
 
 func (config *RemoveRunner) Remove() int {
+	if len(config.Pat) == 0 {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_PAT"); ok {
+			config.Pat = v
+		}
+	}
+	if len(config.Token) == 0 {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_TOKEN"); ok {
+			config.Token = v
+		}
+	}
+	if !config.Unattended {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_UNATTENDED"); ok {
+			config.Unattended = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+		}
+	}
 	c := &http.Client{}
 	settings, err := loadConfiguration()
 	if err != nil {
