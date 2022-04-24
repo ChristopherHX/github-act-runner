@@ -1147,17 +1147,24 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		wrap.Value[1].Order = 1
 		wrap.Value[1].Start()
 		vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap)
-		failInitJob := func(message string) {
-			wrap.Value[1].Log = &protocol.TaskLogReference{Id: vssConnection.UploadLogFile(jobreq.Timeline.Id, jobreq, message)}
-			wrap.Value[1].Complete("Failed")
+		failInitJob2 := func(title string, message string) {
+			wrap.Value = append(wrap.Value, protocol.CreateTimelineEntry(rqt.JobId, "__fatal_error", title))
+			wrap.Value[wrap.Count].Log = &protocol.TaskLogReference{Id: vssConnection.UploadLogFile(jobreq.Timeline.Id, jobreq, message)}
+			wrap.Value[wrap.Count].Start()
+			wrap.Value[wrap.Count].Complete("Failed")
+			wrap.Value[wrap.Count].Order = int32(wrap.Count)
+			wrap.Count++
 			wrap.Value[0].Complete("Failed")
 			vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap)
 			fmt.Println(message)
 			finishJob("Failed")
 		}
+		failInitJob := func(message string) {
+			failInitJob2("Failed to initialize Job", message)
+		}
 		defer func() {
 			if err := recover(); err != nil {
-				failInitJob("The worker panicked with message: " + fmt.Sprint(err) + "\n" + string(debug.Stack()))
+				failInitJob2("Worker panicked", "The worker panicked with message: "+fmt.Sprint(err)+"\n"+string(debug.Stack()))
 			}
 		}()
 		con := *vssConnection
