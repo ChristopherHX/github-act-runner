@@ -1652,7 +1652,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				}
 				go func() {
 					defer cancelLog()
-					sendLog := func(lines *protocol.TimelineRecordFeedLinesWrapper) {
+					sendLogSlow := func(lines *protocol.TimelineRecordFeedLinesWrapper) {
 						err := vssConnection.Request("858983e4-19bd-4c5e-864c-507b59b58b12", "5.1-preview", "POST", map[string]string{
 							"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
 							"planId":          jobreq.Plan.PlanId,
@@ -1664,26 +1664,43 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 							fmt.Println("Failed to upload logline: " + err.Error())
 						}
 					}
+					sendLog := sendLogSlow
 					if feedStreamUrl, ok := vssConnectionData["FeedStreamUrl"]; ok {
 						re := regexp.MustCompile("(?i)^http(s?)://")
 						feedStreamUrl2, _ := url.Parse(re.ReplaceAllString(feedStreamUrl, "ws$1://"))
 						origin, _ := url.Parse(vssConnection.TenantUrl)
-						ws, err := websocket.DialConfig(&websocket.Config{
-							Location: feedStreamUrl2,
-							Origin:   origin,
-							Version:  13,
-							Header: http.Header{
-								"Authorization": []string{"Bearer " + vssConnection.Token},
-							},
-						})
+						wsMessagesSent := 0
+						dialSocket := func() (ws *websocket.Conn, err error) {
+							wsMessagesSent = 0
+							return websocket.DialConfig(&websocket.Config{
+								Location: feedStreamUrl2,
+								Origin:   origin,
+								Version:  13,
+								Header: http.Header{
+									"Authorization": []string{"Bearer " + vssConnection.Token},
+								},
+							})
+						}
+						ws, err := dialSocket()
 						if err == nil {
 							sendLog = func(lines *protocol.TimelineRecordFeedLinesWrapper) {
 								err := websocket.JSON.Send(ws, lines)
-								if err != nil {
-									fmt.Println("Failed to upload logline: " + err.Error())
+								if err == nil {
+									wsMessagesSent++
+								} else if wsMessagesSent > 0 {
+									ws, err = dialSocket()
+									if err == nil {
+										sendLog(lines)
+									} else {
+										sendLog = sendLogSlow
+									}
+								} else {
+									sendLog = sendLogSlow
 								}
 							}
-							defer ws.Close()
+							defer func() {
+								ws.Close()
+							}()
 						}
 					}
 					for {
