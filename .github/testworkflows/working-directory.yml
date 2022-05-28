@@ -1,0 +1,23 @@
+name: matrix
+on: push
+jobs:
+  matrix-test:
+    strategy:
+      matrix:
+        container:
+        - ""
+        - "ubuntu:latest"
+    runs-on: [self-hosted]
+    steps:
+    - run: |
+        mkdir -p test
+        echo World > test/Hello.txt
+    - id: relative-path
+      run: |
+        echo "::set-output name=hello::$(cat Hello.txt)"
+      working-directory: test
+    - id: absolute-path
+      run: |
+        echo "::set-output name=hello::$(cat Hello.txt)"
+      working-directory: ${{github.workspace}}/test
+    - run: exit ${{steps.relative-path.outputs.hello == 'World' && steps.absolute-path.outputs.hello == 'World' && '0' || '1' }}
