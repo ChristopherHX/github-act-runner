@@ -1,12 +1,18 @@
 name: CI
 on:
   push:
+    branches:
+    - main
+  pull_request:
   workflow_dispatch:
     inputs:
       version:
         description: 'Version of the Release'
       changelog:
-        description: 'Changelog of the Release'  
+        description: 'Changelog of the Release'
+      skip-packaging:
+        description: 'Skip packaging'
+        type: boolean
   
 env:
   RUNNER_DEV_VERSION: "0.2.x"
@@ -79,13 +85,13 @@ jobs:
         GOOS: ${{matrix.GOOS}}
         GOARCH: ${{matrix.GOARCH}}
     - name: Package tar
-      if: ${{matrix.GOOS != 'windows'}}
+      if: ${{ github.event.inputs.skip-packaging != 'true' && matrix.GOOS != 'windows' }}
       run: |
         cp compat/*.sh output/
         cd output
         tar czf ../binary-${{matrix.GOOS}}-${{matrix.GOARCH}}.tar.gz ./*
     - name: Package zip
-      if: ${{matrix.GOOS == 'windows'}}
+      if: ${{ github.event.inputs.skip-packaging != 'true' && matrix.GOOS == 'windows' }}
       run: |
         cp compat/*.cmd output/
         cd output
@@ -95,6 +101,7 @@ jobs:
         name: binary-${{matrix.GOOS}}-${{matrix.GOARCH}}
         path: github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
     - uses: actions/upload-artifact@v2
+      if: ${{ github.event.inputs.skip-packaging != 'true' }}
       with:
         name: bundle-${{matrix.GOOS}}-${{matrix.GOARCH}}
         path: 'binary-${{matrix.GOOS}}-${{matrix.GOARCH}}.*'
@@ -105,7 +112,7 @@ jobs:
     name: deploy to github
     runs-on: ubuntu-latest
     needs: build
-    if: ${{ github.event.inputs.version }}
+    if: ${{ github.event.inputs.skip-packaging != 'true' && github.event.inputs.version }}
     continue-on-error: true
     steps:
     - uses: actions/download-artifact@v2
@@ -140,6 +147,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     name: build and deploy to deb repo
+    if: ${{ github.event.inputs.skip-packaging != 'true' }}
     env:
       DEPLOY_ARCHS: "amd64 i386 armhf arm64" # architectures from https://wiki.debian.org/SupportedArchitectures
     steps:
@@ -184,6 +192,7 @@ jobs:
   run-tests:
     needs: build
     runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.skip-packaging != 'true' }}
     steps:
     - uses: actions/checkout@v2
     - name: Prepare actions-runner
@@ -213,6 +222,7 @@ jobs:
         sudo prlimit --pid $! --nofile=16:16
         sleep 2
         ./actions-runner/bin/Runner.Client --server http://localhost:5000 -W ./.github/testworkflows --log-output-dir ./logs
+        ./actions-runner/bin/Runner.Client --server http://localhost:5000 -W ./.github/testworkflows/working-directory.yml --log-output-dir ./logs
         ./actions-runner/bin/Runner.Client --server http://localhost:5000 -W ./.github/failingtestworkflows/test_container_fail_step.yml --log-output-dir ./logs && exit 1 || [[ "$?" = "1" ]]
         ./actions-runner/bin/Runner.Client --server http://localhost:5000 -W ./.github/failingtestworkflows/test_host_fail_step.yml --log-output-dir ./logs && exit 1 || [[ "$?" = "1" ]]
 
