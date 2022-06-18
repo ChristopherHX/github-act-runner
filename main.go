@@ -907,7 +907,7 @@ func (run *RunRunner) Run() int {
 							}
 						} else {
 							lastSuccess = time.Now()
-							if firstJobReceived && strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
+							if firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
 								// It seems run once isn't supported by the backend, do the same as the official runner
 								// Skip deleting the job message and cancel earlier
 								fmt.Println("Received a second job, but running in run once mode abort")
@@ -927,9 +927,9 @@ func (run *RunRunner) Run() int {
 						}
 					}
 					if success {
-						if message != nil && strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
+						if message != nil && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
 							cancelJobListening()
-							for message != nil && !firstJobReceived && strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
+							for message != nil && !firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
 								if run.Once {
 									firstJobReceived = true
 								}
@@ -941,7 +941,7 @@ func (run *RunRunner) Run() int {
 								{
 									message, err = session.GetNextMessage(jobExecCtx)
 									if !errors.Is(err, context.Canceled) && message != nil {
-										if firstJobReceived && strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") {
+										if firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
 											fmt.Println("Skip deleting the duplicated job request, we hope that the actions service reschedules your job to a different runner")
 										} else {
 											session.DeleteMessage(message)
@@ -1024,8 +1024,15 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		}
 		jobreq := &protocol.AgentJobRequestMessage{}
 		{
-			dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
-			dec.Decode(jobreq)
+			if strings.EqualFold(message.MessageType, "RunnerJobRequest") {
+				err := vssConnection.Request("25adab70-1379-4186-be8e-b643061ebe3a", "5.1-preview", "DELETE", map[string]string{
+					"messageId": fmt.Sprint(0),
+				}, map[string]string{
+				}, nil, jobreq)
+			} else {
+				dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
+				dec.Decode(jobreq)
+			}
 		}
 		jobrun := &JobRun{
 			RequestId:       jobreq.RequestId,
