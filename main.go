@@ -985,6 +985,11 @@ func (run *RunRunner) Run() int {
 	}
 }
 
+type RunnerJobRequestRef struct {
+	Id              string `json:"id"`
+	RunnerRequestId string `json:"runner_request_id"`
+}
+
 func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel context.CancelFunc, cancelJob context.CancelFunc, finishJob context.CancelFunc, jobExecCtx context.Context, jobctx context.Context, session *protocol.AgentMessageConnection, message protocol.TaskAgentMessage, instance *RunnerInstance) {
 	go func() {
 		defer func() {
@@ -1024,13 +1029,21 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		}
 		jobreq := &protocol.AgentJobRequestMessage{}
 		{
+			dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
 			if strings.EqualFold(message.MessageType, "RunnerJobRequest") {
-				err := vssConnection.Request("25adab70-1379-4186-be8e-b643061ebe3a", "5.1-preview", "DELETE", map[string]string{
-					"messageId": fmt.Sprint(0),
-				}, map[string]string{
-				}, nil, jobreq)
+				rjrr := &RunnerJobRequestRef{}
+				dec.Decode(rjrr)
+				for retries := 0; retries < 5; retries++ {
+					err := vssConnection.Request("25adab70-1379-4186-be8e-b643061ebe3a", "6.0-preview", "GET", map[string]string{
+						"messageId": fmt.Sprint(0),
+					}, map[string]string{
+					}, nil, jobreq)
+					if err == nil {
+						break
+					}
+					<-time.Delay((retries + 1) * 5 * time.Second)
+				}
 			} else {
-				dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
 				dec.Decode(jobreq)
 			}
 		}
