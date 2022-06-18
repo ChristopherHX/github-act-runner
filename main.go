@@ -1041,7 +1041,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 					if err == nil {
 						break
 					}
-					<-time.After(time.Second * 5 * (retries + 1))
+					<-time.After(time.Second * 5 * time.Duration(retries + 1))
 				}
 			} else {
 				dec.Decode(jobreq)
