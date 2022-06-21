@@ -1035,7 +1035,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				dec.Decode(rjrr)
 				for retries := 0; retries < 5; retries++ {
 					err := vssConnection.Request("25adab70-1379-4186-be8e-b643061ebe3a", "6.0-preview", "GET", map[string]string{
-						"messageId": fmt.Sprint(0),
+						"messageId": rjrr.RunnerRequestId,
 					}, map[string]string{
 					}, nil, jobreq)
 					if err == nil {
