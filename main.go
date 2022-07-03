@@ -984,6 +984,8 @@ func (run *RunRunner) Run() int {
 	}
 }
 
+var joblock sync.Mutex
+
 func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel context.CancelFunc, cancelJob context.CancelFunc, finishJob context.CancelFunc, jobExecCtx context.Context, jobctx context.Context, session *protocol.AgentMessageConnection, message protocol.TaskAgentMessage, instance *RunnerInstance) {
 	go func() {
 		defer func() {
@@ -1585,13 +1587,9 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		logger.SetOutput(io.MultiWriter())
 		if actions_step_debug {
 			logger.SetLevel(logrus.DebugLevel)
-			logrus.SetLevel(logrus.DebugLevel)
 		} else {
 			logger.SetLevel(logrus.InfoLevel)
-			logrus.SetLevel(logrus.InfoLevel)
 		}
-		logrus.SetFormatter(formatter)
-		logrus.SetOutput(io.MultiWriter())
 
 		rc.CurrentStep = "__setup"
 		rc.StepResults = make(map[string]*model.StepResult)
@@ -1734,6 +1732,31 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			logger.Log(logrus.InfoLevel, "Runner Name: "+instance.Agent.Name)
 			logger.Log(logrus.InfoLevel, "Runner OSDescription: github-act-runner "+runtime.GOOS+"/"+runtime.GOARCH)
 			logger.Log(logrus.InfoLevel, "Runner Version: "+version)
+
+			// Wait for possible concurrent running job and serialize, this only happens for multi repository runners
+			waitContext, finishWait := context.WithCancel(context.Background())
+			go func() {
+				for {
+					select {
+					case <-waitContext.Done():
+						return
+					case <-time.After(5 * time.Second):
+						logger.Log(logrus.InfoLevel, "Waiting for runner to complete active job")
+					}
+				}
+			}()
+			joblock.Lock()
+			defer func() {
+				joblock.Unlock()
+			}()
+			defer finishWait()
+			finishWait()
+			// The following code is synchronized
+
+			logrus.SetLevel(logger.GetLevel())
+			logrus.SetFormatter(formatter)
+			logrus.SetOutput(io.MultiWriter())
+
 			cacheDir := rc.ActionCacheDir()
 			if err := os.MkdirAll(cacheDir, 0777); err != nil {
 				logger.Warn("github-act-runner is be unable to access \"" + cacheDir + "\". You might want set one of the following environment variables XDG_CACHE_HOME, HOME to a user read and writeable location. Details: " + err.Error())
