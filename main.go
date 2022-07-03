@@ -32,7 +32,7 @@ import (
 
 	// "github.com/AlecAivazis/survey/v2"
 
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt"
 	"github.com/google/uuid"
 	_ "github.com/mtibben/androiddnsfix"
 	"github.com/nektos/act/pkg/common"

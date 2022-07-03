@@ -23,6 +23,39 @@ type TaskAgentMessage struct {
 	Body        string
 }
 
+func (message *TaskAgentMessage) Decrypt(block cipher.Block) ([]byte, error) {
+	iv, err := base64.StdEncoding.DecodeString(message.IV)
+	if err != nil {
+		return nil, err
+	}
+	src, err := base64.StdEncoding.DecodeString(message.Body)
+	if err != nil {
+		return nil, err
+	}
+	cbcdec := cipher.NewCBCDecrypter(block, iv)
+	cbcdec.CryptBlocks(src, src)
+	maxlen := block.BlockSize()
+	validlen := len(src)
+	if int(src[len(src)-1]) <= maxlen { // <= is needed if the message ends within a block boundary and maxlen=16 then we get 16 times char 16 appended, one whole extra block
+		ok := true
+		for i := 2; i <= int(src[len(src)-1]); i++ {
+			if src[len(src)-i] != src[len(src)-1] {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			validlen -= int(src[len(src)-1])
+		}
+	}
+	off := 0
+	// skip utf8 bom, c# cryptostream uses it for utf8
+	if src[0] == 239 && src[1] == 187 && src[2] == 191 {
+		off = 3
+	}
+	return src[off:validlen], nil
+}
+
 type TaskAgentSessionKey struct {
 	Encrypted bool
 	Value     string

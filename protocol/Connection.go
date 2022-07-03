@@ -29,21 +29,28 @@ type VssConnection struct {
 	Trace          bool
 }
 
-func (vssConnection *VssConnection) BuildUrl(relativePath string, ppath map[string]string, query map[string]string) string {
-	url2, _ := url.Parse(vssConnection.TenantUrl)
-	url := relativePath
-	for p, v := range ppath {
-		url = strings.ReplaceAll(url, "{"+p+"}", v)
+func (vssConnection *VssConnection) BuildUrl(relativePath string, ppath map[string]string, query map[string]string) (string, error) {
+	url2, err := url.Parse(vssConnection.TenantUrl)
+	if err != nil {
+		return "", err
 	}
+	url := relativePath
 	re := regexp.MustCompile(`/*\{[^\}]+\}`)
-	url = re.ReplaceAllString(url, "")
+	url = re.ReplaceAllStringFunc(url, func(s string) string {
+		start := strings.Index(s, "{")
+		end := strings.Index(s, "}")
+		if val, ok := ppath[s[start+1:end]]; ok {
+			return s[0:start] + val
+		}
+		return ""
+	})
 	url2.Path = path.Join(url2.Path, url)
 	q := url2.Query()
 	for p, v := range query {
 		q.Add(p, v)
 	}
 	url2.RawQuery = q.Encode()
-	return url2.String()
+	return url2.String(), nil
 }
 
 func (vssConnection *VssConnection) authorize() (*VssOAuthTokenResponse, error) {
@@ -66,7 +73,9 @@ func AddContentType(header http.Header, apiversion string) {
 }
 
 func AddBearer(header http.Header, token string) {
-	header["Authorization"] = []string{"bearer " + token}
+	if len(token) > 0 {
+		header["Authorization"] = []string{"bearer " + token}
+	}
 }
 
 func AddHeaders(header http.Header) {
@@ -75,7 +84,7 @@ func AddHeaders(header http.Header) {
 	header["X-TFS-Session"] = []string{uuid.NewString()}
 }
 
-func (vssConnection *VssConnection) RequestWithContext(ctx context.Context, serviceId string, protocol string, method string, urlParameter map[string]string, queryParameter map[string]string, requestBody interface{}, responseBody interface{}) error {
+func (vssConnection *VssConnection) GetServiceUrl(serviceId string, urlParameter map[string]string, queryParameter map[string]string) (string, error) {
 	serv := vssConnection.ConnectionData.GetServiceDefinition(serviceId)
 	if urlParameter == nil {
 		urlParameter = map[string]string{}
@@ -85,7 +94,18 @@ func (vssConnection *VssConnection) RequestWithContext(ctx context.Context, serv
 	if queryParameter == nil {
 		queryParameter = map[string]string{}
 	}
-	url := vssConnection.BuildUrl(serv.RelativePath, urlParameter, queryParameter)
+	return vssConnection.BuildUrl(serv.RelativePath, urlParameter, queryParameter)
+}
+
+func (vssConnection *VssConnection) RequestWithContext(ctx context.Context, serviceId string, protocol string, method string, urlParameter map[string]string, queryParameter map[string]string, requestBody interface{}, responseBody interface{}) error {
+	url, err := vssConnection.GetServiceUrl(serviceId, urlParameter, queryParameter)
+	if err != nil {
+		return err
+	}
+	return vssConnection.RequestWithContext2(ctx, method, url, protocol, requestBody, responseBody)
+}
+
+func (vssConnection *VssConnection) RequestWithContext2(ctx context.Context, method string, url string, protocol string, requestBody interface{}, responseBody interface{}) error {
 	for i := 0; i < 2; i++ {
 		var buf io.Reader = nil
 		if requestBody != nil {
@@ -108,6 +128,7 @@ func (vssConnection *VssConnection) RequestWithContext(ctx context.Context, serv
 			AddContentType(request.Header, protocol)
 		}
 		AddHeaders(request.Header)
+		AddBearer(request.Header, vssConnection.Token)
 		if vssConnection.Trace {
 			headerbuf := new(bytes.Buffer)
 			request.Header.Write(headerbuf)
@@ -115,9 +136,8 @@ func (vssConnection *VssConnection) RequestWithContext(ctx context.Context, serv
 			if _buf, ok := buf.(*bytes.Buffer); ok {
 				body = _buf.String()
 			}
-			fmt.Printf("Http %v Request started %v Headers: %v Body: `%v`\n", method, url, headerbuf.String(), body)
+			fmt.Printf("Http %v Request started %v\nHeaders:\n%v\nBody: `%v`\n", method, url, headerbuf.String(), body)
 		}
-		AddBearer(request.Header, vssConnection.Token)
 
 		response, err := vssConnection.Client.Do(request)
 		if err != nil {
@@ -129,6 +149,9 @@ func (vssConnection *VssConnection) RequestWithContext(ctx context.Context, serv
 		defer response.Body.Close()
 		if response.StatusCode < 200 || response.StatusCode >= 300 {
 			if i == 0 && (response.StatusCode == 401 || response.StatusCode == 400) && vssConnection.TaskAgent != nil && vssConnection.Key != nil {
+				if vssConnection.Trace {
+					fmt.Printf("Http %v Request %v failed with status %v\n", method, url, response.StatusCode)
+				}
 				authResponse, err := vssConnection.authorize()
 				if err != nil {
 					return err
@@ -148,16 +171,13 @@ func (vssConnection *VssConnection) RequestWithContext(ctx context.Context, serv
 			if err != nil {
 				bytes = []byte("no response: " + err.Error())
 			}
-			err = fmt.Errorf("request %v %v failed with status %v, requestBody: `%v` and responseBody: `%v`", method, url, response.StatusCode, body, string(bytes))
+			err = fmt.Errorf("http %v Request %v failed with status %v, requestBody: `%v` and responseBody: `%v`", method, url, response.StatusCode, body, string(bytes))
 			if vssConnection.Trace {
 				fmt.Println(err.Error())
 			}
 			return err
 		}
 		if responseBody != nil {
-			if response.StatusCode != 200 {
-				return io.EOF
-			}
 			if vssConnection.Trace {
 				headerbuf := new(bytes.Buffer)
 				request.Header.Write(headerbuf)
@@ -165,15 +185,30 @@ func (vssConnection *VssConnection) RequestWithContext(ctx context.Context, serv
 				if err != nil {
 					bytes = []byte("no response: " + err.Error())
 				}
-				fmt.Printf("Http %v Request succeeded %v Headers: %v Body: `%v`\n", method, url, headerbuf.String(), string(bytes))
+				fmt.Printf("Http %v Request succeeded %v %v\nHeaders: \n%v\nBody: `%v`\n", method, response.StatusCode, url, headerbuf.String(), string(bytes))
 
-				if err := json.Unmarshal(bytes, responseBody); err != nil {
+				if response.StatusCode != 200 {
+					return io.EOF
+				}
+				if bresponse, ok := responseBody.(*[]byte); ok {
+					*bresponse = bytes
+				} else if err := json.Unmarshal(bytes, responseBody); err != nil {
 					return err
 				}
 			} else {
-				dec := json.NewDecoder(response.Body)
-				if err := dec.Decode(responseBody); err != nil {
-					return err
+				if response.StatusCode != 200 {
+					return io.EOF
+				}
+				if bresponse, ok := responseBody.(*[]byte); ok {
+					*bresponse, err = ioutil.ReadAll(response.Body)
+					if err != nil {
+						return err
+					}
+				} else {
+					dec := json.NewDecoder(response.Body)
+					if err := dec.Decode(responseBody); err != nil {
+						return err
+					}
 				}
 			}
 		}

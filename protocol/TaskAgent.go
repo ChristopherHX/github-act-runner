@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt"
 	"github.com/google/uuid"
 )
 
@@ -63,14 +63,20 @@ func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAut
 		IssuedAt:  now.Unix(),
 		ExpiresAt: now.Add(time.Minute * 5).Unix(),
 	})
-	stkn, _ := token2.SignedString(key)
+	stkn, err := token2.SignedString(key)
+	if err != nil {
+		return nil, err
+	}
 
 	data := url.Values{}
 	data.Set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
 	data.Set("client_assertion", stkn)
 	data.Set("grant_type", "client_credentials")
 
-	poolsreq, _ := http.NewRequest("POST", taskAgent.Authorization.AuthorizationUrl, bytes.NewBufferString(data.Encode()))
+	poolsreq, err := http.NewRequest("POST", taskAgent.Authorization.AuthorizationUrl, bytes.NewBufferString(data.Encode()))
+	if err != nil {
+		return nil, errors.New("Failed to Authorize: " + err.Error())
+	}
 	poolsreq.Header["Content-Type"] = []string{"application/x-www-form-urlencoded; charset=utf-8"}
 	poolsreq.Header["Accept"] = []string{"application/json"}
 	poolsresp, err := c.Do(poolsreq)

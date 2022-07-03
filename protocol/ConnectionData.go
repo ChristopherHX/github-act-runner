@@ -1,9 +1,7 @@
 package protocol
 
 import (
-	"encoding/json"
-	"fmt"
-	"net/http"
+	"context"
 	"net/url"
 	"path"
 )
@@ -12,7 +10,7 @@ type ServiceDefinition struct {
 	ServiceType       string
 	Identifier        string
 	DisplayName       string
-	RelativeToSetting int
+	RelativeToSetting string
 	RelativePath      string
 	Description       string
 	ServiceOwner      string
@@ -28,24 +26,22 @@ type ConnectionData struct {
 }
 
 func (vssConnection *VssConnection) GetConnectionData() *ConnectionData {
-	_url, _ := url.Parse(vssConnection.TenantUrl)
-	_url.Path = path.Join(_url.Path, "_apis/connectionData")
-	q := _url.Query()
+	url, err := url.Parse(vssConnection.TenantUrl)
+	if err != nil {
+		return nil
+	}
+	url.Path = path.Join(url.Path, "_apis/connectionData")
+	q := url.Query()
 	q.Add("connectOptions", "1")
 	q.Add("lastChangeId", "-1")
 	q.Add("lastChangeId64", "-1")
-	_url.RawQuery = q.Encode()
-	connectionData, _ := http.NewRequest("GET", _url.String(), nil)
-	connectionDataResp, err := vssConnection.Client.Do(connectionData)
-	connectionData_ := &ConnectionData{}
+	url.RawQuery = q.Encode()
+	connectionData := &ConnectionData{}
+	err = vssConnection.RequestWithContext2(context.Background(), "GET", url.String(), "1.0", nil, connectionData)
 	if err != nil {
-		fmt.Println("fatal:" + err.Error())
 		return nil
 	}
-	defer connectionDataResp.Body.Close()
-	dec2 := json.NewDecoder(connectionDataResp.Body)
-	dec2.Decode(connectionData_)
-	return connectionData_
+	return connectionData
 }
 
 func (connectionData *ConnectionData) GetServiceDefinition(id string) *ServiceDefinition {
