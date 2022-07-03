@@ -6,6 +6,8 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
+
+	// nolint:gosec
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
@@ -17,7 +19,7 @@ import (
 )
 
 type TaskAgentMessage struct {
-	MessageId   int64
+	MessageID   int64
 	MessageType string
 	IV          string
 	Body        string
@@ -62,7 +64,7 @@ type TaskAgentSessionKey struct {
 }
 
 type TaskAgentSession struct {
-	SessionId         string `json:",omitempty"`
+	SessionID         string `json:",omitempty"`
 	EncryptionKey     TaskAgentSessionKey
 	OwnerName         string
 	Agent             TaskAgent
@@ -79,6 +81,7 @@ func (session *TaskAgentSession) GetSessionKey(key *rsa.PrivateKey) (cipher.Bloc
 		if session.UseFipsEncryption {
 			h = sha256.New()
 		} else {
+			// nolint:gosec // Needed for backward compatibility
 			h = sha1.New()
 		}
 		sessionKey, err = rsa.DecryptOAEP(h, rand.Reader, key, sessionKey, []byte{})
@@ -97,8 +100,8 @@ type AgentMessageConnection struct {
 
 func (session *AgentMessageConnection) Delete() error {
 	return session.VssConnection.Request("134e239e-2df3-4794-a6f6-24f1f19ec8dc", "5.1-preview", "DELETE", map[string]string{
-		"poolId":    fmt.Sprint(session.VssConnection.PoolId),
-		"sessionId": session.TaskAgentSession.SessionId,
+		"poolId":    fmt.Sprint(session.VssConnection.PoolID),
+		"sessionId": session.TaskAgentSession.SessionID,
 	}, map[string]string{}, session.TaskAgentSession, nil)
 }
 
@@ -111,11 +114,11 @@ func (session *AgentMessageConnection) GetNextMessage(ctx context.Context) (*Tas
 		default:
 		}
 		err := session.VssConnection.RequestWithContext(ctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "GET", map[string]string{
-			"poolId": fmt.Sprint(session.VssConnection.PoolId),
+			"poolId": fmt.Sprint(session.VssConnection.PoolID),
 		}, map[string]string{
-			"sessionId": session.TaskAgentSession.SessionId,
+			"sessionId": session.TaskAgentSession.SessionID,
 		}, nil, message)
-		//TODO lastMessageId=
+		// TODO lastMessageId=
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil, err
@@ -135,9 +138,9 @@ func (session *AgentMessageConnection) GetNextMessage(ctx context.Context) (*Tas
 
 func (session *AgentMessageConnection) DeleteMessage(message *TaskAgentMessage) error {
 	return session.VssConnection.Request("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "DELETE", map[string]string{
-		"poolId":    fmt.Sprint(session.VssConnection.PoolId),
-		"messageId": fmt.Sprint(message.MessageId),
+		"poolId":    fmt.Sprint(session.VssConnection.PoolID),
+		"messageId": fmt.Sprint(message.MessageID),
 	}, map[string]string{
-		"sessionId": session.TaskAgentSession.SessionId,
+		"sessionId": session.TaskAgentSession.SessionID,
 	}, nil, nil)
 }

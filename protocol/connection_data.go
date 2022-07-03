@@ -26,7 +26,7 @@ type ConnectionData struct {
 }
 
 func (vssConnection *VssConnection) GetConnectionData() *ConnectionData {
-	url, err := url.Parse(vssConnection.TenantUrl)
+	url, err := url.Parse(vssConnection.TenantURL)
 	if err != nil {
 		return nil
 	}

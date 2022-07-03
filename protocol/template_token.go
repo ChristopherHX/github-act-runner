@@ -12,7 +12,7 @@ type MapEntry struct {
 }
 
 type TemplateToken struct {
-	FileId    *int32
+	FileID    *int32
 	Line      *int32
 	Column    *int32
 	Type      int32
@@ -93,7 +93,6 @@ func (token *TemplateToken) ToRawObject() interface{} {
 	case 1:
 		a := make([]interface{}, 0)
 		for _, v := range *token.Seq {
-
 			a = append(a, v.ToRawObject())
 		}
 		return a
@@ -115,23 +114,22 @@ func (token *TemplateToken) ToRawObject() interface{} {
 	return nil
 }
 
-func (token *TemplateToken) ToJsonRawObject() interface{} {
+func (token *TemplateToken) ToJSONRawObject() interface{} {
 	switch token.Type {
 	case 0:
 		return *token.Lit
 	case 1:
 		a := make([]interface{}, 0)
 		for _, v := range *token.Seq {
-
-			a = append(a, v.ToJsonRawObject())
+			a = append(a, v.ToJSONRawObject())
 		}
 		return a
 	case 2:
 		m := make(map[string]interface{})
 		for _, v := range *token.Map {
-			k := v.Key.ToJsonRawObject()
+			k := v.Key.ToJSONRawObject()
 			if s, ok := k.(string); ok {
-				m[s] = v.Value.ToJsonRawObject()
+				m[s] = v.Value.ToJSONRawObject()
 			}
 		}
 		return m
@@ -154,7 +152,6 @@ func (token *TemplateToken) ToYamlNode() *yaml.Node {
 	case 1:
 		a := make([]*yaml.Node, 0)
 		for _, v := range *token.Seq {
-
 			a = append(a, v.ToYamlNode())
 		}
 		return &yaml.Node{Kind: yaml.SequenceNode, Content: a}

@@ -20,13 +20,13 @@ type TaskAgentPublicKey struct {
 }
 
 type TaskAgentAuthorization struct {
-	AuthorizationUrl string `json:",omitempty"`
-	ClientId         string `json:",omitempty"`
+	AuthorizationURL string `json:",omitempty"`
+	ClientID         string `json:",omitempty"`
 	PublicKey        TaskAgentPublicKey
 }
 
 type AgentLabel struct {
-	Id   int
+	ID   int
 	Name string
 	Type string
 }
@@ -35,7 +35,7 @@ type TaskAgent struct {
 	Authorization     TaskAgentAuthorization
 	Labels            []AgentLabel
 	MaxParallelism    int
-	Id                int
+	ID                int
 	Name              string
 	Version           string
 	OSDescription     string
@@ -55,10 +55,10 @@ func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAut
 	tokenresp := &VssOAuthTokenResponse{}
 	now := time.Now().UTC().Add(-30 * time.Second)
 	token2 := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.StandardClaims{
-		Subject:   taskAgent.Authorization.ClientId,
-		Issuer:    taskAgent.Authorization.ClientId,
+		Subject:   taskAgent.Authorization.ClientID,
+		Issuer:    taskAgent.Authorization.ClientID,
 		Id:        uuid.New().String(),
-		Audience:  taskAgent.Authorization.AuthorizationUrl,
+		Audience:  taskAgent.Authorization.AuthorizationURL,
 		NotBefore: now.Unix(),
 		IssuedAt:  now.Unix(),
 		ExpiresAt: now.Add(time.Minute * 5).Unix(),
@@ -73,7 +73,7 @@ func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAut
 	data.Set("client_assertion", stkn)
 	data.Set("grant_type", "client_credentials")
 
-	poolsreq, err := http.NewRequest("POST", taskAgent.Authorization.AuthorizationUrl, bytes.NewBufferString(data.Encode()))
+	poolsreq, err := http.NewRequest("POST", taskAgent.Authorization.AuthorizationURL, bytes.NewBufferString(data.Encode()))
 	if err != nil {
 		return nil, errors.New("Failed to Authorize: " + err.Error())
 	}
@@ -87,11 +87,10 @@ func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAut
 	if poolsresp.StatusCode != 200 {
 		bytes, _ := ioutil.ReadAll(poolsresp.Body)
 		return nil, errors.New("Failed to Authorize, service responded with code " + fmt.Sprint(poolsresp.StatusCode) + ": " + string(bytes))
-	} else {
-		dec := json.NewDecoder(poolsresp.Body)
-		if err := dec.Decode(tokenresp); err != nil {
-			return nil, err
-		}
-		return tokenresp, nil
 	}
+	dec := json.NewDecoder(poolsresp.Body)
+	if err := dec.Decode(tokenresp); err != nil {
+		return nil, err
+	}
+	return tokenresp, nil
 }

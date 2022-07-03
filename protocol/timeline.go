@@ -7,8 +7,8 @@ import (
 )
 
 type TimeLineReference struct {
-	Id       string
-	ChangeId int
+	ID       string
+	ChangeID int
 	Location *interface{}
 }
 
@@ -19,9 +19,9 @@ type TimelineAttempt struct {
 }
 
 type TimelineRecord struct {
-	Id               string
-	TimelineId       string
-	ParentId         string
+	ID               string
+	TimelineID       string
+	ParentID         string
 	Type             string
 	Name             string
 	StartTime        string
@@ -31,7 +31,7 @@ type TimelineRecord struct {
 	State            string
 	Result           *string
 	ResultCode       *string
-	ChangeId         int32
+	ChangeID         int32
 	LastModified     string
 	WorkerName       string
 	Order            int32
@@ -57,7 +57,7 @@ type TimelineRecordWrapper struct {
 type TimelineRecordFeedLinesWrapper struct {
 	Count     int64
 	Value     []string
-	StepId    string
+	StepID    string
 	StartLine *int64
 }
 
@@ -81,12 +81,12 @@ func (rec *TimelineRecord) Complete(res string) {
 
 func CreateTimelineEntry(parent string, refname string, name string) TimelineRecord {
 	record := TimelineRecord{}
-	record.Id = uuid.New().String()
+	record.ID = uuid.New().String()
 	record.RefName = refname
 	record.Name = name
 	record.Type = "Task"
 	record.WorkerName = "golang-go"
-	record.ParentId = parent
+	record.ParentID = parent
 	record.State = "Pending"
 	record.LastModified = time.Now().UTC().Format("2006-01-02T15:04:05")
 	record.Order = 1

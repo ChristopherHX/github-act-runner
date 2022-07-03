@@ -1,7 +1,7 @@
 package protocol
 
 type TaskLogReference struct {
-	Id       int
+	ID       int
 	Location *string
 }
 

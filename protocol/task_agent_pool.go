@@ -1,7 +1,7 @@
 package protocol
 
 type TaskAgentPoolReference struct {
-	Id    int64
+	ID    int64
 	Scope string
 	// PoolType   int
 	Name       string

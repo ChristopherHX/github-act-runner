@@ -33,7 +33,7 @@ func (ctx *PipelineContextData) UnmarshalJSON(data []byte) error {
 	} else if json.Unmarshal(data, &ctx.StringValue) == nil {
 		ctx.BoolValue = nil
 		ctx.NumberValue = nil
-		var typ int32 = 0
+		var typ int32
 		ctx.Type = &typ
 		return nil
 	} else {

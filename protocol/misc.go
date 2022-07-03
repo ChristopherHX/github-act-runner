@@ -1,7 +1,7 @@
 package protocol
 
 type RunnerAddRemove struct {
-	Url         string `json:"url"`
+	URL         string `json:"url"`
 	RunnerEvent string `json:"runner_event"`
 }
 
@@ -11,14 +11,14 @@ type GitHubRunnerRegisterToken struct {
 }
 
 type GitHubAuthResult struct {
-	TenantUrl   string `json:"url"`
+	TenantURL   string `json:"url"`
 	TokenSchema string `json:"token_schema"`
 	Token       string `json:"token"`
 }
 
 type TaskOrchestrationPlanReference struct {
 	ScopeIdentifier string
-	PlanId          string
+	PlanID          string
 	PlanType        string
 }
 
@@ -30,7 +30,7 @@ type JobAuthorization struct {
 type JobEndpoint struct {
 	Data          map[string]string
 	Name          string
-	Url           string
+	URL           string
 	Authorization JobAuthorization
 	IsShared      bool
 	IsReady       bool
@@ -51,7 +51,7 @@ type MaskHint struct {
 
 type ActionsEnvironmentReference struct {
 	Name *string `json:",omitempty"`
-	Url  *string `json:",omitempty"`
+	URL  *string `json:",omitempty"`
 }
 
 type ActionStepDefinitionReference struct {
@@ -79,13 +79,13 @@ type AgentJobRequestMessage struct {
 	MessageType          string
 	Plan                 *TaskOrchestrationPlanReference
 	Timeline             *TimeLineReference
-	JobId                string
+	JobID                string
 	JobDisplayName       string
 	JobName              string
 	JobContainer         *TemplateToken
 	JobServiceContainers *TemplateToken
 	JobOutputs           *TemplateToken
-	RequestId            int64
+	RequestID            int64
 	LockedUntil          string
 	Resources            *JobResources
 	ContextData          map[string]PipelineContextData
@@ -100,7 +100,7 @@ type AgentJobRequestMessage struct {
 }
 
 type RenewAgent struct {
-	RequestId int64
+	RequestID int64
 }
 
 type VssOAuthTokenResponse struct {
