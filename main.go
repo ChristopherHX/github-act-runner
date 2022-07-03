@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -996,35 +995,17 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			cancelJob()
 			finishJob()
 		}()
-		iv, _ := base64.StdEncoding.DecodeString(message.IV)
-		src, _ := base64.StdEncoding.DecodeString(message.Body)
-		cbcdec := cipher.NewCBCDecrypter(session.Block, iv)
-		cbcdec.CryptBlocks(src, src)
-		maxlen := session.Block.BlockSize()
-		validlen := len(src)
-		if int(src[len(src)-1]) < maxlen {
-			ok := true
-			for i := 2; i <= int(src[len(src)-1]); i++ {
-				if src[len(src)-i] != src[len(src)-1] {
-					ok = false
-					break
-				}
-			}
-			if ok {
-				validlen -= int(src[len(src)-1])
-			}
-		}
-		off := 0
-		// skip utf8 bom, c# cryptostream uses it for utf8
-		if src[0] == 239 && src[1] == 187 && src[2] == 191 {
-			off = 3
+		src, err := message.Decrypt(session.Block)
+		if err != nil {
+			fmt.Printf("Failed to decode TaskAgentMessage: %v\n", err)
+			return
 		}
 		if run.Trace {
-			fmt.Println(string(src[off:validlen]))
+			fmt.Println(string(src))
 		}
 		jobreq := &protocol.AgentJobRequestMessage{}
 		{
-			dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
+			dec := json.NewDecoder(bytes.NewReader(src))
 			dec.Decode(jobreq)
 		}
 		jobrun := &JobRun{
@@ -1091,7 +1072,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			vm := otto.New()
 			{
 				var req interface{}
-				e := json.Unmarshal(src[off:validlen], &req)
+				e := json.Unmarshal(src, &req)
 				fmt.Println(e)
 				vm.Set("runnerInstance", instance)
 				vm.Set("jobrequest", req)
