@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -32,7 +31,7 @@ import (
 
 	// "github.com/AlecAivazis/survey/v2"
 
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt"
 	"github.com/google/uuid"
 	_ "github.com/mtibben/androiddnsfix"
 	"github.com/nektos/act/pkg/common"
@@ -74,7 +73,7 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 					f.current.Complete("Failed")
 				}
 				if f.stepBuffer.Len() > 0 {
-					f.current.Log = &protocol.TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
+					f.current.Log = &protocol.TaskLogReference{ID: f.uploadLogFile(f.stepBuffer.String())}
 				}
 			}
 			f.stepBuffer = &bytes.Buffer{}
@@ -121,7 +120,7 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	b.WriteString(entry.Message)
 	b.WriteByte('\n')
 	lines := strings.Split(entry.Message, "\n")
-	f.logline(f.startLine, f.current.Id, lines)
+	f.logline(f.startLine, f.current.ID, lines)
 	f.startLine += int64(len(lines))
 	f.stepBuffer.Write(b.Bytes())
 	return b.Bytes(), nil
@@ -144,7 +143,7 @@ type ConfigureRunner struct {
 }
 
 type RunnerInstance struct {
-	PoolId          int64
+	PoolID          int64
 	RegistrationUrl string
 	Auth            *protocol.GitHubAuthResult
 	Agent           *protocol.TaskAgent
@@ -154,7 +153,7 @@ type RunnerInstance struct {
 }
 
 type RunnerSettings struct {
-	PoolId          int64
+	PoolID          int64
 	RegistrationUrl string
 	Instances       []*RunnerInstance
 }
@@ -306,7 +305,7 @@ func (config *ConfigureRunner) Configure() int {
 
 	buf := new(bytes.Buffer)
 	req := &protocol.RunnerAddRemove{}
-	req.Url = config.Url
+	req.URL = config.Url
 	req.RunnerEvent = "register"
 	enc := json.NewEncoder(buf)
 	if err := enc.Encode(req); err != nil {
@@ -337,7 +336,7 @@ func (config *ConfigureRunner) Configure() int {
 	instance.Auth = res
 	vssConnection := &protocol.VssConnection{
 		Client:    c,
-		TenantUrl: res.TenantUrl,
+		TenantURL: res.TenantURL,
 		Token:     res.Token,
 		Trace:     config.Trace,
 	}
@@ -367,13 +366,13 @@ func (config *ConfigureRunner) Configure() int {
 				taskAgentPool = RunnerGroupSurvey(taskAgentPool, taskAgentPools)
 			}
 		}
-		vssConnection.PoolId = -1
+		vssConnection.PoolID = -1
 		for _, val := range _taskAgentPools.Value {
 			if !val.IsHosted && strings.EqualFold(val.Name, taskAgentPool) {
-				vssConnection.PoolId = val.Id
+				vssConnection.PoolID = val.ID
 			}
 		}
-		if vssConnection.PoolId < 0 {
+		if vssConnection.PoolID < 0 {
 			fmt.Printf("Runner Pool %v not found\n", taskAgentPool)
 			return 1
 		}
@@ -424,7 +423,7 @@ func (config *ConfigureRunner) Configure() int {
 	taskAgent.Ephemeral = config.Ephemeral
 	{
 		err := vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "POST", map[string]string{
-			"poolId": fmt.Sprint(vssConnection.PoolId),
+			"poolId": fmt.Sprint(vssConnection.PoolID),
 		}, map[string]string{}, taskAgent, taskAgent)
 		// TODO Replace Runner support
 		// {
@@ -466,7 +465,7 @@ func (config *ConfigureRunner) Configure() int {
 			// Try replaceing runner if creation failed
 			taskAgents := &protocol.TaskAgents{}
 			err := vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "GET", map[string]string{
-				"poolId": fmt.Sprint(vssConnection.PoolId),
+				"poolId": fmt.Sprint(vssConnection.PoolID),
 			}, map[string]string{}, nil, taskAgents)
 			if err != nil {
 				fmt.Printf("Failed to update taskAgent: %v\n", err.Error())
@@ -475,7 +474,7 @@ func (config *ConfigureRunner) Configure() int {
 			invalid := true
 			for i := 0; i < len(taskAgents.Value); i++ {
 				if taskAgents.Value[i].Name == taskAgent.Name {
-					taskAgent.Id = taskAgents.Value[i].Id
+					taskAgent.ID = taskAgents.Value[i].ID
 					invalid = false
 					break
 				}
@@ -485,8 +484,8 @@ func (config *ConfigureRunner) Configure() int {
 				return 1
 			}
 			err = vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "PUT", map[string]string{
-				"poolId":  fmt.Sprint(vssConnection.PoolId),
-				"agentId": fmt.Sprint(taskAgent.Id),
+				"poolId":  fmt.Sprint(vssConnection.PoolID),
+				"agentId": fmt.Sprint(taskAgent.ID),
 			}, map[string]string{}, taskAgent, taskAgent)
 			if err != nil {
 				fmt.Printf("Failed to update taskAgent: %v\n", err.Error())
@@ -495,7 +494,7 @@ func (config *ConfigureRunner) Configure() int {
 		}
 	}
 	instance.Agent = taskAgent
-	instance.PoolId = vssConnection.PoolId
+	instance.PoolID = vssConnection.PoolID
 	if err := WriteJson("settings.json", settings); err != nil {
 		fmt.Printf("Failed to save settings.json: %v\n", err.Error())
 	}
@@ -510,11 +509,11 @@ type RunRunner struct {
 }
 
 type JobRun struct {
-	RequestId       int64
-	JobId           string
+	RequestID       int64
+	JobID           string
 	Plan            *protocol.TaskOrchestrationPlanReference
 	Name            string
-	RegistrationUrl string
+	RegistrationURL string
 }
 
 func ToStringMap(src interface{}) interface{} {
@@ -565,7 +564,7 @@ func readLegacyInstance(settings *RunnerSettings, instance *RunnerInstance) int 
 	}
 	instance.Agent = taskAgent
 	instance.PKey = key
-	instance.PoolId = settings.PoolId
+	instance.PoolID = settings.PoolID
 	instance.RegistrationUrl = settings.RegistrationUrl
 	instance.Auth = req
 	return 0
@@ -579,7 +578,7 @@ func loadConfiguration() (*RunnerSettings, error) {
 			// Backward compat <= 0.0.3
 			// fmt.Printf("The runner needs to be configured first: %v\n", err.Error())
 			// return 1
-			settings.PoolId = 1
+			settings.PoolID = 1
 		} else {
 			err = json.Unmarshal(cont, settings)
 			if err != nil {
@@ -733,8 +732,8 @@ func (run *RunRunner) Run() int {
 							IdleConnTimeout: 100 * time.Second,
 						},
 					},
-					TenantUrl: instance.Auth.TenantUrl,
-					PoolId:    instance.PoolId,
+					TenantURL: instance.Auth.TenantURL,
+					PoolID:    instance.PoolID,
 					TaskAgent: instance.Agent,
 					Key:       instance.PKey,
 					Trace:     run.Trace,
@@ -759,12 +758,12 @@ func (run *RunRunner) Run() int {
 					}
 				}
 				jobrun := &JobRun{}
-				if ReadJson("jobrun.json", jobrun) == nil && ((jobrun.RegistrationUrl == instance.RegistrationUrl && jobrun.Name == instance.Agent.Name) || (len(settings.Instances) == 1)) {
+				if ReadJson("jobrun.json", jobrun) == nil && ((jobrun.RegistrationURL == instance.RegistrationUrl && jobrun.Name == instance.Agent.Name) || (len(settings.Instances) == 1)) {
 					result := "Failed"
 					finish := &protocol.JobEvent{
 						Name:      "JobCompleted",
-						JobId:     jobrun.JobId,
-						RequestId: jobrun.RequestId,
+						JobID:     jobrun.JobID,
+						RequestID: jobrun.RequestID,
 						Result:    result,
 					}
 					go func() {
@@ -793,7 +792,7 @@ func (run *RunRunner) Run() int {
 						if deleteSessions {
 							session.Delete()
 							for i, _session := range sessions {
-								if session.TaskAgentSession.SessionId == _session.SessionId {
+								if session.TaskAgentSession.SessionID == _session.SessionID {
 									sessions[i] = sessions[len(sessions)-1]
 									sessions = sessions[:len(sessions)-1]
 								}
@@ -816,7 +815,7 @@ func (run *RunRunner) Run() int {
 						} else {
 							mu.Lock()
 							for i, _session := range sessions {
-								if session.TaskAgentSession.SessionId == _session.SessionId {
+								if session.TaskAgentSession.SessionID == _session.SessionID {
 									sessions[i] = sessions[len(sessions)-1]
 									sessions = sessions[:len(sessions)-1]
 								}
@@ -877,9 +876,9 @@ func (run *RunRunner) Run() int {
 							}
 						}
 						err := vssConnection.RequestWithContext(xctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "GET", map[string]string{
-							"poolId": fmt.Sprint(instance.PoolId),
+							"poolId": fmt.Sprint(instance.PoolID),
 						}, map[string]string{
-							"sessionId": session.TaskAgentSession.SessionId,
+							"sessionId": session.TaskAgentSession.SessionID,
 						}, nil, message)
 						//TODO lastMessageId=
 						if err != nil {
@@ -915,10 +914,10 @@ func (run *RunRunner) Run() int {
 							}
 							success = true
 							err := vssConnection.Request("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "DELETE", map[string]string{
-								"poolId":    fmt.Sprint(instance.PoolId),
-								"messageId": fmt.Sprint(message.MessageId),
+								"poolId":    fmt.Sprint(instance.PoolID),
+								"messageId": fmt.Sprint(message.MessageID),
 							}, map[string]string{
-								"sessionId": session.TaskAgentSession.SessionId,
+								"sessionId": session.TaskAgentSession.SessionID,
 							}, nil, nil)
 							if err != nil {
 								fmt.Println("Failed to delete Message")
@@ -996,42 +995,24 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			cancelJob()
 			finishJob()
 		}()
-		iv, _ := base64.StdEncoding.DecodeString(message.IV)
-		src, _ := base64.StdEncoding.DecodeString(message.Body)
-		cbcdec := cipher.NewCBCDecrypter(session.Block, iv)
-		cbcdec.CryptBlocks(src, src)
-		maxlen := session.Block.BlockSize()
-		validlen := len(src)
-		if int(src[len(src)-1]) < maxlen {
-			ok := true
-			for i := 2; i <= int(src[len(src)-1]); i++ {
-				if src[len(src)-i] != src[len(src)-1] {
-					ok = false
-					break
-				}
-			}
-			if ok {
-				validlen -= int(src[len(src)-1])
-			}
-		}
-		off := 0
-		// skip utf8 bom, c# cryptostream uses it for utf8
-		if src[0] == 239 && src[1] == 187 && src[2] == 191 {
-			off = 3
+		src, err := message.Decrypt(session.Block)
+		if err != nil {
+			fmt.Printf("Failed to decode TaskAgentMessage: %v\n", err)
+			return
 		}
 		if run.Trace {
-			fmt.Println(string(src[off:validlen]))
+			fmt.Println(string(src))
 		}
 		jobreq := &protocol.AgentJobRequestMessage{}
 		{
-			dec := json.NewDecoder(bytes.NewReader(src[off:validlen]))
+			dec := json.NewDecoder(bytes.NewReader(src))
 			dec.Decode(jobreq)
 		}
 		jobrun := &JobRun{
-			RequestId:       jobreq.RequestId,
-			JobId:           jobreq.JobId,
+			RequestID:       jobreq.RequestID,
+			JobID:           jobreq.JobID,
 			Plan:            jobreq.Plan,
-			RegistrationUrl: instance.RegistrationUrl,
+			RegistrationURL: instance.RegistrationUrl,
 			Name:            instance.Agent.Name,
 		}
 		{
@@ -1043,8 +1024,8 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		finishJob2 := func(result string, outputs *map[string]protocol.VariableValue) {
 			finish := &protocol.JobEvent{
 				Name:      "JobCompleted",
-				JobId:     jobreq.JobId,
-				RequestId: jobreq.RequestId,
+				JobID:     jobreq.JobID,
+				RequestID: jobreq.RequestID,
 				Result:    result,
 				Outputs:   outputs,
 			}
@@ -1091,7 +1072,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			vm := otto.New()
 			{
 				var req interface{}
-				e := json.Unmarshal(src[off:validlen], &req)
+				e := json.Unmarshal(src, &req)
 				fmt.Println(e)
 				vm.Set("runnerInstance", instance)
 				vm.Set("jobrequest", req)
@@ -1112,7 +1093,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 					if err != nil {
 						panic(vm.MakeCustomError("TemplateTokenToObject", err.Error()))
 					}
-					return token.ToJsonRawObject()
+					return token.ToJSONRawObject()
 				})
 				contextData := make(map[string]interface{})
 				if jobreq.ContextData != nil {
@@ -1138,23 +1119,24 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		wrap.Count = 2
 		wrap.Value = make([]protocol.TimelineRecord, wrap.Count)
 		wrap.Value[0] = protocol.CreateTimelineEntry("", rqt.JobName, rqt.JobDisplayName)
-		wrap.Value[0].Id = rqt.JobId
+		wrap.Value[0].ID = rqt.JobID
 		wrap.Value[0].Type = "Job"
 		wrap.Value[0].Order = 0
 		wrap.Value[0].Start()
-		wrap.Value[1] = protocol.CreateTimelineEntry(rqt.JobId, "__setup", "Setup Job")
+		wrap.Value[1] = protocol.CreateTimelineEntry(rqt.JobID, "__setup", "Setup Job")
 		wrap.Value[1].Order = 1
 		wrap.Value[1].Start()
-		vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap)
+		vssConnection.UpdateTimeLine(jobreq.Timeline.ID, jobreq, wrap)
 		failInitJob2 := func(title string, message string) {
-			wrap.Value = append(wrap.Value, protocol.CreateTimelineEntry(rqt.JobId, "__fatal_error", title))
-			wrap.Value[wrap.Count].Log = &protocol.TaskLogReference{Id: vssConnection.UploadLogFile(jobreq.Timeline.Id, jobreq, message)}
+			wrap.Value = append(wrap.Value, protocol.CreateTimelineEntry(rqt.JobID, "__fatal_error", title))
+			id, _ := vssConnection.UploadLogFile(jobreq.Timeline.ID, jobreq, message)
+			wrap.Value[wrap.Count].Log = &protocol.TaskLogReference{ID: id}
 			wrap.Value[wrap.Count].Start()
 			wrap.Value[wrap.Count].Complete("Failed")
 			wrap.Value[wrap.Count].Order = int32(wrap.Count)
 			wrap.Count++
 			wrap.Value[0].Complete("Failed")
-			vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap)
+			vssConnection.UpdateTimeLine(jobreq.Timeline.ID, jobreq, wrap)
 			fmt.Println(message)
 			finishJob("Failed")
 		}
@@ -1170,11 +1152,11 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		go func() {
 			for {
 				err := con.Request("fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
-					"poolId":    fmt.Sprint(instance.PoolId),
-					"requestId": fmt.Sprint(jobreq.RequestId),
+					"poolId":    fmt.Sprint(instance.PoolID),
+					"requestId": fmt.Sprint(jobreq.RequestID),
 				}, map[string]string{
 					"lockToken": "00000000-0000-0000-0000-000000000000",
-				}, &protocol.RenewAgent{RequestId: jobreq.RequestId}, nil)
+				}, &protocol.RenewAgent{RequestID: jobreq.RequestID}, nil)
 				if err != nil {
 					if errors.Is(err, context.Canceled) {
 						return
@@ -1204,7 +1186,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		for _, endpoint := range jobreq.Resources.Endpoints {
 			if strings.EqualFold(endpoint.Name, "SystemVssConnection") && endpoint.Authorization.Parameters != nil && endpoint.Authorization.Parameters["AccessToken"] != "" {
 				jobToken := endpoint.Authorization.Parameters["AccessToken"]
-				jobTenant := endpoint.Url
+				jobTenant := endpoint.URL
 				claims := jwt.MapClaims{}
 				jwt.ParseWithClaims(jobToken, claims, func(t *jwt.Token) (interface{}, error) {
 					return nil, nil
@@ -1223,7 +1205,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				vssConnectionData = endpoint.Data
 				vssConnection = &protocol.VssConnection{
 					Client:    vssConnection.Client,
-					TenantUrl: jobTenant,
+					TenantURL: jobTenant,
 					Token:     jobToken,
 					Trace:     run.Trace,
 				}
@@ -1271,7 +1253,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				}
 			}
 		}
-		env["ACTIONS_RUNTIME_URL"] = vssConnection.TenantUrl
+		env["ACTIONS_RUNTIME_URL"] = vssConnection.TenantURL
 		env["ACTIONS_RUNTIME_TOKEN"] = vssConnection.Token
 		if len(cacheUrl) > 0 {
 			env["ACTIONS_CACHE_URL"] = cacheUrl
@@ -1504,12 +1486,12 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			Config: runnerConfig,
 			Env:    env,
 			Run: &model.Run{
-				JobID: rqt.JobId,
+				JobID: rqt.JobID,
 				Workflow: &model.Workflow{
 					Name:     githubCtxMap["workflow"].(string),
 					Defaults: defaults,
 					Jobs: map[string]*model.Job{
-						rqt.JobId: {
+						rqt.JobID: {
 							If:           yaml.Node{Value: "always()"},
 							Name:         rqt.JobDisplayName,
 							RawRunsOn:    yaml.Node{Kind: yaml.ScalarNode, Value: "dummy"},
@@ -1562,7 +1544,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 						Result:  result,
 					}
 				}
-				rc.Run.Workflow.Jobs[rqt.JobId].RawNeeds = yaml.Node{Kind: yaml.SequenceNode, Content: a}
+				rc.Run.Workflow.Jobs[rqt.JobID].RawNeeds = yaml.Node{Kind: yaml.SequenceNode, Content: a}
 			}
 		}
 		// Prepare act to add job outputs to current job
@@ -1572,7 +1554,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				for k, v := range m {
 					if kv, ok := k.(string); ok {
 						if sv, ok := v.(string); ok {
-							rc.Run.Workflow.Jobs[rqt.JobId].Outputs[kv] = sv
+							rc.Run.Workflow.Jobs[rqt.JobID].Outputs[kv] = sv
 						}
 					}
 				}
@@ -1616,18 +1598,19 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 		rc.StepResults[rc.CurrentStep] = &model.StepResult{}
 
 		for i := 0; i < len(steps); i++ {
-			wrap.Value = append(wrap.Value, protocol.CreateTimelineEntry(rqt.JobId, steps[i].ID, steps[i].String()))
+			wrap.Value = append(wrap.Value, protocol.CreateTimelineEntry(rqt.JobID, steps[i].ID, steps[i].String()))
 			wrap.Value[i+2].Order = int32(i + 2)
 		}
 		formatter.current = &wrap.Value[1]
 		wrap.Count = int64(len(wrap.Value))
-		vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap)
+		vssConnection.UpdateTimeLine(jobreq.Timeline.ID, jobreq, wrap)
 		{
 			formatter.updateTimeLine = func() {
-				vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap)
+				vssConnection.UpdateTimeLine(jobreq.Timeline.ID, jobreq, wrap)
 			}
 			formatter.uploadLogFile = func(log string) int {
-				return vssConnection.UploadLogFile(jobreq.Timeline.Id, jobreq, log)
+				id, _ := vssConnection.UploadLogFile(jobreq.Timeline.ID, jobreq, log)
+				return id
 			}
 		}
 		var outputMap *map[string]protocol.VariableValue
@@ -1647,7 +1630,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 					wrapper.Value = lines
 					wrapper.Count = int64(len(lines))
 					wrapper.StartLine = &startLine
-					wrapper.StepId = recordId
+					wrapper.StepID = recordId
 					logchan <- wrapper
 				}
 				go func() {
@@ -1655,10 +1638,10 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 					sendLogSlow := func(lines *protocol.TimelineRecordFeedLinesWrapper) {
 						err := vssConnection.Request("858983e4-19bd-4c5e-864c-507b59b58b12", "5.1-preview", "POST", map[string]string{
 							"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
-							"planId":          jobreq.Plan.PlanId,
+							"planId":          jobreq.Plan.PlanID,
 							"hubName":         jobreq.Plan.PlanType,
-							"timelineId":      jobreq.Timeline.Id,
-							"recordId":        lines.StepId,
+							"timelineId":      jobreq.Timeline.ID,
+							"recordId":        lines.StepID,
 						}, map[string]string{}, lines, nil)
 						if err != nil {
 							fmt.Println("Failed to upload logline: " + err.Error())
@@ -1668,7 +1651,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 					if feedStreamUrl, ok := vssConnectionData["FeedStreamUrl"]; ok {
 						re := regexp.MustCompile("(?i)^http(s?)://")
 						feedStreamUrl2, _ := url.Parse(re.ReplaceAllString(feedStreamUrl, "ws$1://"))
-						origin, _ := url.Parse(vssConnection.TenantUrl)
+						origin, _ := url.Parse(vssConnection.TenantURL)
 						wsMessagesSent := 0
 						dialSocket := func() (ws *websocket.Conn, err error) {
 							wsMessagesSent = 0
@@ -1719,7 +1702,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 								}
 								select {
 								case line := <-logchan:
-									if line.StepId == lines.StepId {
+									if line.StepID == lines.StepID {
 										lines.Count += line.Count
 										lines.Value = append(lines.Value, line.Value...)
 									} else {
@@ -1764,7 +1747,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			if rqt.JobOutputs != nil {
 				m := make(map[string]protocol.VariableValue)
 				outputMap = &m
-				for k, v := range rc.Run.Workflow.Jobs[rqt.JobId].Outputs {
+				for k, v := range rc.Run.Workflow.Jobs[rqt.JobID].Outputs {
 					m[k] = protocol.VariableValue{Value: v}
 				}
 			}
@@ -1800,7 +1783,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 						f.current.Complete("Failed")
 					}
 					if f.stepBuffer.Len() > 0 {
-						f.current.Log = &protocol.TaskLogReference{Id: f.uploadLogFile(f.stepBuffer.String())}
+						f.current.Log = &protocol.TaskLogReference{ID: f.uploadLogFile(f.stepBuffer.String())}
 					}
 				}
 			}
@@ -1818,7 +1801,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			}
 		}
 		for i := 0; ; i++ {
-			if vssConnection.UpdateTimeLine(jobreq.Timeline.Id, jobreq, wrap) != nil && i < 10 {
+			if vssConnection.UpdateTimeLine(jobreq.Timeline.ID, jobreq, wrap) != nil && i < 10 {
 				fmt.Printf("Retry uploading the final timeline of the job in 10 seconds attempt %v of 10\n", i+1)
 				<-time.After(time.Second * 10)
 			} else {
@@ -1927,7 +1910,7 @@ func (config *RemoveRunner) Remove() int {
 			{
 				buf := new(bytes.Buffer)
 				req := &protocol.RunnerAddRemove{}
-				req.Url = instance.RegistrationUrl
+				req.URL = instance.RegistrationUrl
 				req.RunnerEvent = "remove"
 				enc := json.NewEncoder(buf)
 				if err := enc.Encode(req); err != nil {
@@ -2018,9 +2001,9 @@ func (config *RemoveRunner) Remove() int {
 
 			vssConnection := &protocol.VssConnection{
 				Client:    c,
-				TenantUrl: res.TenantUrl,
+				TenantURL: res.TenantURL,
 				Token:     res.Token,
-				PoolId:    instance.PoolId,
+				PoolID:    instance.PoolID,
 				Trace:     config.Trace,
 			}
 			vssConnection.ConnectionData = vssConnection.GetConnectionData()
@@ -2045,7 +2028,7 @@ func (config *RemoveRunner) Remove() int {
 	return 0
 }
 
-var version string = "0.2.x-dev"
+var version string = "0.3.x-dev"
 
 func main() {
 	config := &ConfigureRunner{}
