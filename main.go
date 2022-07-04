@@ -616,11 +616,11 @@ func containsEphemeralConfiguration() bool {
 func (run *RunRunner) Run() int {
 	// This is used to wait for possible multiple jobs, they would execute sequentially and we need to wait for all
 	var jobCompletedWG sync.WaitGroup
-	allJobsDone := func() chan struct{} {
-		ch := make(chan struct{})
+	allJobsDone := func() chan interface{} {
+		ch := make(chan interface{})
 		go func() {
 			jobCompletedWG.Wait()
-			ch <- jobCompletedWG
+			ch <- nil
 		}()
 		return ch
 	}
