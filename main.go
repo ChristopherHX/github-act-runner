@@ -1764,7 +1764,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			logger.Log(logrus.InfoLevel, "Runner Version: "+version)
 
 			// Wait for possible concurrent running job and serialize, this only happens for multi repository runners
-			waitContext, finishWait := context.WithCancel(jobExecCtx)
+			waitContext, finishWait := context.WithCancel(jobctx)
 			go func() {
 				for {
 					select {
