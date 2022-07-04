@@ -616,11 +616,11 @@ func containsEphemeralConfiguration() bool {
 func (run *RunRunner) Run() int {
 	// This is used to wait for possible multiple jobs, they would execute sequentially and we need to wait for all
 	var jobCompletedWG sync.WaitGroup
-	allJobsDone := func() chan interface{} {
-		ch := make(chan interface{})
+	allJobsDone := func() chan struct{} {
+		ch := make(chan struct{})
 		go func() {
 			jobCompletedWG.Wait()
-			ch <- nil
+			close(ch)
 		}()
 		return ch
 	}
@@ -636,7 +636,7 @@ func (run *RunRunner) Run() int {
 			select {
 			case <-allJobsDone():
 				fmt.Println("SIGTERM received, no job is running shutdown")
-			default:
+			case <-time.After(100 * time.Millisecond):
 				fmt.Println("SIGTERM received, cancel the current job and wait for completion")
 			}
 			cancel()
@@ -645,7 +645,7 @@ func (run *RunRunner) Run() int {
 			case <-allJobsDone():
 				fmt.Println("CTRL+C received, no job is running shutdown")
 				cancel()
-			default:
+			case <-time.After(100 * time.Millisecond):
 				fmt.Println("CTRL+C received, stop accepting new jobs and exit after the current job finishes")
 				// Switch to run once mode
 				run.Once = true
