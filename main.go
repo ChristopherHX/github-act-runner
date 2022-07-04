@@ -1782,8 +1782,8 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				defer func() {
 					joblock.Unlock()
 				}()
-				<-jobctx.Done()
 				close(joblch)
+				<-jobctx.Done()
 			}()
 			var err error
 			select {
@@ -1800,7 +1800,6 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				}
 				err = rc.Executor()(common.WithJobErrorContainer(common.WithLogger(jobExecCtx, logger)))
 			case <-jobExecCtx.Done():
-				finishWait()
 			}
 
 			if err != nil {
