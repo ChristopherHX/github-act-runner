@@ -614,30 +614,38 @@ func containsEphemeralConfiguration() bool {
 }
 
 func (run *RunRunner) Run() int {
+	// This is used to wait for possible multiple jobs, they would execute sequentially and we need to wait for all
+	var jobCompletedWG sync.WaitGroup
+	allJobsDone := func() chan struct{} {
+		ch := make(chan struct{})
+		go func() {
+			jobCompletedWG.Wait()
+			close(ch)
+		}()
+		return ch
+	}
 	container.SetContainerAllocateTerminal(run.Terminal)
 	// trap Ctrl+C
 	channel := make(chan os.Signal, 1)
 	signal.Notify(channel, syscall.SIGTERM, os.Interrupt)
 	ctx, cancel := context.WithCancel(context.Background())
 	firstJobReceived := false
-	jobctx, cancelJob := context.WithCancel(context.Background())
-	cancelJob()
 	go func() {
 		sig := <-channel
 		if sig == syscall.SIGTERM {
 			select {
-			case <-jobctx.Done():
+			case <-allJobsDone():
 				fmt.Println("SIGTERM received, no job is running shutdown")
-			default:
+			case <-time.After(100 * time.Millisecond):
 				fmt.Println("SIGTERM received, cancel the current job and wait for completion")
 			}
 			cancel()
 		} else {
 			select {
-			case <-jobctx.Done():
+			case <-allJobsDone():
 				fmt.Println("CTRL+C received, no job is running shutdown")
 				cancel()
-			default:
+			case <-time.After(100 * time.Millisecond):
 				fmt.Println("CTRL+C received, stop accepting new jobs and exit after the current job finishes")
 				// Switch to run once mode
 				run.Once = true
@@ -657,7 +665,7 @@ func (run *RunRunner) Run() int {
 		signal.Stop(channel)
 	}()
 	defer func() {
-		<-jobctx.Done()
+		<-allJobsDone()
 	}()
 	settings, err := loadConfiguration()
 	if err != nil {
@@ -932,10 +940,13 @@ func (run *RunRunner) Run() int {
 								if run.Once {
 									firstJobReceived = true
 								}
-								var finishJob context.CancelFunc
-								jobctx, finishJob = context.WithCancel(context.Background())
-								var jobExecCtx context.Context
-								jobExecCtx, cancelJob = context.WithCancel(ctx)
+								jobctx, finishJob := context.WithCancel(context.Background())
+								jobExecCtx, cancelJob := context.WithCancel(ctx)
+								jobCompletedWG.Add(1)
+								go func() {
+									<-jobctx.Done()
+									jobCompletedWG.Done()
+								}()
 								runJob(vssConnection, run, cancel, cancelJob, finishJob, jobExecCtx, jobctx, session, *message, instance)
 								{
 									message, err = session.GetNextMessage(jobExecCtx)
@@ -974,7 +985,7 @@ func (run *RunRunner) Run() int {
 			return 1
 		}
 		select {
-		case <-jobctx.Done():
+		case <-allJobsDone():
 			if run.Once {
 				return 0
 			}
@@ -1753,7 +1764,8 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			logger.Log(logrus.InfoLevel, "Runner Version: "+version)
 
 			// Wait for possible concurrent running job and serialize, this only happens for multi repository runners
-			waitContext, finishWait := context.WithCancel(context.Background())
+			waitContext, finishWait := context.WithCancel(jobExecCtx)
+			defer finishWait()
 			go func() {
 				for {
 					select {
@@ -1764,23 +1776,32 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 					}
 				}
 			}()
-			joblock.Lock()
-			defer func() {
-				joblock.Unlock()
+			joblch := make(chan struct{})
+			go func() {
+				joblock.Lock()
+				defer func() {
+					joblock.Unlock()
+				}()
+				close(joblch)
+				<-jobctx.Done()
 			}()
-			defer finishWait()
-			finishWait()
-			// The following code is synchronized
+			var err error
+			select {
+			case <-joblch:
+				finishWait()
+				// The following code is synchronized
+				logrus.SetLevel(logger.GetLevel())
+				logrus.SetFormatter(formatter)
+				logrus.SetOutput(io.MultiWriter())
 
-			logrus.SetLevel(logger.GetLevel())
-			logrus.SetFormatter(formatter)
-			logrus.SetOutput(io.MultiWriter())
-
-			cacheDir := rc.ActionCacheDir()
-			if err := os.MkdirAll(cacheDir, 0777); err != nil {
-				logger.Warn("github-act-runner is be unable to access \"" + cacheDir + "\". You might want set one of the following environment variables XDG_CACHE_HOME, HOME to a user read and writeable location. Details: " + err.Error())
+				cacheDir := rc.ActionCacheDir()
+				if err := os.MkdirAll(cacheDir, 0777); err != nil {
+					logger.Warn("github-act-runner is be unable to access \"" + cacheDir + "\". You might want set one of the following environment variables XDG_CACHE_HOME, HOME to a user read and writeable location. Details: " + err.Error())
+				}
+				err = rc.Executor()(common.WithJobErrorContainer(common.WithLogger(jobExecCtx, logger)))
+			case <-jobExecCtx.Done():
 			}
-			err := rc.Executor()(common.WithJobErrorContainer(common.WithLogger(jobExecCtx, logger)))
+
 			if err != nil {
 				logger.Logf(logrus.ErrorLevel, "%v", err.Error())
 				jobStatus = "failure"
