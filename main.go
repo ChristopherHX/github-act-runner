@@ -1764,7 +1764,8 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			logger.Log(logrus.InfoLevel, "Runner Version: "+version)
 
 			// Wait for possible concurrent running job and serialize, this only happens for multi repository runners
-			waitContext, finishWait := context.WithCancel(jobctx)
+			waitContext, finishWait := context.WithCancel(jobExecCtx)
+			defer finishWait()
 			go func() {
 				for {
 					select {
@@ -1775,23 +1776,31 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 					}
 				}
 			}()
-			joblock.Lock()
-			defer func() {
-				joblock.Unlock()
+			joblch := make(chan struct{})
+			go func() {
+				joblock.Lock()
+				defer func() {
+					joblock.Unlock()
+				}()
+				close(joblch)
 			}()
-			defer finishWait()
-			finishWait()
-			// The following code is synchronized
+			var err error
+			select {
+			case <-joblch:
+				finishWait()
+				// The following code is synchronized
+				logrus.SetLevel(logger.GetLevel())
+				logrus.SetFormatter(formatter)
+				logrus.SetOutput(io.MultiWriter())
 
-			logrus.SetLevel(logger.GetLevel())
-			logrus.SetFormatter(formatter)
-			logrus.SetOutput(io.MultiWriter())
-
-			cacheDir := rc.ActionCacheDir()
-			if err := os.MkdirAll(cacheDir, 0777); err != nil {
-				logger.Warn("github-act-runner is be unable to access \"" + cacheDir + "\". You might want set one of the following environment variables XDG_CACHE_HOME, HOME to a user read and writeable location. Details: " + err.Error())
+				cacheDir := rc.ActionCacheDir()
+				if err := os.MkdirAll(cacheDir, 0777); err != nil {
+					logger.Warn("github-act-runner is be unable to access \"" + cacheDir + "\". You might want set one of the following environment variables XDG_CACHE_HOME, HOME to a user read and writeable location. Details: " + err.Error())
+				}
+				err = rc.Executor()(common.WithJobErrorContainer(common.WithLogger(jobExecCtx, logger)))
+			case <-jobExecCtx.Done():
 			}
-			err := rc.Executor()(common.WithJobErrorContainer(common.WithLogger(jobExecCtx, logger)))
+
 			if err != nil {
 				logger.Logf(logrus.ErrorLevel, "%v", err.Error())
 				jobStatus = "failure"
