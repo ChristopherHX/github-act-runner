@@ -1782,6 +1782,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				defer func() {
 					joblock.Unlock()
 				}()
+				<-jobctx.Done()
 				close(joblch)
 			}()
 			var err error
