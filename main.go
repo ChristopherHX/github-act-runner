@@ -26,12 +26,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ChristopherHX/github-act-runner/actionsdotnetactcompat"
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	"golang.org/x/net/websocket"
 
 	// "github.com/AlecAivazis/survey/v2"
 
-	"github.com/golang-jwt/jwt"
 	"github.com/google/uuid"
 	_ "github.com/mtibben/androiddnsfix"
 	"github.com/nektos/act/pkg/common"
@@ -340,7 +340,6 @@ func (config *ConfigureRunner) Configure() int {
 		Token:     res.Token,
 		Trace:     config.Trace,
 	}
-	vssConnection.ConnectionData = vssConnection.GetConnectionData()
 	{
 		taskAgentPool := ""
 		taskAgentPools := []string{}
@@ -514,18 +513,6 @@ type JobRun struct {
 	Plan            *protocol.TaskOrchestrationPlanReference
 	Name            string
 	RegistrationURL string
-}
-
-func ToStringMap(src interface{}) interface{} {
-	bi, ok := src.(map[interface{}]interface{})
-	if ok {
-		res := make(map[string]interface{})
-		for k, v := range bi {
-			res[k.(string)] = ToStringMap(v)
-		}
-		return res
-	}
-	return src
 }
 
 func readLegacyInstance(settings *RunnerSettings, instance *RunnerInstance) int {
@@ -745,25 +732,6 @@ func (run *RunRunner) Run() int {
 					TaskAgent: instance.Agent,
 					Key:       instance.PKey,
 					Trace:     run.Trace,
-				}
-				for i := 1; ; {
-					vssConnection.ConnectionData = vssConnection.GetConnectionData()
-					if vssConnection.ConnectionData != nil {
-						break
-					}
-					maxtime := 60 * 10
-					var dtime time.Duration = time.Duration(i)
-					if i < maxtime {
-						i *= 2
-					} else {
-						dtime = time.Duration(maxtime)
-					}
-					fmt.Printf("Retry retrieving connectiondata from the server in %v seconds\n", dtime)
-					select {
-					case <-ctx.Done():
-						return 0
-					case <-time.After(time.Second * dtime):
-					}
 				}
 				jobrun := &JobRun{}
 				if ReadJson("jobrun.json", jobrun) == nil && ((jobrun.RegistrationURL == instance.RegistrationUrl && jobrun.Name == instance.Agent.Name) || (len(settings.Instances) == 1)) {
@@ -1052,6 +1020,29 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				fmt.Printf("INFO: Failed to create jobrun.json: %v\n", err)
 			}
 		}
+		con := *vssConnection
+		go func() {
+			for {
+				err := con.Request("fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
+					"poolId":    fmt.Sprint(instance.PoolID),
+					"requestId": fmt.Sprint(jobreq.RequestID),
+				}, map[string]string{
+					"lockToken": "00000000-0000-0000-0000-000000000000",
+				}, &protocol.RenewAgent{RequestID: jobreq.RequestID}, nil)
+				if err != nil {
+					if errors.Is(err, context.Canceled) {
+						return
+					} else {
+						fmt.Printf("Failed to renew job: %v\n", err.Error())
+					}
+				}
+				select {
+				case <-jobctx.Done():
+					return
+				case <-time.After(60 * time.Second):
+				}
+			}
+		}()
 		fmt.Printf("Running Job '%v' of %v ( %v )\n", jobreq.JobDisplayName, instance.Agent.Name, instance.RegistrationUrl)
 		finishJob2 := func(result string, outputs *map[string]protocol.VariableValue) {
 			finish := &protocol.JobEvent{
@@ -1180,71 +1171,14 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				failInitJob2("Worker panicked", "The worker panicked with message: "+fmt.Sprint(err)+"\n"+string(debug.Stack()))
 			}
 		}()
-		con := *vssConnection
-		go func() {
-			for {
-				err := con.Request("fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
-					"poolId":    fmt.Sprint(instance.PoolID),
-					"requestId": fmt.Sprint(jobreq.RequestID),
-				}, map[string]string{
-					"lockToken": "00000000-0000-0000-0000-000000000000",
-				}, &protocol.RenewAgent{RequestID: jobreq.RequestID}, nil)
-				if err != nil {
-					if errors.Is(err, context.Canceled) {
-						return
-					} else {
-						fmt.Printf("Failed to renew job: %v\n", err.Error())
-					}
-				}
-				select {
-				case <-jobctx.Done():
-					return
-				case <-time.After(60 * time.Second):
-				}
-			}
-		}()
-		if jobreq.Resources == nil {
-			failInitJob("Missing Job Resources")
+		jobVssConnection, vssConnectionData, err := jobreq.GetConnection("SystemVssConnection")
+		if err != nil {
+			failInitJob(err.Error())
 			return
 		}
-		if jobreq.Resources.Endpoints == nil {
-			failInitJob("Missing Job Resources Endpoints")
-			return
-		}
-		// orchid := ""
-		cacheUrl := ""
-		idTokenUrl := ""
-		vssConnectionData := make(map[string]string)
-		for _, endpoint := range jobreq.Resources.Endpoints {
-			if strings.EqualFold(endpoint.Name, "SystemVssConnection") && endpoint.Authorization.Parameters != nil && endpoint.Authorization.Parameters["AccessToken"] != "" {
-				jobToken := endpoint.Authorization.Parameters["AccessToken"]
-				jobTenant := endpoint.URL
-				claims := jwt.MapClaims{}
-				jwt.ParseWithClaims(jobToken, claims, func(t *jwt.Token) (interface{}, error) {
-					return nil, nil
-				})
-				// if _orchid, suc := claims["orchid"]; suc {
-				// 	orchid = _orchid.(string)
-				// }
-				_cacheUrl, ok := endpoint.Data["CacheServerUrl"]
-				if ok {
-					cacheUrl = _cacheUrl
-				}
-				_idTokenUrl, ok := endpoint.Data["GenerateIdTokenUrl"]
-				if ok {
-					idTokenUrl = _idTokenUrl
-				}
-				vssConnectionData = endpoint.Data
-				vssConnection = &protocol.VssConnection{
-					Client:    vssConnection.Client,
-					TenantURL: jobTenant,
-					Token:     jobToken,
-					Trace:     run.Trace,
-				}
-				vssConnection.ConnectionData = vssConnection.GetConnectionData()
-			}
-		}
-
+		jobVssConnection.Client = vssConnection.Client
+		jobVssConnection.Trace = vssConnection.Trace
+		vssConnection = jobVssConnection
 		rawGithubCtx, ok := rqt.ContextData["github"]
 		if !ok {
 			fmt.Println("missing github context in ContextData")
@@ -1252,193 +1186,32 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			return
 		}
 		githubCtx := rawGithubCtx.ToRawObject()
-		matrix := make(map[string]interface{})
-		if rawMatrix, ok := rqt.ContextData["matrix"]; ok {
-			rawobj := rawMatrix.ToRawObject()
-			if tmpmatrix, ok := rawobj.(map[string]interface{}); ok {
-				matrix = tmpmatrix
-			} else if rawobj != nil {
-				failInitJob("matrix: not a map")
-				return
-			}
+		matrix, err := actionsdotnetactcompat.ConvertMatrixInstance(rqt.ContextData)
+		if err != nil {
+			failInitJob(err.Error())
 		}
-		env := make(map[string]string)
-		if rqt.EnvironmentVariables != nil {
-			for _, rawenv := range rqt.EnvironmentVariables {
-				if tmpenv, ok := rawenv.ToRawObject().(map[interface{}]interface{}); ok {
-					for k, v := range tmpenv {
-						key, ok := k.(string)
-						if !ok {
-							failInitJob("env key: act doesn't support non strings")
-							return
-						}
-						value, ok := v.(string)
-						if !ok {
-							failInitJob("env value: act doesn't support non strings")
-							return
-						}
-						env[key] = value
-					}
-				} else {
-					failInitJob("env: not a map")
-					return
-				}
-			}
+		env, err := actionsdotnetactcompat.ConvertEnvironment(rqt.EnvironmentVariables)
+		if err != nil {
+			failInitJob(err.Error())
 		}
 		env["ACTIONS_RUNTIME_URL"] = vssConnection.TenantURL
 		env["ACTIONS_RUNTIME_TOKEN"] = vssConnection.Token
-		if len(cacheUrl) > 0 {
+
+		if cacheUrl, ok := vssConnectionData["CacheServerUrl"]; ok && len(cacheUrl) > 0 {
 			env["ACTIONS_CACHE_URL"] = cacheUrl
 		}
-		if len(idTokenUrl) > 0 {
+		if idTokenUrl, ok := vssConnectionData["GenerateIdTokenUrl"]; ok && len(idTokenUrl) > 0 {
 			env["ACTIONS_ID_TOKEN_REQUEST_URL"] = idTokenUrl
 			env["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] = vssConnection.Token
 		}
 
-		defaults := model.Defaults{}
-		if rqt.Defaults != nil {
-			for _, rawenv := range rqt.Defaults {
-				rawobj := rawenv.ToRawObject()
-				rawobj = ToStringMap(rawobj)
-				b, err := json.Marshal(rawobj)
-				if err != nil {
-					failInitJob("Failed to eval defaults")
-					return
-				}
-				json.Unmarshal(b, &defaults)
-			}
+		defaults, err := actionsdotnetactcompat.ConvertDefaults(rqt.Defaults)
+		if err != nil {
+			failInitJob(err.Error())
 		}
-		steps := []*model.Step{}
-		for _, step := range rqt.Steps {
-			st := strings.ToLower(step.Reference.Type)
-			inputs := make(map[interface{}]interface{})
-			if step.Inputs != nil {
-				if tmpinputs, ok := step.Inputs.ToRawObject().(map[interface{}]interface{}); ok {
-					inputs = tmpinputs
-				} else {
-					failInitJob("step.Inputs: not a map")
-					return
-				}
-			}
-
-			env := &yaml.Node{}
-			if step.Environment != nil {
-				env = step.Environment.ToYamlNode()
-			}
-
-			continueOnError := false
-			if step.ContinueOnError != nil {
-				tmpcontinueOnError, ok := step.ContinueOnError.ToRawObject().(bool)
-				if !ok {
-					failInitJob("ContinueOnError: act doesn't support expressions here")
-					return
-				}
-				continueOnError = tmpcontinueOnError
-			}
-			var timeoutMinutes int64 = 0
-			if step.TimeoutInMinutes != nil {
-				rawTimeout, ok := step.TimeoutInMinutes.ToRawObject().(float64)
-				if !ok {
-					failInitJob("TimeoutInMinutes: act doesn't support expressions here")
-					return
-				}
-				timeoutMinutes = int64(rawTimeout)
-			}
-			var displayName string = ""
-			if step.DisplayNameToken != nil {
-				rawDisplayName, ok := step.DisplayNameToken.ToRawObject().(string)
-				if !ok {
-					failInitJob("DisplayNameToken: act doesn't support no strings")
-					return
-				}
-				displayName = rawDisplayName
-			}
-			if step.ContextName == "" {
-				step.ContextName = "___" + uuid.New().String()
-			}
-
-			switch st {
-			case "script":
-				rawwd, haswd := inputs["workingDirectory"]
-				var wd string
-				if haswd {
-					tmpwd, ok := rawwd.(string)
-					if !ok {
-						failInitJob("workingDirectory: act doesn't support non strings")
-						return
-					}
-					wd = tmpwd
-				} else {
-					wd = ""
-				}
-				rawshell, hasshell := inputs["shell"]
-				shell := ""
-				if hasshell {
-					sshell, ok := rawshell.(string)
-					if ok {
-						shell = sshell
-					} else {
-						failInitJob("shell is not a string")
-						return
-					}
-				}
-				scriptContent, ok := inputs["script"].(string)
-				if ok {
-					steps = append(steps, &model.Step{
-						ID:               step.ContextName,
-						If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
-						Name:             displayName,
-						Run:              scriptContent,
-						WorkingDirectory: wd,
-						Shell:            shell,
-						ContinueOnError:  continueOnError,
-						TimeoutMinutes:   timeoutMinutes,
-						Env:              *env,
-					})
-				} else {
-					failInitJob("Missing script")
-					return
-				}
-			case "containerregistry", "repository":
-				uses := ""
-				if st == "containerregistry" {
-					uses = "docker://" + step.Reference.Image
-				} else if strings.ToLower(step.Reference.RepositoryType) == "self" {
-					uses = step.Reference.Path
-				} else {
-					uses = step.Reference.Name
-					if len(step.Reference.Path) > 0 {
-						uses = uses + "/" + step.Reference.Path
-					}
-					uses = uses + "@" + step.Reference.Ref
-				}
-				with := map[string]string{}
-				for k, v := range inputs {
-					k, ok := k.(string)
-					if !ok {
-						failInitJob("with input key is not a string")
-						return
-					}
-					val, ok := v.(string)
-					if !ok {
-						failInitJob("with input value is not a string")
-						return
-					}
-					with[k] = val
-				}
-
-				steps = append(steps, &model.Step{
-					ID:               step.ContextName,
-					If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
-					Name:             displayName,
-					Uses:             uses,
-					WorkingDirectory: "",
-					With:             with,
-					ContinueOnError:  continueOnError,
-					TimeoutMinutes:   timeoutMinutes,
-					Env:              *env,
-				})
-			}
+		steps, err := actionsdotnetactcompat.ConvertSteps(rqt.Steps)
+		if err != nil {
+			failInitJob(err.Error())
 		}
 		actions_step_debug := false
 		if sd, ok := rqt.Variables["ACTIONS_STEP_DEBUG"]; ok && (sd.Value == "true" || sd.Value == "1") {
@@ -1461,33 +1234,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				})
 			}
 		}
-		services := make(map[string]*model.ContainerSpec)
-		if rqt.JobServiceContainers != nil {
-			rawServiceContainer, ok := rqt.JobServiceContainers.ToRawObject().(map[interface{}]interface{})
-			if !ok {
-				failInitJob("Job service container is not nil, but also not a map")
-				return
-			}
-			for name, rawcontainer := range rawServiceContainer {
-				containerName, ok := name.(string)
-				if !ok {
-					failInitJob("containername is not a string")
-					return
-				}
-				spec := &model.ContainerSpec{}
-				b, err := json.Marshal(ToStringMap(rawcontainer))
-				if err != nil {
-					failInitJob("Failed to serialize ContainerSpec")
-					return
-				}
-				err = json.Unmarshal(b, &spec)
-				if err != nil {
-					failInitJob("Failed to deserialize ContainerSpec")
-					return
-				}
-				services[containerName] = spec
-			}
-		}
+		services, err := actionsdotnetactcompat.ConvertServiceContainer(rqt.JobServiceContainers)
 		githubCtxMap, ok := githubCtx.(map[string]interface{})
 		if !ok {
 			failInitJob("Github ctx is not a map")
@@ -1539,7 +1286,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			EventJSON: payload,
 		}
 
-		// Prepare act to provide inputs for workflow_run
+		// Prepare act to provide inputs for workflow_call
 		if rawInputsCtx, ok := rqt.ContextData["inputs"]; ok {
 			rawInputs := rawInputsCtx.ToRawObject()
 			if rawInputsMap, ok := rawInputs.(map[string]interface{}); ok {
@@ -1664,27 +1411,21 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				go func() {
 					defer cancelLog()
 					sendLogSlow := func(lines *protocol.TimelineRecordFeedLinesWrapper) {
-						err := vssConnection.Request("858983e4-19bd-4c5e-864c-507b59b58b12", "5.1-preview", "POST", map[string]string{
-							"scopeIdentifier": jobreq.Plan.ScopeIdentifier,
-							"planId":          jobreq.Plan.PlanID,
-							"hubName":         jobreq.Plan.PlanType,
-							"timelineId":      jobreq.Timeline.ID,
-							"recordId":        lines.StepID,
-						}, map[string]string{}, lines, nil)
+						vssConnection.SendLogLines(jobreq.Plan, jobreq.Timeline.ID, lines)
 						if err != nil {
 							fmt.Println("Failed to upload logline: " + err.Error())
 						}
 					}
 					sendLog := sendLogSlow
-					if feedStreamUrl, ok := vssConnectionData["FeedStreamUrl"]; ok {
+					if rawFeedStreamUrl, ok := vssConnectionData["FeedStreamUrl"]; ok {
 						re := regexp.MustCompile("(?i)^http(s?)://")
-						feedStreamUrl2, _ := url.Parse(re.ReplaceAllString(feedStreamUrl, "ws$1://"))
+						feedStreamUrl, _ := url.Parse(re.ReplaceAllString(rawFeedStreamUrl, "ws$1://"))
 						origin, _ := url.Parse(vssConnection.TenantURL)
 						wsMessagesSent := 0
 						dialSocket := func() (ws *websocket.Conn, err error) {
 							wsMessagesSent = 0
 							return websocket.DialConfig(&websocket.Config{
-								Location: feedStreamUrl2,
+								Location: feedStreamUrl,
 								Origin:   origin,
 								Version:  13,
 								Header: http.Header{
@@ -2069,7 +1810,6 @@ func (config *RemoveRunner) Remove() int {
 				PoolID:    instance.PoolID,
 				Trace:     config.Trace,
 			}
-			vssConnection.ConnectionData = vssConnection.GetConnectionData()
 			if err := vssConnection.DeleteAgent(instance.Agent); err != nil {
 				fmt.Printf("Failed to remove Runner from server: %v\n", err)
 				return 1
