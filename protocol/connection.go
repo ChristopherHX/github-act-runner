@@ -21,7 +21,7 @@ import (
 type VssConnection struct {
 	Client         *http.Client
 	TenantURL      string
-	ConnectionData *ConnectionData
+	connectionData *ConnectionData
 	Token          string
 	PoolID         int64
 	TaskAgent      *TaskAgent
@@ -53,10 +53,23 @@ func (vssConnection *VssConnection) BuildURL(relativePath string, ppath map[stri
 	return url2.String(), nil
 }
 
+func (vssConnection *VssConnection) httpClient() *http.Client {
+	if vssConnection.Client == nil {
+		vssConnection.Client = &http.Client{
+			Timeout: 100 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:    1,
+				IdleConnTimeout: 100 * time.Second,
+			},
+		}
+	}
+	return vssConnection.Client
+}
+
 func (vssConnection *VssConnection) authorize() (*VssOAuthTokenResponse, error) {
 	var authResponse *VssOAuthTokenResponse
 	var err error
-	authResponse, err = vssConnection.TaskAgent.Authorize(vssConnection.Client, vssConnection.Key)
+	authResponse, err = vssConnection.TaskAgent.Authorize(vssConnection.httpClient(), vssConnection.Key)
 	if err == nil {
 		return authResponse, nil
 	}
@@ -86,8 +99,30 @@ func AddHeaders(header http.Header) {
 	header["X-TFS-Session"] = []string{uuid.NewString()}
 }
 
-func (vssConnection *VssConnection) GetServiceURL(serviceID string, urlParameter map[string]string, queryParameter map[string]string) (string, error) {
-	serv := vssConnection.ConnectionData.GetServiceDefinition(serviceID)
+func (vssConnection *VssConnection) GetServiceURL(ctx context.Context, serviceID string, urlParameter map[string]string, queryParameter map[string]string) (string, error) {
+	if vssConnection.connectionData == nil {
+		for i := 1; ; {
+			vssConnection.connectionData = vssConnection.GetConnectionData()
+			if vssConnection.connectionData != nil {
+				break
+			}
+			maxtime := 60 * 10
+			var dtime time.Duration = time.Duration(i) * time.Second
+			if i < maxtime {
+				i *= 2
+			} else {
+				dtime = time.Duration(maxtime) * time.Second
+			}
+			fmt.Printf("Retry retrieving connectiondata from the server in %v seconds\n", dtime)
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("aborted to get connectionData")
+			case <-time.After(dtime):
+			}
+		}
+	}
+
+	serv := vssConnection.connectionData.GetServiceDefinition(serviceID)
 	if urlParameter == nil {
 		urlParameter = map[string]string{}
 	}
@@ -100,7 +135,7 @@ func (vssConnection *VssConnection) GetServiceURL(serviceID string, urlParameter
 }
 
 func (vssConnection *VssConnection) RequestWithContext(ctx context.Context, serviceID string, protocol string, method string, urlParameter map[string]string, queryParameter map[string]string, requestBody interface{}, responseBody interface{}) error {
-	url, err := vssConnection.GetServiceURL(serviceID, urlParameter, queryParameter)
+	url, err := vssConnection.GetServiceURL(ctx, serviceID, urlParameter, queryParameter)
 	if err != nil {
 		return err
 	}
@@ -172,7 +207,7 @@ func (vssConnection *VssConnection) requestWithContextNoAuth(ctx context.Context
 		fmt.Printf("Http %v Request started %v\nHeaders:\n%v\nBody: `%v`\n", method, url, getHeadersAsString(request.Header), getBodyAsString(buf))
 	}
 
-	response, err := vssConnection.Client.Do(request)
+	response, err := vssConnection.httpClient().Do(request)
 	if err != nil {
 		return 0, err
 	}
@@ -201,7 +236,7 @@ func (vssConnection *VssConnection) requestWithContextNoAuth(ctx context.Context
 	if failed {
 		return response.StatusCode, fmt.Errorf("http failure: %v", traceMessage)
 	}
-	if response.StatusCode != 200 {
+	if response.StatusCode != 200 && responseBody != nil {
 		return response.StatusCode, io.EOF
 	}
 	return response.StatusCode, setResponseBody(responseReader, responseBody)
@@ -308,4 +343,14 @@ func (vssConnection *VssConnection) FinishJob(e *JobEvent, plan *TaskOrchestrati
 		"planId":          plan.PlanID,
 		"hubName":         plan.PlanType,
 	}, map[string]string{}, e, nil)
+}
+
+func (vssConnection *VssConnection) SendLogLines(plan *TaskOrchestrationPlanReference, timelineID string, lines *TimelineRecordFeedLinesWrapper) error {
+	return vssConnection.Request("858983e4-19bd-4c5e-864c-507b59b58b12", "5.1-preview", "POST", map[string]string{
+		"scopeIdentifier": plan.ScopeIdentifier,
+		"planId":          plan.PlanID,
+		"hubName":         plan.PlanType,
+		"timelineId":      timelineID,
+		"recordId":        lines.StepID,
+	}, map[string]string{}, lines, nil)
 }

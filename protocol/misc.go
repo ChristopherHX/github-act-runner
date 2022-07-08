@@ -1,5 +1,10 @@
 package protocol
 
+import (
+	"fmt"
+	"strings"
+)
+
 type RunnerAddRemove struct {
 	URL         string `json:"url"`
 	RunnerEvent string `json:"runner_event"`
@@ -97,6 +102,27 @@ type AgentJobRequestMessage struct {
 	Variables            map[string]VariableValue
 	Steps                []ActionStep
 	FileTable            []string
+}
+
+func (jobreq *AgentJobRequestMessage) GetConnection(name string) (*VssConnection, map[string]string, error) {
+	if jobreq.Resources == nil {
+		return nil, nil, fmt.Errorf("missing resources")
+	}
+	if jobreq.Resources.Endpoints == nil {
+		return nil, nil, fmt.Errorf("missing resources.endpoints")
+	}
+	for _, endpoint := range jobreq.Resources.Endpoints {
+		if strings.EqualFold(endpoint.Name, name) {
+			con := &VssConnection{
+				TenantURL: endpoint.URL,
+			}
+			if endpoint.Authorization.Parameters != nil {
+				con.Token = endpoint.Authorization.Parameters["AccessToken"]
+			}
+			return con, endpoint.Data, nil
+		}
+	}
+	return nil, nil, fmt.Errorf("no connection with name '%v' found", name)
 }
 
 type RenewAgent struct {
