@@ -3,11 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,7 +15,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"path"
 	"regexp"
 	"runtime"
 	"runtime/debug"
@@ -28,6 +25,7 @@ import (
 
 	"github.com/ChristopherHX/github-act-runner/actionsdotnetactcompat"
 	"github.com/ChristopherHX/github-act-runner/protocol"
+	"github.com/ChristopherHX/github-act-runner/runnerconfiguration"
 	"golang.org/x/net/websocket"
 
 	// "github.com/AlecAivazis/survey/v2"
@@ -126,38 +124,6 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-type ConfigureRunner struct {
-	Url             string
-	Token           string
-	Pat             string
-	Labels          []string
-	Name            string
-	NoDefaultLabels bool
-	SystemLabels    []string
-	Unattended      bool
-	RunnerGroup     string
-	Trace           bool
-	Ephemeral       bool
-	RunnerGuard     string
-	Replace         bool
-}
-
-type RunnerInstance struct {
-	PoolID          int64
-	RegistrationUrl string
-	Auth            *protocol.GitHubAuthResult
-	Agent           *protocol.TaskAgent
-	Key             string
-	PKey            *rsa.PrivateKey `json:"-"`
-	RunnerGuard     string
-}
-
-type RunnerSettings struct {
-	PoolID          int64
-	RegistrationUrl string
-	Instances       []*RunnerInstance
-}
-
 func WriteJson(path string, value interface{}) error {
 	b, err := json.MarshalIndent(value, "", "    ")
 	if err != nil {
@@ -174,333 +140,6 @@ func ReadJson(path string, value interface{}) error {
 	return json.Unmarshal(cont, value)
 }
 
-func (config *ConfigureRunner) Configure() int {
-	if len(config.Pat) == 0 {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_PAT"); ok {
-			config.Pat = v
-		}
-	}
-	if len(config.Token) == 0 {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_TOKEN"); ok {
-			config.Token = v
-		}
-	}
-	if !config.Unattended {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_UNATTENDED"); ok {
-			config.Unattended = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
-		}
-	}
-	if !config.Ephemeral {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_EPHEMERAL"); ok {
-			config.Ephemeral = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
-		}
-	}
-	if len(config.Name) == 0 {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_NAME"); ok {
-			config.Name = v
-		}
-	}
-	if len(config.Url) == 0 {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_URL"); ok {
-			config.Url = v
-		}
-	}
-	if len(config.Labels) == 0 {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_LABELS"); ok {
-			config.Labels = strings.Split(v, ",")
-		}
-	}
-	if !config.Replace {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_REPLACE"); ok {
-			config.Replace = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
-		}
-	}
-	settings := &RunnerSettings{RegistrationUrl: config.Url}
-	_ = ReadJson("settings.json", settings)
-	instance := &RunnerInstance{
-		RunnerGuard: config.RunnerGuard,
-	}
-	loadConfiguration()
-	if config.Ephemeral && len(settings.Instances) > 0 || containsEphemeralConfiguration() {
-		fmt.Println("Ephemeral is not supported for multi runners, runner already configured.")
-		return 1
-	}
-	settings.Instances = append(settings.Instances, instance)
-	if len(config.Url) == 0 {
-		if !config.Unattended {
-			config.Url = GetInput("Please enter your repository, organization or enterprise url:", "")
-		} else {
-			fmt.Println("No url provided")
-			return 1
-		}
-	}
-	if len(config.Url) == 0 {
-		fmt.Println("No url provided")
-		return 1
-	}
-	instance.RegistrationUrl = config.Url
-	registerUrl, err := url.Parse(config.Url)
-	if err != nil {
-		fmt.Printf("Invalid Url: %v\n", config.Url)
-		return 1
-	}
-	apiscope := "/"
-	if strings.ToLower(registerUrl.Host) == "github.com" {
-		registerUrl.Host = "api." + registerUrl.Host
-	} else {
-		apiscope = "/api/v3"
-	}
-
-	c := &http.Client{
-		Timeout: 100 * time.Second,
-	}
-	if len(config.Token) == 0 {
-		if len(config.Pat) > 0 {
-			paths := strings.Split(strings.TrimPrefix(registerUrl.Path, "/"), "/")
-			url := *registerUrl
-			if len(paths) == 1 {
-				url.Path = path.Join(apiscope, "orgs", paths[0], "actions/runners/registration-token")
-			} else if len(paths) == 2 {
-				scope := "repos"
-				if strings.EqualFold(paths[0], "enterprises") {
-					scope = ""
-				}
-				url.Path = path.Join(apiscope, scope, paths[0], paths[1], "actions/runners/registration-token")
-			} else {
-				fmt.Println("Unsupported registration url")
-				return 1
-			}
-			req, _ := http.NewRequest("POST", url.String(), nil)
-			req.SetBasicAuth("github", config.Pat)
-			req.Header.Add("Accept", "application/vnd.github.v3+json")
-			resp, err := c.Do(req)
-			if err != nil {
-				fmt.Println("Failed to retrive registration token via pat: " + err.Error())
-				return 1
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				body, _ := ioutil.ReadAll(resp.Body)
-				fmt.Println("Failed to retrive registration token via pat [" + fmt.Sprint(resp.StatusCode) + "]: " + string(body))
-				return 1
-			}
-			tokenresp := &protocol.GitHubRunnerRegisterToken{}
-			dec := json.NewDecoder(resp.Body)
-			if err := dec.Decode(tokenresp); err != nil {
-				fmt.Println("Failed to decode registration token via pat: " + err.Error())
-				return 1
-			}
-			config.Token = tokenresp.Token
-		} else {
-			if !config.Unattended {
-				config.Token = GetInput("Please enter your runner registration token:", "")
-			}
-		}
-	}
-	if len(config.Token) == 0 {
-		fmt.Println("No runner registration token provided")
-		return 1
-	}
-	registerUrl.Path = path.Join(apiscope, "actions/runner-registration")
-
-	buf := new(bytes.Buffer)
-	req := &protocol.RunnerAddRemove{}
-	req.URL = config.Url
-	req.RunnerEvent = "register"
-	enc := json.NewEncoder(buf)
-	if err := enc.Encode(req); err != nil {
-		return 1
-	}
-	finalregisterUrl := registerUrl.String()
-	// fmt.Printf("Try to register runner with url: %v\n", finalregisterUrl)
-	r, _ := http.NewRequest("POST", finalregisterUrl, buf)
-	r.Header["Authorization"] = []string{"RemoteAuth " + config.Token}
-	resp, err := c.Do(r)
-	if err != nil {
-		fmt.Printf("Failed to register Runner: %v\n", err)
-		return 1
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		fmt.Printf("Failed to register Runner with status code: %v\n", resp.StatusCode)
-		return 1
-	}
-
-	res := &protocol.GitHubAuthResult{}
-	dec := json.NewDecoder(resp.Body)
-	if err := dec.Decode(res); err != nil {
-		fmt.Printf("error decoding struct from JSON: %v\n", err)
-		return 1
-	}
-
-	instance.Auth = res
-	vssConnection := &protocol.VssConnection{
-		Client:    c,
-		TenantURL: res.TenantURL,
-		Token:     res.Token,
-		Trace:     config.Trace,
-	}
-	{
-		taskAgentPool := ""
-		taskAgentPools := []string{}
-		_taskAgentPools, err := vssConnection.GetAgentPools()
-		if err != nil {
-			fmt.Printf("Failed to configure runner: %v\n", err)
-			return 1
-		}
-		for _, val := range _taskAgentPools.Value {
-			if !val.IsHosted {
-				taskAgentPools = append(taskAgentPools, val.Name)
-			}
-		}
-		if len(taskAgentPools) == 0 {
-			fmt.Println("Failed to configure runner, no self-hosted runner group available")
-			return 1
-		}
-		if len(config.RunnerGroup) > 0 {
-			taskAgentPool = config.RunnerGroup
-		} else {
-			taskAgentPool = taskAgentPools[0]
-			if len(taskAgentPools) > 1 && !config.Unattended {
-				taskAgentPool = RunnerGroupSurvey(taskAgentPool, taskAgentPools)
-			}
-		}
-		vssConnection.PoolID = -1
-		for _, val := range _taskAgentPools.Value {
-			if !val.IsHosted && strings.EqualFold(val.Name, taskAgentPool) {
-				vssConnection.PoolID = val.ID
-			}
-		}
-		if vssConnection.PoolID < 0 {
-			fmt.Printf("Runner Pool %v not found\n", taskAgentPool)
-			return 1
-		}
-	}
-	key, _ := rsa.GenerateKey(rand.Reader, 2048)
-	instance.Key = base64.StdEncoding.EncodeToString(x509.MarshalPKCS1PrivateKey(key))
-
-	taskAgent := &protocol.TaskAgent{}
-	bs := make([]byte, 4)
-	ui := uint32(key.E)
-	binary.BigEndian.PutUint32(bs, ui)
-	expof := 0
-	for ; expof < 3 && bs[expof] == 0; expof++ {
-	}
-	taskAgent.Authorization.PublicKey = protocol.TaskAgentPublicKey{Exponent: base64.StdEncoding.EncodeToString(bs[expof:]), Modulus: base64.StdEncoding.EncodeToString(key.N.Bytes())}
-	taskAgent.Version = "3.0.0" //version, will not use fips crypto if set to 0.0.0 *
-	taskAgent.OSDescription = "github-act-runner " + runtime.GOOS + "/" + runtime.GOARCH
-	if config.Name != "" {
-		taskAgent.Name = config.Name
-	} else {
-		taskAgent.Name = "golang_" + uuid.NewString()
-		if !config.Unattended {
-			taskAgent.Name = GetInput("Please enter a name of your new runner:", taskAgent.Name)
-		}
-	}
-	if !config.Unattended && len(config.Labels) == 0 {
-		if res := GetInput("Please enter custom labels of your new runner (case insensitive, seperated by ','):", ""); len(res) > 0 {
-			config.Labels = strings.Split(res, ",")
-		}
-	}
-	systemLabels := make([]string, 0, 3)
-	if !config.NoDefaultLabels {
-		systemLabels = append(systemLabels, "self-hosted", runtime.GOOS, runtime.GOARCH)
-	}
-	taskAgent.Labels = make([]protocol.AgentLabel, len(systemLabels)+len(config.SystemLabels)+len(config.Labels))
-	for i := 0; i < len(systemLabels); i++ {
-		taskAgent.Labels[i] = protocol.AgentLabel{Name: systemLabels[i], Type: "system"}
-	}
-	for i := 0; i < len(config.SystemLabels); i++ {
-		taskAgent.Labels[i+len(systemLabels)] = protocol.AgentLabel{Name: config.SystemLabels[i], Type: "system"}
-	}
-	for i := 0; i < len(config.Labels); i++ {
-		taskAgent.Labels[i+len(systemLabels)+len(config.SystemLabels)] = protocol.AgentLabel{Name: config.Labels[i], Type: "user"}
-	}
-	taskAgent.MaxParallelism = 1
-	taskAgent.ProvisioningState = "Provisioned"
-	taskAgent.CreatedOn = time.Now().UTC().Format("2006-01-02T15:04:05")
-	taskAgent.Ephemeral = config.Ephemeral
-	{
-		err := vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "POST", map[string]string{
-			"poolId": fmt.Sprint(vssConnection.PoolID),
-		}, map[string]string{}, taskAgent, taskAgent)
-		// TODO Replace Runner support
-		// {
-		// 	poolsreq, _ := http.NewRequest("GET", url, nil)
-		// 	AddBearer(poolsreq.Header, res.Token)
-		// 	AddContentType(poolsreq.Header, "6.0-preview.2")
-		// 	poolsresp, err := c.Do(poolsreq)
-		// 	if err != nil {
-		// 		fmt.Printf("Failed to create taskAgent: %v\n", err.Error())
-		// 		return 1
-		// 	} else if poolsresp.StatusCode != 200 {
-		// 		bytes, _ := ioutil.ReadAll(poolsresp.Body)
-		// 		fmt.Println(string(bytes))
-		// 		fmt.Println(buf.String())
-		// 		return 1
-		// 	} else {
-		// 		bytes, _ := ioutil.ReadAll(poolsresp.Body)
-		// 		// fmt.Println(string(bytes))
-		// 		taskAgent := ""
-		// 		taskAgents := []string{}
-		// 		// xttr := json.Unmarshal(bytes)
-		// 		_taskAgents := &TaskAgents{}
-		// 		json.Unmarshal(bytes, _taskAgents)
-		// 		for _, val := range _taskAgents.Value {
-		// 			taskAgents = append(taskAgents, val.Name)
-		// 		}
-		// 		prompt := &survey.Select{
-		// 			Message: "Choose a runner:",
-		// 			Options: taskAgents,
-		// 		}
-		// 		survey.AskOne(prompt, &taskAgent)
-		// 	}
-		// }
-		if err != nil {
-			if !config.Replace {
-				fmt.Printf("Failed to create taskAgent: %v\n", err.Error())
-				return 1
-			}
-			// Try replaceing runner if creation failed
-			taskAgents := &protocol.TaskAgents{}
-			err := vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "GET", map[string]string{
-				"poolId": fmt.Sprint(vssConnection.PoolID),
-			}, map[string]string{}, nil, taskAgents)
-			if err != nil {
-				fmt.Printf("Failed to update taskAgent: %v\n", err.Error())
-				return 1
-			}
-			invalid := true
-			for i := 0; i < len(taskAgents.Value); i++ {
-				if taskAgents.Value[i].Name == taskAgent.Name {
-					taskAgent.ID = taskAgents.Value[i].ID
-					invalid = false
-					break
-				}
-			}
-			if invalid {
-				fmt.Println("Failed to update taskAgent: Failed to find agent")
-				return 1
-			}
-			err = vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "PUT", map[string]string{
-				"poolId":  fmt.Sprint(vssConnection.PoolID),
-				"agentId": fmt.Sprint(taskAgent.ID),
-			}, map[string]string{}, taskAgent, taskAgent)
-			if err != nil {
-				fmt.Printf("Failed to update taskAgent: %v\n", err.Error())
-				return 1
-			}
-		}
-	}
-	instance.Agent = taskAgent
-	instance.PoolID = vssConnection.PoolID
-	if err := WriteJson("settings.json", settings); err != nil {
-		fmt.Printf("Failed to save settings.json: %v\n", err.Error())
-	}
-	fmt.Println("success")
-	return 0
-}
-
 type RunRunner struct {
 	Once     bool
 	Terminal bool
@@ -515,7 +154,7 @@ type JobRun struct {
 	RegistrationURL string
 }
 
-func readLegacyInstance(settings *RunnerSettings, instance *RunnerInstance) int {
+func readLegacyInstance(settings *runnerconfiguration.RunnerSettings, instance *runnerconfiguration.RunnerInstance) int {
 	taskAgent := &protocol.TaskAgent{}
 	var key *rsa.PrivateKey
 	req := &protocol.GitHubAuthResult{}
@@ -552,13 +191,13 @@ func readLegacyInstance(settings *RunnerSettings, instance *RunnerInstance) int 
 	instance.Agent = taskAgent
 	instance.PKey = key
 	instance.PoolID = settings.PoolID
-	instance.RegistrationUrl = settings.RegistrationUrl
+	instance.RegistrationURL = settings.RegistrationURL
 	instance.Auth = req
 	return 0
 }
 
-func loadConfiguration() (*RunnerSettings, error) {
-	settings := &RunnerSettings{}
+func loadConfiguration() (*runnerconfiguration.RunnerSettings, error) {
+	settings := &runnerconfiguration.RunnerSettings{}
 	{
 		cont, err := ioutil.ReadFile("settings.json")
 		if err != nil {
@@ -579,7 +218,7 @@ func loadConfiguration() (*RunnerSettings, error) {
 			pkey, _ := x509.ParsePKCS1PrivateKey(key)
 			settings.Instances[i].PKey = pkey
 		}
-		instance := &RunnerInstance{}
+		instance := &runnerconfiguration.RunnerInstance{}
 		if readLegacyInstance(settings, instance) == 0 {
 			settings.Instances = append(settings.Instances, instance)
 		}
@@ -711,7 +350,7 @@ func (run *RunRunner) Run() int {
 		// No retry on Fatal failures, like runner was removed or we received multiple jobs
 		fatalFailure := false
 		for _, instance := range settings.Instances {
-			go func(instance *RunnerInstance) (exitcode int) {
+			go func(instance *runnerconfiguration.RunnerInstance) (exitcode int) {
 				defer wg.Done()
 				defer func() {
 					// Without this the inner return 1 got lost and we would retry it
@@ -734,7 +373,7 @@ func (run *RunRunner) Run() int {
 					Trace:     run.Trace,
 				}
 				jobrun := &JobRun{}
-				if ReadJson("jobrun.json", jobrun) == nil && ((jobrun.RegistrationURL == instance.RegistrationUrl && jobrun.Name == instance.Agent.Name) || (len(settings.Instances) == 1)) {
+				if ReadJson("jobrun.json", jobrun) == nil && ((jobrun.RegistrationURL == instance.RegistrationURL && jobrun.Name == instance.Agent.Name) || (len(settings.Instances) == 1)) {
 					result := "Failed"
 					finish := &protocol.JobEvent{
 						Name:      "JobCompleted",
@@ -820,10 +459,10 @@ func (run *RunRunner) Run() int {
 							session2, err := vssConnection.CreateSession()
 							if err != nil {
 								if strings.Contains(err.Error(), "invalid_client") || strings.Contains(err.Error(), "TaskAgentNotFoundException") {
-									fmt.Printf("Fatal: It seems this runner was removed from GitHub, Failed to recreate Session for %v ( %v ): %v\n", instance.Agent.Name, instance.RegistrationUrl, err.Error())
+									fmt.Printf("Fatal: It seems this runner was removed from GitHub, Failed to recreate Session for %v ( %v ): %v\n", instance.Agent.Name, instance.RegistrationURL, err.Error())
 									return 1
 								}
-								fmt.Printf("Failed to recreate Session for %v ( %v ), waiting 30 sec before retry: %v\n", instance.Agent.Name, instance.RegistrationUrl, err.Error())
+								fmt.Printf("Failed to recreate Session for %v ( %v ), waiting 30 sec before retry: %v\n", instance.Agent.Name, instance.RegistrationURL, err.Error())
 								select {
 								case <-joblisteningctx.Done():
 									return 0
@@ -838,7 +477,7 @@ func (run *RunRunner) Run() int {
 								if err != nil {
 									fmt.Printf("error: %v\n", err)
 								} else {
-									fmt.Printf("Listening for Jobs: %v ( %v )\n", instance.Agent.Name, instance.RegistrationUrl)
+									fmt.Printf("Listening for Jobs: %v ( %v )\n", instance.Agent.Name, instance.RegistrationURL)
 								}
 								mu.Unlock()
 							} else {
@@ -970,7 +609,7 @@ type RunnerJobRequestRef struct {
 
 var joblock sync.Mutex
 
-func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel context.CancelFunc, cancelJob context.CancelFunc, finishJob context.CancelFunc, jobExecCtx context.Context, jobctx context.Context, session *protocol.AgentMessageConnection, message protocol.TaskAgentMessage, instance *RunnerInstance) {
+func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel context.CancelFunc, cancelJob context.CancelFunc, finishJob context.CancelFunc, jobExecCtx context.Context, jobctx context.Context, session *protocol.AgentMessageConnection, message protocol.TaskAgentMessage, instance *runnerconfiguration.RunnerInstance) {
 	go func() {
 		defer func() {
 			if run.Once {
@@ -1012,7 +651,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 			RequestID:       jobreq.RequestID,
 			JobID:           jobreq.JobID,
 			Plan:            jobreq.Plan,
-			RegistrationURL: instance.RegistrationUrl,
+			RegistrationURL: instance.RegistrationURL,
 			Name:            instance.Agent.Name,
 		}
 		{
@@ -1043,7 +682,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				}
 			}
 		}()
-		fmt.Printf("Running Job '%v' of %v ( %v )\n", jobreq.JobDisplayName, instance.Agent.Name, instance.RegistrationUrl)
+		fmt.Printf("Running Job '%v' of %v ( %v )\n", jobreq.JobDisplayName, instance.Agent.Name, instance.RegistrationURL)
 		finishJob2 := func(result string, outputs *map[string]protocol.VariableValue) {
 			finish := &protocol.JobEvent{
 				Name:      "JobCompleted",
@@ -1056,7 +695,7 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 				if err := vssConnection.FinishJob(finish, jobrun.Plan); err != nil {
 					fmt.Printf("Failed to finish Job '%v' with Status %v: %v\n", jobreq.JobDisplayName, result, err.Error())
 				} else {
-					fmt.Printf("Finished Job '%v' with Status %v of %v ( %v )\n", jobreq.JobDisplayName, result, instance.Agent.Name, instance.RegistrationUrl)
+					fmt.Printf("Finished Job '%v' with Status %v of %v ( %v )\n", jobreq.JobDisplayName, result, instance.Agent.Name, instance.RegistrationURL)
 					break
 				}
 				if i < 10 {
@@ -1622,231 +1261,89 @@ func runJob(vssConnection *protocol.VssConnection, run *RunRunner, cancel contex
 	}()
 }
 
-type RemoveRunner struct {
-	Url        string
-	Name       string
-	Token      string
-	Pat        string
-	Unattended bool
-	Trace      bool
-	Force      bool
-}
-
-func (config *RemoveRunner) Remove() int {
-	if len(config.Pat) == 0 {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_PAT"); ok {
-			config.Pat = v
-		}
-	}
-	if len(config.Token) == 0 {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_TOKEN"); ok {
-			config.Token = v
-		}
-	}
-	if !config.Unattended {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_UNATTENDED"); ok {
-			config.Unattended = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
-		}
-	}
-	c := &http.Client{}
-	settings, err := loadConfiguration()
-	if err != nil {
-		fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
-		return 1
-	}
-	defer func() {
-		os.Remove("agent.json")
-		os.Remove("auth.json")
-		os.Remove("cred.pkcs1")
-		WriteJson("settings.json", settings)
-	}()
-	var instancesToRemove []*RunnerInstance
-	for _, i := range settings.Instances {
-		if (len(config.Url) == 0 || i.RegistrationUrl == config.Url) || (len(config.Name) == 0 || i.Agent.Name == config.Name) {
-			instancesToRemove = append(instancesToRemove, i)
-		}
-	}
-	if len(instancesToRemove) == 0 {
-		fmt.Println("Nothing to do, no runner matches")
-		return 0
-	}
-	if !config.Unattended && len(instancesToRemove) > 1 {
-		options := make([]string, len(instancesToRemove))
-		for i, instance := range instancesToRemove {
-			options[i] = fmt.Sprintf("%v ( %v )", instance.Agent.Name, instance.RegistrationUrl)
-		}
-		result := GetMultiSelectInput("Please select the instances to remove, use --unattended to remove all", options)
-		var instancesToRemoveFiltered []*RunnerInstance
-		for _, res := range result {
-			for i := 0; i < len(options); i++ {
-				if options[i] == res {
-					instancesToRemoveFiltered = append(instancesToRemoveFiltered, instancesToRemove[i])
-				}
-			}
-		}
-		instancesToRemove = instancesToRemoveFiltered
-		if len(instancesToRemove) == 0 {
-			fmt.Println("Nothing selected, no runner matches")
-			return 0
-		}
-	}
-	regurl := ""
-	needsPat := false
-	for _, i := range instancesToRemove {
-		if len(regurl) > 0 && regurl != i.RegistrationUrl {
-			needsPat = true
-		} else {
-			regurl = i.RegistrationUrl
-		}
-	}
-	if needsPat && len(config.Pat) == 0 {
-		if !config.Unattended {
-			config.Pat = GetInput("Please enter your Personal Access token", "")
-		}
-		if len(config.Pat) == 0 {
-			fmt.Println("You have to provide a Personal access token with access to the repositories to remove or use the --url parameter")
-			return 1
-		}
-	}
-	for _, instance := range instancesToRemove {
-		result := func() int {
-			res := &protocol.GitHubAuthResult{}
-			{
-				buf := new(bytes.Buffer)
-				req := &protocol.RunnerAddRemove{}
-				req.URL = instance.RegistrationUrl
-				req.RunnerEvent = "remove"
-				enc := json.NewEncoder(buf)
-				if err := enc.Encode(req); err != nil {
-					return 1
-				}
-				registerUrl, err := url.Parse(instance.RegistrationUrl)
-				if err != nil {
-					fmt.Printf("Invalid Url: %v\n", instance.RegistrationUrl)
-					return 1
-				}
-				apiscope := "/"
-				if strings.ToLower(registerUrl.Host) == "github.com" {
-					registerUrl.Host = "api." + registerUrl.Host
-				} else {
-					apiscope = "/api/v3"
-				}
-
-				c := &http.Client{}
-				if len(config.Token) == 0 || needsPat {
-					if len(config.Pat) > 0 {
-						paths := strings.Split(strings.TrimPrefix(registerUrl.Path, "/"), "/")
-						url := *registerUrl
-						if len(paths) == 1 {
-							url.Path = path.Join(apiscope, "orgs", paths[0], "actions/runners/remove-token")
-						} else if len(paths) == 2 {
-							scope := "repos"
-							if strings.EqualFold(paths[0], "enterprises") {
-								scope = ""
-							}
-							url.Path = path.Join(apiscope, scope, paths[0], paths[1], "actions/runners/remove-token")
-						} else {
-							fmt.Println("Unsupported remove url")
-							return 1
-						}
-						req, _ := http.NewRequest("POST", url.String(), nil)
-						req.SetBasicAuth("github", config.Pat)
-						req.Header.Add("Accept", "application/vnd.github.v3+json")
-						resp, err := c.Do(req)
-						if err != nil {
-							fmt.Println("Failed to retrive remove token via pat: " + err.Error())
-							return 1
-						}
-						defer resp.Body.Close()
-						if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-							body, _ := ioutil.ReadAll(resp.Body)
-							fmt.Println("Failed to retrive remove token via pat [" + fmt.Sprint(resp.StatusCode) + "]: " + string(body))
-							return 1
-						}
-						tokenresp := &protocol.GitHubRunnerRegisterToken{}
-						dec := json.NewDecoder(resp.Body)
-						if err := dec.Decode(tokenresp); err != nil {
-							fmt.Println("Failed to decode remove token via pat: " + err.Error())
-							return 1
-						}
-						config.Token = tokenresp.Token
-					} else {
-						if !config.Unattended {
-							config.Token = GetInput("Please enter your runner remove token:", "")
-						}
-					}
-				}
-				if len(config.Token) == 0 {
-					fmt.Println("No runner remove token provided")
-					return 1
-				}
-				registerUrl.Path = path.Join(apiscope, "actions/runner-registration")
-				finalregisterUrl := registerUrl.String()
-				//fmt.Printf("Try to remove runner with url: %v\n", finalregisterUrl)
-				r, _ := http.NewRequest("POST", finalregisterUrl, buf)
-				r.Header["Authorization"] = []string{"RemoteAuth " + config.Token}
-				resp, err := c.Do(r)
-				if err != nil {
-					fmt.Printf("Failed to remove Runner: %v\n", err)
-					return 1
-				}
-				defer resp.Body.Close()
-				if resp.StatusCode != 200 {
-					fmt.Printf("Failed to remove Runner with status code: %v\n", resp.StatusCode)
-					return 1
-				}
-
-				dec := json.NewDecoder(resp.Body)
-				if err := dec.Decode(res); err != nil {
-					fmt.Printf("Failed to remove Runner:\nerror decoding struct from JSON: %v\n", err)
-					return 1
-				}
-			}
-
-			vssConnection := &protocol.VssConnection{
-				Client:    c,
-				TenantURL: res.TenantURL,
-				Token:     res.Token,
-				PoolID:    instance.PoolID,
-				Trace:     config.Trace,
-			}
-			if err := vssConnection.DeleteAgent(instance.Agent); err != nil {
-				fmt.Printf("Failed to remove Runner from server: %v\n", err)
-				return 1
-			}
-			return 0
-		}()
-		if result != 0 && !config.Force {
-			return result
-		}
-		for i := range settings.Instances {
-			if settings.Instances[i] == instance {
-				settings.Instances[i] = settings.Instances[len(settings.Instances)-1]
-				settings.Instances = settings.Instances[:len(settings.Instances)-1]
-				break
-			}
-		}
-	}
-	fmt.Println("success")
-	return 0
-}
-
 var version string = "0.3.x-dev"
 
+type interactive struct {
+}
+
+func (i *interactive) GetInput(prompt string, def string) string {
+	return GetInput(prompt, def)
+}
+func (i *interactive) GetSelectInput(prompt string, options []string, def string) string {
+	return RunnerGroupSurvey(def, options)
+}
+func (i *interactive) GetMultiSelectInput(prompt string, options []string) []string {
+	return GetMultiSelectInput(prompt, options)
+}
+
 func main() {
-	config := &ConfigureRunner{}
+	config := &runnerconfiguration.ConfigureRunner{}
 	run := &RunRunner{}
-	remove := &RemoveRunner{}
+	remove := &runnerconfiguration.RemoveRunner{}
 	var cmdConfigure = &cobra.Command{
 		Use:   "configure",
 		Short: "Configure your self-hosted runner",
 		Args:  cobra.MaximumNArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
-			os.Exit(config.Configure())
+			if len(config.Pat) == 0 {
+				if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_PAT"); ok {
+					config.Pat = v
+				}
+			}
+			if len(config.Token) == 0 {
+				if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_TOKEN"); ok {
+					config.Token = v
+				}
+			}
+			if !config.Unattended {
+				if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_UNATTENDED"); ok {
+					config.Unattended = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+				}
+			}
+			if !config.Ephemeral {
+				if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_EPHEMERAL"); ok {
+					config.Ephemeral = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+				}
+			}
+			if len(config.Name) == 0 {
+				if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_NAME"); ok {
+					config.Name = v
+				}
+			}
+			if len(config.URL) == 0 {
+				if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_URL"); ok {
+					config.URL = v
+				}
+			}
+			if len(config.Labels) == 0 {
+				if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_LABELS"); ok {
+					config.Labels = strings.Split(v, ",")
+				}
+			}
+			if !config.Replace {
+				if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_REPLACE"); ok {
+					config.Replace = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+				}
+			}
+			settings, _ := loadConfiguration()
+			settings, err := config.Configure(settings, &interactive{}, nil)
+			if settings != nil {
+				os.Remove("agent.json")
+				os.Remove("auth.json")
+				os.Remove("cred.pkcs1")
+				WriteJson("settings.json", settings)
+			}
+			if err != nil {
+				fmt.Printf("failed to configure: %v", err)
+				os.Exit(1)
+			} else {
+				fmt.Printf("success")
+				os.Exit(0)
+			}
 		},
 	}
 
-	cmdConfigure.Flags().StringVar(&config.Url, "url", "", "url of your repository, organization or enterprise")
+	cmdConfigure.Flags().StringVar(&config.URL, "url", "", "url of your repository, organization or enterprise")
 	cmdConfigure.Flags().StringVar(&config.Token, "token", "", "runner registration token")
 	cmdConfigure.Flags().StringVar(&config.Pat, "pat", "", "personal access token with access to your repository, organization or enterprise")
 	cmdConfigure.Flags().StringSliceVarP(&config.Labels, "labels", "l", []string{}, "custom user labels for your new runner")
@@ -1876,11 +1373,44 @@ func main() {
 		Short: "remove your self-hosted runner",
 		Args:  cobra.MaximumNArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
-			os.Exit(remove.Remove())
+			if len(remove.Pat) == 0 {
+				if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_PAT"); ok {
+					remove.Pat = v
+				}
+			}
+			if len(remove.Token) == 0 {
+				if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_TOKEN"); ok {
+					remove.Token = v
+				}
+			}
+			if !remove.Unattended {
+				if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_UNATTENDED"); ok {
+					remove.Unattended = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+				}
+			}
+			settings, err := loadConfiguration()
+			if err != nil {
+				fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
+				os.Exit(1)
+			}
+			settings, err = remove.Remove(settings, &interactive{}, nil)
+			if settings != nil {
+				os.Remove("agent.json")
+				os.Remove("auth.json")
+				os.Remove("cred.pkcs1")
+				WriteJson("settings.json", settings)
+			}
+			if err != nil {
+				fmt.Printf("failed to remove: %v", err)
+				os.Exit(1)
+			} else {
+				fmt.Printf("success")
+				os.Exit(0)
+			}
 		},
 	}
 
-	cmdRemove.Flags().StringVar(&remove.Url, "url", "", "url of your repository, organization or enterprise ( required to unconfigure version <= 0.0.3 )")
+	cmdRemove.Flags().StringVar(&remove.URL, "url", "", "url of your repository, organization or enterprise ( required to unconfigure version <= 0.0.3 )")
 	cmdRemove.Flags().StringVar(&remove.Token, "token", "", "runner registration or remove token")
 	cmdRemove.Flags().StringVar(&remove.Pat, "pat", "", "personal access token with access to your repository, organization or enterprise")
 	cmdRemove.Flags().BoolVar(&remove.Unattended, "unattended", false, "suppress shell prompts during configure")
