@@ -51,7 +51,7 @@ type TimelineRecord struct {
 
 type TimelineRecordWrapper struct {
 	Count int64
-	Value []TimelineRecord
+	Value []*TimelineRecord
 }
 
 type TimelineRecordFeedLinesWrapper struct {

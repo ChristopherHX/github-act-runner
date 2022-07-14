@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 
@@ -143,4 +144,27 @@ func (config *ConfigureRunner) Authenicate(c *http.Client, survey Survey) (*prot
 }
 func (config *RemoveRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
 	return gitHubAuth(&config.ConfigureRemoveRunner, c, "remove", "remove-token", survey)
+}
+
+func (confremove *ConfigureRemoveRunner) ReadFromEnvironment() {
+	if len(confremove.Pat) == 0 {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_PAT"); ok {
+			confremove.Pat = v
+		}
+	}
+	if len(confremove.Token) == 0 {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_TOKEN"); ok {
+			confremove.Token = v
+		}
+	}
+	if !confremove.Unattended {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_UNATTENDED"); ok {
+			confremove.Unattended = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+		}
+	}
+	if len(confremove.URL) == 0 {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_URL"); ok {
+			confremove.URL = v
+		}
+	}
 }
