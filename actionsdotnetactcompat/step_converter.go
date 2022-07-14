@@ -93,7 +93,7 @@ func ConvertSteps(jobSteps []protocol.ActionStep) ([]*model.Step, error) {
 					Env:              *env,
 				})
 			} else {
-				return nil, fmt.Errorf("Missing script")
+				return nil, fmt.Errorf("missing script")
 			}
 		case "containerregistry", "repository":
 			uses := ""

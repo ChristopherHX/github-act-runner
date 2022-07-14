@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net/http"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -182,4 +183,28 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 	instance.PoolID = vssConnection.PoolID
 	settings.Instances = append(settings.Instances, instance)
 	return settings, nil
+}
+
+func (config *ConfigureRunner) ReadFromEnvironment() {
+	config.ConfigureRemoveRunner.ReadFromEnvironment()
+	if !config.Ephemeral {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_EPHEMERAL"); ok {
+			config.Ephemeral = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+		}
+	}
+	if len(config.Name) == 0 {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_NAME"); ok {
+			config.Name = v
+		}
+	}
+	if len(config.Labels) == 0 {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_LABELS"); ok {
+			config.Labels = strings.Split(v, ",")
+		}
+	}
+	if !config.Replace {
+		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_REPLACE"); ok {
+			config.Replace = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+		}
+	}
 }
