@@ -549,6 +549,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 			wc.FailInitJob("Worker Failed", err.Error())
 		} else {
 			runnerenv.Remove("jobrun.json")
+			plogger.Printf("Finished Job '%v'\n", jobreq.JobDisplayName)
 		}
 	}()
 }

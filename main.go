@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -264,10 +265,61 @@ func main() {
 	cmdRemove.Flags().BoolVar(&remove.Trace, "trace", false, "trace http communication with the github action service")
 	cmdRemove.Flags().BoolVar(&remove.Force, "force", false, "force remove the instance even if the service responds with an error")
 
+	var cmdWorker = &cobra.Command{
+		Use:   "worker",
+		Short: "run as self-hosted runner worker, can be used to create ephemeral worker without exposing other job requests",
+		Args:  cobra.MaximumNArgs(0),
+		Run: func(cmd *cobra.Command, args []string) {
+			ccontext, cancelccontext := context.WithCancel(context.Background())
+			logf, _ := os.OpenFile("_diaglog.txt", os.O_CREATE|os.O_APPEND, 0777)
+			logf.WriteString("Start Worker\n")
+			go func() {
+				execcontext, cancelExec := context.WithCancel(context.Background())
+				defer cancelExec()
+				buf := make([]byte, 4)
+				for {
+					os.Stdin.Read(buf)
+					messageType := binary.BigEndian.Uint32(buf)
+					logf.WriteString(fmt.Sprintf("Received Message of type: %v\n", messageType))
+					os.Stdin.Read(buf)
+					messageLength := binary.BigEndian.Uint32(buf)
+					logf.WriteString(fmt.Sprintf("length: %v\n", messageLength))
+					src := make([]byte, messageLength)
+					os.Stdin.Read(src)
+					logf.WriteString(fmt.Sprintf("content: \n%v\n", string(src)))
+					switch messageType {
+					case 1:
+						jobreq := &protocol.AgentJobRequestMessage{}
+						json.Unmarshal(src, jobreq)
+						go func() {
+							defer cancelExec()
+							defer cancelccontext()
+							logf.WriteString("Start Job\n")
+							wc := &actionsrunner.DefaultWorkerContext{
+								RunnerMessage:       jobreq,
+								JobExecutionContext: execcontext,
+								RunnerLogger:        &actionsrunner.ConsoleLogger{},
+							}
+							wc.Init()
+							wc.Logger().Append(protocol.CreateTimelineEntry(jobreq.JobID, "__setup", "Set up Job")).Start()
+							wc.Logger().Update()
+							actionsdotnetactcompat.ExecWorker(jobreq, wc.Logger(), execcontext)
+							logf.WriteString("Finish Job\n")
+						}()
+					default:
+						cancelExec()
+					}
+				}
+			}()
+			<-ccontext.Done()
+			logf.WriteString("Stopped Worker\n")
+		},
+	}
+
 	var rootCmd = &cobra.Command{
 		Use:     "github-act-runner",
 		Version: version,
 	}
-	rootCmd.AddCommand(cmdConfigure, cmdRun, cmdRemove)
+	rootCmd.AddCommand(cmdConfigure, cmdRun, cmdRemove, cmdWorker)
 	rootCmd.Execute()
 }
