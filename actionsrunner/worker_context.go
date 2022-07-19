@@ -48,21 +48,25 @@ func (wc *DefaultWorkerContext) FinishJob(result string, outputs *map[string]pro
 }
 
 func (wc *DefaultWorkerContext) FailInitJob(title string, message string) {
-	wc.Logger().Current().Complete("Failed")
+	if wc.Logger().Current() != nil {
+		wc.Logger().Current().Complete("Failed")
+	}
 	e := wc.Logger().Append(protocol.CreateTimelineEntry(wc.Message().JobID, "__fatal", title))
 	e.Start()
-	for {
-		next := wc.Logger().MoveNext()
-		if next == nil || next == e {
-			break
+	if wc.Logger().Current() != e {
+		for {
+			next := wc.Logger().MoveNext()
+			if next == nil || next == e {
+				break
+			}
+			wc.Logger().Current().Complete("Skipped")
 		}
-		wc.Logger().Current().Complete("Skipped")
 	}
 	wc.Logger().Log(message)
 	e.Complete("Failed")
-	wc.Logger().TimelineRecords.Value[0].Complete("Failed")
 	wc.Logger().Logger.Close()
 	wc.Logger().MoveNext()
+	wc.Logger().TimelineRecords.Value[0].Complete("Failed")
 	wc.Logger().Finish()
 	wc.FinishJob("Failed", &map[string]protocol.VariableValue{})
 }

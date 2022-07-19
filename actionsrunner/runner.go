@@ -501,6 +501,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 			if err := recover(); err != nil {
 				wc.FailInitJob("Worker paniced", "The worker paniced with message: "+fmt.Sprint(err)+"\n"+string(debug.Stack()))
 			}
+			runnerenv.Remove("jobrun.json")
 		}()
 
 		logger := logrus.New()
@@ -548,7 +549,6 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 		if err != nil {
 			wc.FailInitJob("Worker Failed", err.Error())
 		} else {
-			runnerenv.Remove("jobrun.json")
 			plogger.Printf("Finished Job '%v'\n", jobreq.JobDisplayName)
 		}
 	}()

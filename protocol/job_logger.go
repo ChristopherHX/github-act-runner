@@ -240,6 +240,9 @@ func (logger *JobLogger) Current() *TimelineRecord {
 }
 
 func (logger *JobLogger) MoveNext() *TimelineRecord {
+	if logger.Current() == nil {
+		return nil
+	}
 	if logger.CurrentBuffer.Len() > 0 {
 		if logid, err := logger.Connection.UploadLogFile(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.CurrentBuffer.String()); err == nil {
 			logger.Current().Log = &TaskLogReference{ID: logid}
