@@ -13,6 +13,11 @@ type TimeLineReference struct {
 }
 
 type Issue struct {
+	Type                  string // notice, error or warning
+	Category              string
+	Message               string
+	IsInfrastructureIssue *bool
+	Data                  map[string]string
 }
 
 type TimelineAttempt struct {
