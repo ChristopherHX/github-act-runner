@@ -69,11 +69,11 @@ jobs:
         - {GOOS: windows,   GOARCH: arm64,    suffix: .exe}
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         submodules: recursive
     - name: Setup Go
-      uses: actions/setup-go@v2
+      uses: actions/setup-go@v3
       with:
         go-version: "${{matrix.GOVERSION || '^1.16.0'}}"
     - name: Build
@@ -96,11 +96,11 @@ jobs:
         cp compat/*.cmd output/
         cd output
         zip ../binary-${{matrix.GOOS}}-${{matrix.GOARCH}}.zip ./*
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
         name: binary-${{matrix.GOOS}}-${{matrix.GOARCH}}
         path: github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       if: ${{ github.event.inputs.skip-packaging != 'true' }}
       with:
         name: bundle-${{matrix.GOOS}}-${{matrix.GOARCH}}
@@ -115,7 +115,7 @@ jobs:
     if: ${{ github.event.inputs.skip-packaging != 'true' && github.event.inputs.version }}
     continue-on-error: true
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         path: "artifacts"
     - uses: ncipollo/release-action@v1
@@ -152,9 +152,9 @@ jobs:
       DEPLOY_ARCHS: "amd64 i386 armhf arm64" # architectures from https://wiki.debian.org/SupportedArchitectures
     steps:
     - name: git clone
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with: {submodules: false}
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         path: "artifacts"
     - name: add cppfw repo to install myci scripts from
@@ -176,7 +176,7 @@ jobs:
         done
         mkdir -p debs
         cp ../*.deb debs/
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       continue-on-error: true
       with:
         name: debs
@@ -194,7 +194,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event.inputs.skip-packaging != 'true' }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Prepare actions-runner
       run: |
         # Create a folder
@@ -204,7 +204,7 @@ jobs:
         # Extract the installer
         tar xzf ./actions-runner-linux-x64-${{env.RUNNER_SERVER_VERSION}}.tar.gz
     - name: Download Artifact
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v3
       with:
         name: bundle-linux-amd64
         path: runner
@@ -232,7 +232,7 @@ jobs:
       working-directory: logs
     - name: Upload Test Results
       if: ${{always()}}
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: test-results-linux-amd64
         path: 'logs.tar.gz'
