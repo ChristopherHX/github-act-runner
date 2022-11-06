@@ -175,7 +175,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 							if err := vssConnection.FinishJob(finish, jobrun.Plan); err != nil {
 								runnerenv.Printf("Failed to finish previous stuck job with Status Failed: %v\n", err.Error())
 							} else {
-								fmt.Println("Finished previous stuck job with Status Failed")
+								runnerenv.Printf("Finished previous stuck job with Status Failed\n")
 								break
 							}
 							if i < 10 {
@@ -270,7 +270,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 								}
 								mu.Unlock()
 							} else {
-								fmt.Println("Failed to recreate Session, waiting 30 sec before retry")
+								runnerenv.Printf("Failed to recreate Session, waiting 30 sec before retry\n")
 								select {
 								case <-joblisteningctx.Done():
 									return 0
@@ -313,7 +313,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 							if firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
 								// It seems run once isn't supported by the backend, do the same as the official runner
 								// Skip deleting the job message and cancel earlier
-								fmt.Println("Received a second job, but running in run once mode abort")
+								runnerenv.Printf("Received a second job, but running in run once mode abort\n")
 								return 1
 							}
 							success = true
@@ -324,7 +324,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 								"sessionId": session.TaskAgentSession.SessionID,
 							}, nil, nil)
 							if err != nil {
-								fmt.Println("Failed to delete Message")
+								runnerenv.Printf("Failed to delete Message\n")
 								success = false
 							}
 						}
@@ -349,18 +349,18 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 									message, err = session.GetNextMessage(jobExecCtx)
 									if !errors.Is(err, context.Canceled) && message != nil {
 										if firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
-											fmt.Println("Skip deleting the duplicated job request, we hope that the actions service reschedules your job to a different runner")
+											runnerenv.Printf("Skip deleting the duplicated job request, we hope that the actions service reschedules your job to a different runner\n")
 										} else {
 											session.DeleteMessage(message)
 										}
 										if strings.EqualFold(message.MessageType, "JobCancellation") && cancelJob != nil {
 											message = nil
-											fmt.Println("JobCancellation request received, cancel running job")
+											runnerenv.Printf("JobCancellation request received, cancel running job\n")
 											cancelJob()
 										} else {
-											fmt.Println("Received message, while still executing a job, of type: " + message.MessageType)
+											runnerenv.Printf("Received message, while still executing a job, of type: %v\n", message.MessageType)
 										}
-										fmt.Println("Wait for worker to finish current job")
+										runnerenv.Printf("Wait for worker to finish current job\n")
 										<-jobctx.Done()
 									}
 								}
@@ -371,7 +371,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 							}
 						}
 						if message != nil {
-							fmt.Println("Ignoring incoming message of type: " + message.MessageType)
+							runnerenv.Printf("Ignoring incoming message of type: %v\n", message.MessageType)
 						}
 					}
 				}
@@ -425,7 +425,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 			return
 		}
 		if run.Trace {
-			fmt.Println(string(src))
+			plogger.Printf("%v\n", string(src))
 		}
 		jobreq := &protocol.AgentJobRequestMessage{}
 		{
