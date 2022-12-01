@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -395,6 +396,11 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 type RunnerJobRequestRef struct {
 	Id              string `json:"id"`
 	RunnerRequestId string `json:"runner_request_id"`
+	RunServiceUrl   string `json:"run_service_url"`
+}
+
+type RunnerServicePayload struct {
+	StreamID string `json:"streamID"`
 }
 
 type plainTextFormatter struct {
@@ -433,9 +439,22 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 				rjrr := &RunnerJobRequestRef{}
 				json.Unmarshal(src, rjrr)
 				for retries := 0; retries < 5; retries++ {
-					err := vssConnection.Request("25adab70-1379-4186-be8e-b643061ebe3a", "6.0-preview", "GET", map[string]string{
-						"messageId": rjrr.RunnerRequestId,
-					}, map[string]string{}, nil, &src)
+					var err error
+					if len(rjrr.RunServiceUrl) == 0 {
+						err = vssConnection.Request("25adab70-1379-4186-be8e-b643061ebe3a", "6.0-preview", "GET", map[string]string{
+							"messageId": rjrr.RunnerRequestId,
+						}, map[string]string{}, nil, &src)
+					} else {
+						copy := *vssConnection
+						vssConnection = &copy
+						vssConnection.Token = ""
+						runServiceUrl, _ := url.ParseRequestURI(rjrr.RunServiceUrl)
+						vssConnection.TenantURL = runServiceUrl.Host
+						payload := &RunnerServicePayload{
+							StreamID: rjrr.RunnerRequestId,
+						}
+						err = vssConnection.RequestWithContext2(jobctx, "POST", rjrr.RunServiceUrl, "", payload, &src)
+					}
 					if err == nil {
 						json.Unmarshal(src, jobreq)
 						break
