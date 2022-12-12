@@ -113,5 +113,6 @@ func (wc *DefaultWorkerContext) Init() {
 	jobEntry := wc.Logger().Append(protocol.CreateTimelineEntry("", wc.Message().JobName, wc.Message().JobDisplayName))
 	jobEntry.ID = wc.Message().JobID
 	jobEntry.Type = "Job"
+	jobEntry.Order = 0
 	jobEntry.Start()
 }
