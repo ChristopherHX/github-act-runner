@@ -246,13 +246,17 @@ func (logger *JobLogger) MoveNext() *TimelineRecord {
 	if logger.CurrentBuffer.Len() > 0 {
 		if logid, err := logger.Connection.UploadLogFile(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.CurrentBuffer.String()); err == nil {
 			logger.Current().Log = &TaskLogReference{ID: logid}
-			_ = logger.Update()
 		}
 	}
 	logger.CurrentRecord++
 	logger.CurrentLine = 1
 	logger.CurrentBuffer.Reset()
-	return logger.Current()
+	if c := logger.Current(); c != nil {
+		c.Start()
+		_ = logger.Update()
+		return c
+	}
+	return nil
 }
 
 func (logger *JobLogger) Finish() {
