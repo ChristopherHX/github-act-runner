@@ -18,7 +18,6 @@ import (
 	"github.com/ChristopherHX/github-act-runner/actionsrunner"
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/ChristopherHX/github-act-runner/runnerconfiguration"
-	"github.com/nektos/act/pkg/container"
 
 	"github.com/spf13/cobra"
 )
@@ -147,7 +146,6 @@ func (run *RunRunner) Run() int {
 		Version:  version,
 		Settings: settings,
 	}
-	container.SetContainerAllocateTerminal(run.Terminal)
 	err = runner.Run(&actionsdotnetactcompat.ActRunner{
 		WorkerRunnerEnvironment: actionsrunner.WorkerRunnerEnvironment{
 			WorkerArgs: run.WorkerArgs,

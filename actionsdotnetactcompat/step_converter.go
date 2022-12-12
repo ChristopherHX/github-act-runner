@@ -28,21 +28,27 @@ func ConvertSteps(jobSteps []protocol.ActionStep) ([]*model.Step, error) {
 			env = step.Environment.ToYamlNode()
 		}
 
-		continueOnError := false
+		continueOnError := "false"
 		if step.ContinueOnError != nil {
-			tmpcontinueOnError, ok := step.ContinueOnError.ToRawObject().(bool)
-			if !ok {
-				return nil, fmt.Errorf("ContinueOnError: act doesn't support expressions here")
+			tmpcontinueOnError := step.ContinueOnError.ToRawObject()
+			if b, ok := tmpcontinueOnError.(bool); ok {
+				continueOnError = fmt.Sprint(b)
+			} else if s, ok := tmpcontinueOnError.(string); ok {
+				continueOnError = s
+			} else {
+				return nil, fmt.Errorf("ContinueOnError: Failed to translate")
 			}
-			continueOnError = tmpcontinueOnError
 		}
-		var timeoutMinutes int64 = 0
+		var timeoutMinutes string
 		if step.TimeoutInMinutes != nil {
-			rawTimeout, ok := step.TimeoutInMinutes.ToRawObject().(float64)
-			if !ok {
-				return nil, fmt.Errorf("TimeoutInMinutes: act doesn't support expressions here")
+			rawTimeout := step.TimeoutInMinutes.ToRawObject()
+			if b, ok := rawTimeout.(float64); ok {
+				timeoutMinutes = fmt.Sprint(b)
+			} else if s, ok := rawTimeout.(string); ok {
+				timeoutMinutes = s
+			} else {
+				return nil, fmt.Errorf("TimeoutInMinutes: Failed to translate")
 			}
-			timeoutMinutes = int64(rawTimeout)
 		}
 		var displayName string = ""
 		if step.DisplayNameToken != nil {
@@ -82,15 +88,15 @@ func ConvertSteps(jobSteps []protocol.ActionStep) ([]*model.Step, error) {
 			scriptContent, ok := inputs["script"].(string)
 			if ok {
 				steps = append(steps, &model.Step{
-					ID:               step.ContextName,
-					If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
-					Name:             displayName,
-					Run:              scriptContent,
-					WorkingDirectory: wd,
-					Shell:            shell,
-					ContinueOnError:  continueOnError,
-					TimeoutMinutes:   timeoutMinutes,
-					Env:              *env,
+					ID:                 step.ContextName,
+					If:                 yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
+					Name:               displayName,
+					Run:                scriptContent,
+					WorkingDirectory:   wd,
+					Shell:              shell,
+					RawContinueOnError: continueOnError,
+					TimeoutMinutes:     timeoutMinutes,
+					Env:                *env,
 				})
 			} else {
 				return nil, fmt.Errorf("missing script")
@@ -122,15 +128,15 @@ func ConvertSteps(jobSteps []protocol.ActionStep) ([]*model.Step, error) {
 			}
 
 			steps = append(steps, &model.Step{
-				ID:               step.ContextName,
-				If:               yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
-				Name:             displayName,
-				Uses:             uses,
-				WorkingDirectory: "",
-				With:             with,
-				ContinueOnError:  continueOnError,
-				TimeoutMinutes:   timeoutMinutes,
-				Env:              *env,
+				ID:                 step.ContextName,
+				If:                 yaml.Node{Kind: yaml.ScalarNode, Value: step.Condition},
+				Name:               displayName,
+				Uses:               uses,
+				WorkingDirectory:   "",
+				With:               with,
+				RawContinueOnError: continueOnError,
+				TimeoutMinutes:     timeoutMinutes,
+				Env:                *env,
 			})
 		}
 	}
