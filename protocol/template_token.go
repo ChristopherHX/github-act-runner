@@ -2,6 +2,9 @@ package protocol
 
 import (
 	"encoding/json"
+	"fmt"
+	"regexp"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -47,12 +50,84 @@ func (token *TemplateToken) UnmarshalJSON(data []byte) error {
 	}
 }
 
+func escapeFormatString(in string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(in, "{", "{{"), "}", "}}")
+}
+
+func rewriteSubExpression(in string, forceFormat bool) (string, bool) {
+	if !strings.Contains(in, "${{") || !strings.Contains(in, "}}") {
+		return in, false
+	}
+
+	strPattern := regexp.MustCompile("(?:''|[^'])*'")
+	pos := 0
+	exprStart := -1
+	strStart := -1
+	var results []string
+	formatOut := ""
+	for pos < len(in) {
+		if strStart > -1 {
+			matches := strPattern.FindStringIndex(in[pos:])
+			if matches == nil {
+				panic("unclosed string.")
+			}
+
+			strStart = -1
+			pos += matches[1]
+		} else if exprStart > -1 {
+			exprEnd := strings.Index(in[pos:], "}}")
+			strStart = strings.Index(in[pos:], "'")
+
+			if exprEnd > -1 && strStart > -1 {
+				if exprEnd < strStart {
+					strStart = -1
+				} else {
+					exprEnd = -1
+				}
+			}
+
+			if exprEnd > -1 {
+				formatOut += fmt.Sprintf("{%d}", len(results))
+				results = append(results, strings.TrimSpace(in[exprStart:pos+exprEnd]))
+				pos += exprEnd + 2
+				exprStart = -1
+			} else if strStart > -1 {
+				pos += strStart + 1
+			} else {
+				panic("unclosed expression.")
+			}
+		} else {
+			exprStart = strings.Index(in[pos:], "${{")
+			if exprStart != -1 {
+				formatOut += escapeFormatString(in[pos : pos+exprStart])
+				exprStart = pos + exprStart + 3
+				pos = exprStart
+			} else {
+				formatOut += escapeFormatString(in[pos:])
+				pos = len(in)
+			}
+		}
+	}
+
+	if len(results) == 1 && formatOut == "{0}" && !forceFormat {
+		return results[0], true
+	}
+
+	out := fmt.Sprintf("format('%s', %s)", strings.ReplaceAll(formatOut, "'", "''"), strings.Join(results, ", "))
+	return out, true
+}
+
 func (token *TemplateToken) FromRawObject(value interface{}) {
 	switch val := value.(type) {
 	case string:
-		// TODO: We may need to restore expressions "${{abc}}" to expression objects
-		token.Type = 0
-		token.Lit = &val
+		// Resolve potential nested expressions and convert them to an expressions object
+		if expr, ok := rewriteSubExpression(val, false); ok {
+			token.Type = 3
+			token.Expr = &expr
+		} else {
+			token.Type = 0
+			token.Lit = &val
+		}
 	case []interface{}:
 		token.Type = 1
 		a := val
