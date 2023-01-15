@@ -220,7 +220,7 @@ jobs:
         # Download the latest runner package
         curl -O -L https://github.com/ChristopherHX/runner.server/releases/download/v${{env.RUNNER_SERVER_VERSION}}/runner.server-linux-x64.tar.gz
         # Extract the installer
-        tar xzf "../runner.server-linux-x64.tar.gz"
+        tar xzf "runner.server-linux-x64.tar.gz"
     - name: Download Artifact
       uses: actions/download-artifact@v3
       with:
