@@ -26,9 +26,9 @@ jobs:
       matrix:
         include:
         # go tool dist list -json to get the source
-        - {GOOS: android,   GOARCH: 386       TARGET: i686-linux-android       }
+        - {GOOS: android,   GOARCH: 386,      TARGET: i686-linux-android       }
         - {GOOS: android,   GOARCH: amd64,    TARGET: x86_64-linux-android     }
-        - {GOOS: android,   GOARCH: arm       TARGET: armv7a-linux-androideabi }
+        - {GOOS: android,   GOARCH: arm,      TARGET: armv7a-linux-androideabi }
         - {GOOS: android,   GOARCH: arm64,    TARGET: aarch64-linux-android    }
         - {GOOS: darwin,    GOARCH: amd64                 }
         - {GOOS: darwin,    GOARCH: arm64                 }
