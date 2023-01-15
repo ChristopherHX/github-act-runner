@@ -16,7 +16,7 @@ on:
   
 env:
   RUNNER_DEV_VERSION: "0.5.x"
-  RUNNER_SERVER_VERSION: "3.11.1"
+  RUNNER_SERVER_VERSION: "3.11.2"
 jobs:
   build:
     runs-on: ubuntu-latest
