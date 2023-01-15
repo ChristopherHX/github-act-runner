@@ -79,8 +79,8 @@ jobs:
     - name: Setup cgo ndk
       if: matrix.GOOS == 'android'
       run: |
-        export TOOLCHAIN=$NDK/toolchains/llvm/prebuilt/darwin-x86_64
-        export TOOLCHAIN=$NDK/toolchains/llvm/prebuilt/linux-x86_64
+        export TOOLCHAIN=$ANDROID_NDK/toolchains/llvm/prebuilt/darwin-x86_64
+        export TOOLCHAIN=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64
         # Set this to your minSdkVersion.
         export API=21
         # Configure and build.
