@@ -1,0 +1,40 @@
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      test:
+        default: meta
+jobs:
+  test:
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        test: [a,b]
+    steps:
+    - run: echo '${{ tojson(github) }}'
+    - run: echo '${{ tojson(strategy) }}'
+    - run: echo '${{ tojson(matrix) }}'
+    - run: echo '${{ tojson(inputs) }}'
+    - run: echo '${{ tojson(vars) }}'
+    - name: Has repository_visibility
+      run: exit '${{ github.repository_visibility && '0' || '1' }}'
+      shell: bash
+    - name: Has workflow_ref
+      run: exit '${{ github.workflow_ref && '0' || '1' }}'
+      shell: bash
+    - name: Has workflow_sha
+      run: exit '${{ github.workflow_sha && '0' || '1' }}'
+      shell: bash
+    - name: Has token
+      run: exit '${{ github.token && '0' || '1' }}'
+      shell: bash
+    - name: Has two jobs
+      run: exit '${{ strategy.job-total == 2 && '0' || '1' }}'
+      shell: bash
+    - name: Has correct inputs
+      run: exit '${{ inputs.test == 'meta' && '0' || '1' }}'
+      shell: bash
+    - run: cp $WORKSPACE/.github/testworkflows/test-full-contextdata-action.yml ./action.yml
+      env:
+        WORKSPACE: ${{ vars.WORKSPACE }}
+    - uses: ./

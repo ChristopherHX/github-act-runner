@@ -15,8 +15,8 @@ on:
         type: boolean
   
 env:
-  RUNNER_DEV_VERSION: "0.2.x"
-  RUNNER_SERVER_VERSION: "3.4.0"
+  RUNNER_DEV_VERSION: "0.5.x"
+  RUNNER_SERVER_VERSION: "3.11.1"
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -225,6 +225,7 @@ jobs:
         ./actions-runner/bin/Runner.Client --server http://localhost:5000 -W ./.github/testworkflows/working-directory.yml --log-output-dir ./logs
         ./actions-runner/bin/Runner.Client --server http://localhost:5000 -W ./.github/failingtestworkflows/test_container_fail_step.yml --log-output-dir ./logs && exit 1 || [[ "$?" = "1" ]]
         ./actions-runner/bin/Runner.Client --server http://localhost:5000 -W ./.github/failingtestworkflows/test_host_fail_step.yml --log-output-dir ./logs && exit 1 || [[ "$?" = "1" ]]
+        ./actions-runner/bin/Runner.Client workflow_dispatch --server http://localhost:5000 -W ./.github/testworkflows/test-full-contextdata.yml --log-output-dir ./logs --var WORKSPACE=$PWD
 
     - name: Archive Test Results
       if: ${{always()}}
