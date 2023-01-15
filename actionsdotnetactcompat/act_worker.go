@@ -258,8 +258,12 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, jlogger *protocol.JobLogge
 				},
 			},
 		},
-		Matrix:    matrix,
-		EventJSON: payload,
+		Matrix:      matrix,
+		EventJSON:   payload,
+		ContextData: map[string]interface{}{},
+	}
+	for k, v := range rqt.ContextData {
+		rc.ContextData[k] = v.ToRawObject()
 	}
 
 	// Prepare act to provide inputs for workflow_call

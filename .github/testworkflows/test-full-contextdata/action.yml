@@ -1,0 +1,25 @@
+inputs:
+  test:
+    default: composite-value
+runs:
+  using: composite
+  steps:
+  - run: echo '${{ tojson(github) }}'
+    shell: bash
+  - run: echo '${{ tojson(inputs) }}'
+    shell: bash
+  - name: Has repository_visibility
+    run: exit '${{ github.repository_visibility && '0' || '1' }}'
+    shell: bash
+  - name: Has workflow_ref
+    run: exit '${{ github.workflow_ref && '0' || '1' }}'
+    shell: bash
+  - name: Has workflow_sha
+    run: exit '${{ github.workflow_sha && '0' || '1' }}'
+    shell: bash
+  - name: Has token
+    run: exit '${{ github.token && '0' || '1' }}'
+    shell: bash
+  - name: Has correct inputs
+    run: exit '${{ inputs.test == 'composite-value' && '0' || '1' }}'
+    shell: bash

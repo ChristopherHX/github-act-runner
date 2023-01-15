@@ -160,7 +160,7 @@ func (run *RunRunner) Run() int {
 	return 0
 }
 
-var version string = "0.3.x-dev"
+var version string = "0.5.x-dev"
 
 type interactive struct {
 }

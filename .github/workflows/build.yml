@@ -15,8 +15,8 @@ on:
         type: boolean
   
 env:
-  RUNNER_DEV_VERSION: "0.2.x"
-  RUNNER_SERVER_VERSION: "3.4.0"
+  RUNNER_DEV_VERSION: "0.5.x"
+  RUNNER_SERVER_VERSION: "3.11.2"
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -26,10 +26,10 @@ jobs:
       matrix:
         include:
         # go tool dist list -json to get the source
-        # - {GOOS: android,   GOARCH: 386                   }
-        - {GOOS: android,   GOARCH: amd64, GOVERSION: 1.16.8 } # androiddnsfix broken in 1.17 https://github.com/ChristopherHX/github-act-runner/actions/runs/1222516709
-        # - {GOOS: android,   GOARCH: arm                   }
-        - {GOOS: android,   GOARCH: arm64, GOVERSION: 1.16.8 } # androiddnsfix broken in 1.17 https://github.com/ChristopherHX/github-act-runner/actions/runs/1222516709
+        - {GOOS: android,   GOARCH: 386,      TARGET: i686-linux-android       }
+        - {GOOS: android,   GOARCH: amd64,    TARGET: x86_64-linux-android     }
+        - {GOOS: android,   GOARCH: arm,      TARGET: armv7a-linux-androideabi }
+        - {GOOS: android,   GOARCH: arm64,    TARGET: aarch64-linux-android    }
         - {GOOS: darwin,    GOARCH: amd64                 }
         - {GOOS: darwin,    GOARCH: arm64                 }
         - {GOOS: dragonfly, GOARCH: amd64                 }
@@ -54,10 +54,10 @@ jobs:
         - {GOOS: netbsd,    GOARCH: amd64                 }
         - {GOOS: netbsd,    GOARCH: arm                   }
         - {GOOS: netbsd,    GOARCH: arm64                 }
-        - {GOOS: openbsd,   GOARCH: 386,   GOVERSION: 1.16.8 } # pty broken in 1.17 https://github.com/ChristopherHX/github-act-runner/actions/runs/1222516709
-        - {GOOS: openbsd,   GOARCH: amd64, GOVERSION: 1.16.8 } # pty broken in 1.17 https://github.com/ChristopherHX/github-act-runner/actions/runs/1222516709
-        - {GOOS: openbsd,   GOARCH: arm,   GOVERSION: 1.16.8 } # pty broken in 1.17 https://github.com/ChristopherHX/github-act-runner/actions/runs/1222516709
-        - {GOOS: openbsd,   GOARCH: arm64, GOVERSION: 1.16.8 } # pty broken in 1.17 https://github.com/ChristopherHX/github-act-runner/actions/runs/1222516709
+        - {GOOS: openbsd,   GOARCH: 386,                  }
+        - {GOOS: openbsd,   GOARCH: amd64,                }
+        - {GOOS: openbsd,   GOARCH: arm,                  }
+        - {GOOS: openbsd,   GOARCH: arm64,                }
         - {GOOS: openbsd,   GOARCH: mips64                }
         - {GOOS: plan9,     GOARCH: 386                   }
         - {GOOS: plan9,     GOARCH: amd64                 }
@@ -76,6 +76,24 @@ jobs:
       uses: actions/setup-go@v3
       with:
         go-version: "${{matrix.GOVERSION || '^1.16.0'}}"
+    - name: Setup cgo ndk
+      if: matrix.GOOS == 'android'
+      run: |
+        export TOOLCHAIN=$ANDROID_NDK/toolchains/llvm/prebuilt/darwin-x86_64
+        export TOOLCHAIN=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64
+        # Set this to your minSdkVersion.
+        export API=21
+        # Configure and build.
+        echo "AR=$TOOLCHAIN/bin/llvm-ar" >> $GITHUB_ENV
+        echo "CC=$TOOLCHAIN/bin/$TARGET$API-clang" >> $GITHUB_ENV
+        echo "AS=$CC" >> $GITHUB_ENV
+        echo "CXX=$TOOLCHAIN/bin/$TARGET$API-clang++" >> $GITHUB_ENV
+        echo "LD=$TOOLCHAIN/bin/ld" >> $GITHUB_ENV
+        echo "RANLIB=$TOOLCHAIN/bin/llvm-ranlib" >> $GITHUB_ENV
+        echo "STRIP=$TOOLCHAIN/bin/llvm-strip" >> $GITHUB_ENV
+        echo "CGO_ENABLED=1" >> $GITHUB_ENV
+      env:
+        TARGET: ${{ matrix.TARGET }}
     - name: Build
       run: |
         go build -ldflags "-X main.version=${{ github.event.inputs.version || format('{0}-dev-{1}', env.RUNNER_DEV_VERSION, github.sha) }}" ${{ matrix.GOOS == 'android' && '-tags=''androiddnsfix''' || ''}} -o github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
@@ -200,9 +218,9 @@ jobs:
         # Create a folder
         mkdir actions-runner && cd actions-runner
         # Download the latest runner package
-        curl -O -L https://github.com/ChristopherHX/runner.server/releases/download/v${{env.RUNNER_SERVER_VERSION}}/actions-runner-linux-x64-${{env.RUNNER_SERVER_VERSION}}.tar.gz
+        curl -O -L https://github.com/ChristopherHX/runner.server/releases/download/v${{env.RUNNER_SERVER_VERSION}}/runner.server-linux-x64.tar.gz
         # Extract the installer
-        tar xzf ./actions-runner-linux-x64-${{env.RUNNER_SERVER_VERSION}}.tar.gz
+        tar xzf "runner.server-linux-x64.tar.gz"
     - name: Download Artifact
       uses: actions/download-artifact@v3
       with:
@@ -214,17 +232,20 @@ jobs:
       working-directory: runner
     - name: Run Tests
       run: |
-        ./actions-runner/bin/Runner.Server&
+        ./actions-runner/Runner.Server&
         sleep 2
         ./runner/config.sh --unattended --url http://localhost:5000/runner/test --token WhichToken
         ./runner/run.sh&
         # Check for leaks during run (#41)
         sudo prlimit --pid $! --nofile=64:64
         sleep 2
-        ./actions-runner/bin/Runner.Client --server http://localhost:5000 -W ./.github/testworkflows --log-output-dir ./logs
-        ./actions-runner/bin/Runner.Client --server http://localhost:5000 -W ./.github/testworkflows/working-directory.yml --log-output-dir ./logs
-        ./actions-runner/bin/Runner.Client --server http://localhost:5000 -W ./.github/failingtestworkflows/test_container_fail_step.yml --log-output-dir ./logs && exit 1 || [[ "$?" = "1" ]]
-        ./actions-runner/bin/Runner.Client --server http://localhost:5000 -W ./.github/failingtestworkflows/test_host_fail_step.yml --log-output-dir ./logs && exit 1 || [[ "$?" = "1" ]]
+        # Show test commands
+        set -x
+        ./actions-runner/Runner.Client --server http://localhost:5000 -W ./.github/testworkflows --log-output-dir ./logs
+        ./actions-runner/Runner.Client --server http://localhost:5000 -W ./.github/testworkflows/working-directory.yml --log-output-dir ./logs
+        ./actions-runner/Runner.Client --server http://localhost:5000 -W ./.github/failingtestworkflows/test_container_fail_step.yml --log-output-dir ./logs && exit 1 || [[ "$?" = "1" ]]
+        ./actions-runner/Runner.Client --server http://localhost:5000 -W ./.github/failingtestworkflows/test_host_fail_step.yml --log-output-dir ./logs && exit 1 || [[ "$?" = "1" ]]
+        ./actions-runner/Runner.Client workflow_dispatch --server http://localhost:5000 -W ./.github/testworkflows/test-full-contextdata/workflow.yml --log-output-dir ./logs --var WORKSPACE=$PWD -s GITHUB_TOKEN=somevalue
 
     - name: Archive Test Results
       if: ${{always()}}
