@@ -204,7 +204,7 @@ jobs:
         mkdir actions-runner
         cd actions-runner
         # Extract the installer
-        tar xzf "../actions-runner-linux-x64-${{env.RUNNER_SERVER_VERSION}}.tar.gz"
+        tar xzf "../runner.server-linux-x64.tar.gz"
     - name: Download Artifact
       uses: actions/download-artifact@v3
       with:
