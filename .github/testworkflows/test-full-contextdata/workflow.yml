@@ -1,5 +1,4 @@
 on:
-  push:
   workflow_dispatch:
     inputs:
       test:
@@ -34,7 +33,7 @@ jobs:
     - name: Has correct inputs
       run: exit '${{ inputs.test == 'meta' && '0' || '1' }}'
       shell: bash
-    - run: cp $WORKSPACE/.github/testworkflows/test-full-contextdata-action.yml ./action.yml
+    - run: cp $WORKSPACE/.github/testworkflows/test-full-contextdata/action.yml ./action.yml
       env:
         WORKSPACE: ${{ vars.WORKSPACE }}
     - uses: ./
