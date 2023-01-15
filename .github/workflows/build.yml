@@ -202,8 +202,9 @@ jobs:
         # Download the latest runner package
         curl -O -L https://github.com/ChristopherHX/runner.server/releases/download/v${{env.RUNNER_SERVER_VERSION}}/runner.server-linux-x64.tar.gz
         mkdir actions-runner
+        cd actions-runner
         # Extract the installer
-        tar -C actions-runner xzf "$PWD/actions-runner-linux-x64-${{env.RUNNER_SERVER_VERSION}}.tar.gz"
+        tar xzf "../actions-runner-linux-x64-${{env.RUNNER_SERVER_VERSION}}.tar.gz"
     - name: Download Artifact
       uses: actions/download-artifact@v3
       with:
