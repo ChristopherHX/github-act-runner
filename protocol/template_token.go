@@ -50,6 +50,17 @@ func (token *TemplateToken) UnmarshalJSON(data []byte) error {
 	}
 }
 
+func escapeString(in string) string {
+	return strings.ReplaceAll(in, "'", "''")
+}
+
+func escapeExpression(in string) string {
+	if strings.Contains(in, "${{") || strings.Contains(in, "}}") {
+		return fmt.Sprintf("${{ '%s' }}", escapeString(in))
+	}
+	return in
+}
+
 func escapeFormatString(in string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(in, "{", "{{"), "}", "}}")
 }
@@ -169,7 +180,7 @@ func (token *TemplateToken) FromRawObject(value interface{}) {
 func (token *TemplateToken) ToRawObject() interface{} {
 	switch token.Type {
 	case 0:
-		return *token.Lit
+		return escapeExpression(*token.Lit)
 	case 1:
 		a := make([]interface{}, 0)
 		for _, v := range *token.Seq {
@@ -197,7 +208,7 @@ func (token *TemplateToken) ToRawObject() interface{} {
 func (token *TemplateToken) ToJSONRawObject() interface{} {
 	switch token.Type {
 	case 0:
-		return *token.Lit
+		return escapeExpression(*token.Lit)
 	case 1:
 		a := make([]interface{}, 0)
 		for _, v := range *token.Seq {
@@ -228,7 +239,7 @@ func (token *TemplateToken) ToJSONRawObject() interface{} {
 func (token *TemplateToken) ToYamlNode() *yaml.Node {
 	switch token.Type {
 	case 0:
-		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: *token.Lit}
+		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: escapeExpression(*token.Lit)}
 	case 1:
 		a := make([]*yaml.Node, 0)
 		for _, v := range *token.Seq {
@@ -259,10 +270,13 @@ func (token *TemplateToken) ToYamlNode() *yaml.Node {
 
 func ToTemplateToken(node yaml.Node) *TemplateToken {
 	switch node.Kind {
+	case yaml.DocumentNode:
+		return ToTemplateToken(*node.Content[0])
 	case yaml.ScalarNode:
 		var number float64
-		var str string
-		var b bool
+		// var str string
+		// var b bool
+		var c interface{}
 		var val interface{}
 		if node.Tag == "!!null" || node.Value == "" {
 			return nil
@@ -272,14 +286,17 @@ func ToTemplateToken(node yaml.Node) *TemplateToken {
 				return nil
 			}
 			val = number
-		} else if err := node.Decode(&b); err == nil {
+		} else if err := node.Decode(&c); err == nil {
 			// container.reuse causes an error
-			if !b {
-				return nil
+			if b, ok := c.(bool); ok {
+				if b {
+					val = b
+				}
+			} else if s, ok := c.(string); ok {
+				if s != "" {
+					val = s
+				}
 			}
-			val = b
-		} else if err := node.Decode(&str); err == nil {
-			val = str
 		}
 		token := &TemplateToken{}
 		token.FromRawObject(val)
