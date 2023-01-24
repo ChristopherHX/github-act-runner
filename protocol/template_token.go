@@ -24,7 +24,7 @@ type TemplateToken struct {
 	Lit       *string
 	Expr      *string
 	Directive *string
-	Seq       *[]TemplateToken
+	Seq       *[]*TemplateToken
 	Map       *[]MapEntry
 }
 
@@ -122,8 +122,13 @@ func (token *TemplateToken) FromRawObject(value interface{}) {
 	case string:
 		// Resolve potential nested expressions and convert them to an expressions object
 		if expr, ok := rewriteSubExpression(val, false); ok {
-			token.Type = 3
-			token.Expr = &expr
+			if directive := strings.Trim(expr, " "); directive == "insert" {
+				token.Type = 4
+				token.Directive = &directive
+			} else {
+				token.Type = 3
+				token.Expr = &expr
+			}
 		} else {
 			token.Type = 0
 			token.Lit = &val
@@ -131,12 +136,12 @@ func (token *TemplateToken) FromRawObject(value interface{}) {
 	case []interface{}:
 		token.Type = 1
 		a := val
-		seq := make([]TemplateToken, len(a))
+		seq := make([]*TemplateToken, len(a))
 		token.Seq = &seq
 		for i, v := range a {
 			e := TemplateToken{}
 			e.FromRawObject(v)
-			(*token.Seq)[i] = e
+			(*token.Seq)[i] = &e
 		}
 	case map[interface{}]interface{}:
 		token.Type = 2
@@ -180,7 +185,7 @@ func (token *TemplateToken) ToRawObject() interface{} {
 	case 3:
 		return "${{" + *token.Expr + "}}"
 	case 4:
-		return *token.Directive
+		return "${{" + *token.Directive + "}}"
 	case 5:
 		return *token.Bool
 	case 6:
@@ -211,7 +216,7 @@ func (token *TemplateToken) ToJSONRawObject() interface{} {
 	case 3:
 		return "${{" + *token.Expr + "}}"
 	case 4:
-		return *token.Directive
+		return "${{" + *token.Directive + "}}"
 	case 5:
 		return *token.Bool
 	case 6:
@@ -239,7 +244,7 @@ func (token *TemplateToken) ToYamlNode() *yaml.Node {
 	case 3:
 		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: "${{" + *token.Expr + "}}"}
 	case 4:
-		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: *token.Directive}
+		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: "${{" + *token.Directive + "}}"}
 	case 5:
 		val, _ := yaml.Marshal(token.Bool)
 		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.FlowStyle, Value: string(val[:len(val)-1])}
@@ -248,6 +253,61 @@ func (token *TemplateToken) ToYamlNode() *yaml.Node {
 		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.FlowStyle, Value: string(val[:len(val)-1])}
 	case 7:
 		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.FlowStyle, Value: "null"}
+	}
+	return nil
+}
+
+func ToTemplateToken(node yaml.Node) *TemplateToken {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		var number float64
+		var str string
+		var b bool
+		var val interface{}
+		if node.Tag == "!!null" || node.Value == "" {
+			return nil
+		}
+		if err := node.Decode(&number); err == nil {
+			if number == 0 {
+				return nil
+			}
+			val = number
+		} else if err := node.Decode(&b); err == nil {
+			// container.reuse causes an error
+			if !b {
+				return nil
+			}
+			val = b
+		} else if err := node.Decode(&str); err == nil {
+			val = str
+		}
+		token := &TemplateToken{}
+		token.FromRawObject(val)
+		return token
+	case yaml.SequenceNode:
+		content := make([]*TemplateToken, len(node.Content))
+		for i := 0; i < len(content); i++ {
+			content[i] = ToTemplateToken(*node.Content[i])
+		}
+		return &TemplateToken{
+			Type: 1,
+			Seq:  &content,
+		}
+	case yaml.MappingNode:
+		cap := len(node.Content) / 2
+		content := make([]MapEntry, 0, cap)
+		for i := 0; i < cap; i++ {
+			key := ToTemplateToken(*node.Content[i*2])
+			val := ToTemplateToken(*node.Content[i*2+1])
+			// skip null values of some yaml structures of act
+			if key != nil && val != nil {
+				content = append(content, MapEntry{Key: key, Value: val})
+			}
+		}
+		return &TemplateToken{
+			Type: 2,
+			Map:  &content,
+		}
 	}
 	return nil
 }
