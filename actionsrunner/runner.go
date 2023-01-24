@@ -2,6 +2,7 @@ package actionsrunner
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -148,13 +150,16 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 						fatalFailure = true
 					}
 				}()
+				customTransport := http.DefaultTransport.(*http.Transport).Clone()
+				customTransport.MaxIdleConns = 1
+				customTransport.IdleConnTimeout = 100 * time.Second
+				if v, ok := os.LookupEnv("SKIP_TLS_CERT_VALIDATION"); ok && strings.EqualFold(v, "true") || strings.EqualFold(v, "Y") {
+					customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+				}
 				vssConnection := &protocol.VssConnection{
 					Client: &http.Client{
-						Timeout: 100 * time.Second,
-						Transport: &http.Transport{
-							MaxIdleConns:    1,
-							IdleConnTimeout: 100 * time.Second,
-						},
+						Timeout:   100 * time.Second,
+						Transport: customTransport,
 					},
 					TenantURL: instance.Auth.TenantURL,
 					PoolID:    instance.PoolID,

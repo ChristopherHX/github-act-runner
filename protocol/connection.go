@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/rsa"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"regexp"
 	"strings"
@@ -55,12 +57,15 @@ func (vssConnection *VssConnection) BuildURL(relativePath string, ppath map[stri
 
 func (vssConnection *VssConnection) httpClient() *http.Client {
 	if vssConnection.Client == nil {
+		customTransport := http.DefaultTransport.(*http.Transport).Clone()
+		customTransport.MaxIdleConns = 1
+		customTransport.IdleConnTimeout = 100 * time.Second
+		if v, ok := os.LookupEnv("SKIP_TLS_CERT_VALIDATION"); ok && strings.EqualFold(v, "true") || strings.EqualFold(v, "Y") {
+			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		}
 		vssConnection.Client = &http.Client{
-			Timeout: 100 * time.Second,
-			Transport: &http.Transport{
-				MaxIdleConns:    1,
-				IdleConnTimeout: 100 * time.Second,
-			},
+			Timeout:   100 * time.Second,
+			Transport: customTransport,
 		}
 	}
 	return vssConnection.Client

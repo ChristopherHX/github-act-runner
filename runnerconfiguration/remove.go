@@ -2,13 +2,12 @@ package runnerconfiguration
 
 import (
 	"fmt"
-	"net/http"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
 )
 
 func (config *RemoveRunner) Remove(settings *RunnerSettings, survey Survey, auth *protocol.GitHubAuthResult) (*RunnerSettings, error) {
-	c := &http.Client{}
+	c := config.GetHttpClient()
 	var instancesToRemove []*RunnerInstance
 	for _, i := range settings.Instances {
 		if (len(config.URL) == 0 || i.RegistrationURL == config.URL) || (len(config.Name) == 0 || i.Agent.Name == config.Name) {
