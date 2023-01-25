@@ -98,8 +98,8 @@ type AgentMessageConnection struct {
 	Block            cipher.Block
 }
 
-func (session *AgentMessageConnection) Delete() error {
-	return session.VssConnection.Request("134e239e-2df3-4794-a6f6-24f1f19ec8dc", "5.1-preview", "DELETE", map[string]string{
+func (session *AgentMessageConnection) Delete(ctx context.Context) error {
+	return session.VssConnection.RequestWithContext(ctx, "134e239e-2df3-4794-a6f6-24f1f19ec8dc", "5.1-preview", "DELETE", map[string]string{
 		"poolId":    fmt.Sprint(session.VssConnection.PoolID),
 		"sessionId": session.TaskAgentSession.SessionID,
 	}, map[string]string{}, session.TaskAgentSession, nil)
@@ -136,8 +136,8 @@ func (session *AgentMessageConnection) GetNextMessage(ctx context.Context) (*Tas
 	}
 }
 
-func (session *AgentMessageConnection) DeleteMessage(message *TaskAgentMessage) error {
-	return session.VssConnection.Request("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "DELETE", map[string]string{
+func (session *AgentMessageConnection) DeleteMessage(ctx context.Context, message *TaskAgentMessage) error {
+	return session.VssConnection.RequestWithContext(ctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "DELETE", map[string]string{
 		"poolId":    fmt.Sprint(session.VssConnection.PoolID),
 		"messageId": fmt.Sprint(message.MessageID),
 	}, map[string]string{

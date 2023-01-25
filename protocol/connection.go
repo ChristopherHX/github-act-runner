@@ -82,7 +82,9 @@ func (vssConnection *VssConnection) authorize() (*VssOAuthTokenResponse, error) 
 }
 
 func (vssConnection *VssConnection) Request(serviceID string, protocol string, method string, urlParameter map[string]string, queryParameter map[string]string, requestBody interface{}, responseBody interface{}) error {
-	return vssConnection.RequestWithContext(context.Background(), serviceID, protocol, method, urlParameter, queryParameter, requestBody, responseBody)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	return vssConnection.RequestWithContext(ctx, serviceID, protocol, method, urlParameter, queryParameter, requestBody, responseBody)
 }
 
 func AddContentType(header http.Header, apiversion string) {
