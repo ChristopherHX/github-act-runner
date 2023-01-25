@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
-	"net/http"
 	"os"
 	"runtime"
 	"strings"
@@ -47,9 +46,7 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 		return nil, fmt.Errorf("no url provided")
 	}
 	instance.RegistrationURL = config.URL
-	c := &http.Client{
-		Timeout: 100 * time.Second,
-	}
+	c := config.GetHttpClient()
 	res := auth
 	if res == nil {
 		authres, err := config.Authenicate(c, survey)
