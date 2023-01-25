@@ -31,9 +31,8 @@ func (c *ConfigureRemoveRunner) GetHttpClient() *http.Client {
 	if c.Client != nil {
 		return c.Client
 	}
-	var customTransport *http.Transport
+	customTransport := http.DefaultTransport.(*http.Transport).Clone()
 	if v, ok := os.LookupEnv("SKIP_TLS_CERT_VALIDATION"); ok && strings.EqualFold(v, "true") || strings.EqualFold(v, "Y") {
-		customTransport = http.DefaultTransport.(*http.Transport).Clone()
 		customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 	c.Client = &http.Client{
