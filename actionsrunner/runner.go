@@ -198,7 +198,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 				var _session *protocol.AgentMessageConnection = nil
 				for _, session := range sessions {
 					if session.Agent.Name == instance.Agent.Name && session.Agent.Authorization.PublicKey == instance.Agent.Authorization.PublicKey {
-						session, err := vssConnection.LoadSession(session)
+						session, err := vssConnection.LoadSession(joblisteningctx, session)
 						if deleteSessions {
 							session.Delete(joblisteningctx)
 							for i, _session := range sessions {
