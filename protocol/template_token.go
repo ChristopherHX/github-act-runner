@@ -200,6 +200,23 @@ func (converter *TemplateTokenConverter) FromRawObject(value interface{}) (*Temp
 			}
 		}
 		return &TemplateToken{Type: 1, Seq: &seq}, nil
+	case map[string]interface{}:
+		_map := make([]MapEntry, 0, 2*len(val))
+		for k, v := range val {
+			key, err := converter.FromRawObject(k)
+			if err != nil {
+				return nil, err
+			}
+			value, err := converter.FromRawObject(v)
+			if err != nil {
+				return nil, err
+			}
+			_map = append(_map, MapEntry{
+				Key:   key,
+				Value: value,
+			})
+		}
+		return &TemplateToken{Type: 2, Map: &_map}, nil
 	case map[interface{}]interface{}:
 		_map := make([]MapEntry, 0, 2*len(val))
 		for k, v := range val {
