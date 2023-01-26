@@ -50,6 +50,52 @@ func (token *TemplateToken) UnmarshalJSON(data []byte) error {
 	}
 }
 
+func (token *TemplateToken) FromRawObject(value interface{}) {
+	converter := &TemplateTokenConverter{
+		AllowExpressions:    true,
+		IgnoreDefaultValues: true,
+	}
+	ret, _ := converter.FromRawObject(value)
+	if ret != nil {
+		*token = *ret
+	}
+}
+
+func (token *TemplateToken) ToRawObject() interface{} {
+	converter := &TemplateTokenConverter{
+		AllowExpressions:    true,
+		IgnoreDefaultValues: true,
+	}
+	ret, _ := converter.ToRawObject(token)
+	return ret
+}
+
+func (token *TemplateToken) ToJSONRawObject() interface{} {
+	converter := &TemplateTokenConverter{
+		AllowExpressions:    true,
+		IgnoreDefaultValues: true,
+		StringKeys:          true,
+	}
+	ret, _ := converter.ToRawObject(token)
+	return ret
+}
+
+func (token *TemplateToken) ToYamlNode() *yaml.Node {
+	converter := &TemplateTokenConverter{
+		AllowExpressions:    true,
+		IgnoreDefaultValues: true,
+		StringKeys:          true,
+	}
+	ret, _ := converter.ToYamlNode(token)
+	return ret
+}
+
+type TemplateTokenConverter struct {
+	AllowExpressions    bool // If false expressions cause an error or are encoded as a string
+	IgnoreDefaultValues bool // Some act structs use have non present fields, which are encoded into a yaml node
+	StringKeys          bool
+}
+
 func escapeString(in string) string {
 	return strings.ReplaceAll(in, "'", "''")
 }
@@ -128,115 +174,127 @@ func rewriteSubExpression(in string, forceFormat bool) (string, bool) {
 	return out, true
 }
 
-func (token *TemplateToken) FromRawObject(value interface{}) {
+func (converter *TemplateTokenConverter) FromRawObject(value interface{}) (*TemplateToken, error) {
 	switch val := value.(type) {
 	case string:
-		// Resolve potential nested expressions and convert them to an expressions object
-		if expr, ok := rewriteSubExpression(val, false); ok {
-			if directive := strings.Trim(expr, " "); directive == "insert" {
-				token.Type = 4
-				token.Directive = &directive
-			} else {
-				token.Type = 3
-				token.Expr = &expr
+		if converter.AllowExpressions {
+			// Resolve potential nested expressions and convert them to an expressions object
+			if expr, ok := rewriteSubExpression(val, false); ok {
+				if expr == "insert" {
+					return &TemplateToken{Type: 4, Directive: &expr}, nil
+				} else {
+					return &TemplateToken{Type: 3, Expr: &expr}, nil
+
+				}
 			}
-		} else {
-			token.Type = 0
-			token.Lit = &val
 		}
+		return &TemplateToken{Type: 0, Lit: &val}, nil
 	case []interface{}:
-		token.Type = 1
 		a := val
 		seq := make([]*TemplateToken, len(a))
-		token.Seq = &seq
 		for i, v := range a {
-			e := TemplateToken{}
-			e.FromRawObject(v)
-			(*token.Seq)[i] = &e
+			var err error
+			(seq)[i], err = converter.FromRawObject(v)
+			if err != nil {
+				return nil, err
+			}
 		}
+		return &TemplateToken{Type: 1, Seq: &seq}, nil
 	case map[interface{}]interface{}:
-		token.Type = 2
-		_map := make([]MapEntry, 0)
-		token.Map = &_map
+		_map := make([]MapEntry, 0, 2*len(val))
 		for k, v := range val {
-			key := &TemplateToken{}
-			key.FromRawObject(k)
-			value := &TemplateToken{}
-			value.FromRawObject(v)
+			key, err := converter.FromRawObject(k)
+			if err != nil {
+				return nil, err
+			}
+			value, err := converter.FromRawObject(v)
+			if err != nil {
+				return nil, err
+			}
 			_map = append(_map, MapEntry{
 				Key:   key,
 				Value: value,
 			})
 		}
+		return &TemplateToken{Type: 2, Map: &_map}, nil
 	case bool:
-		token.Type = 5
-		token.Bool = &val
+		return &TemplateToken{Type: 5, Bool: &val}, nil
 	case float64:
-		token.Type = 6
-		token.Num = &val
+		return &TemplateToken{Type: 6, Num: &val}, nil
+	default:
+		return nil, fmt.Errorf("unexpected TemplateToken type: %v", val)
 	}
 }
 
-func (token *TemplateToken) ToRawObject() interface{} {
+func (converter *TemplateTokenConverter) ToRawObject(token *TemplateToken) (interface{}, error) {
 	switch token.Type {
 	case 0:
-		return escapeExpression(*token.Lit)
+		if converter.AllowExpressions {
+			return escapeExpression(*token.Lit), nil
+		}
+		return *token.Lit, nil
 	case 1:
 		a := make([]interface{}, 0)
 		for _, v := range *token.Seq {
-			a = append(a, v.ToRawObject())
-		}
-		return a
-	case 2:
-		m := make(map[interface{}]interface{})
-		for _, v := range *token.Map {
-			m[v.Key.ToRawObject()] = v.Value.ToRawObject()
-		}
-		return m
-	case 3:
-		return "${{" + *token.Expr + "}}"
-	case 4:
-		return "${{" + *token.Directive + "}}"
-	case 5:
-		return *token.Bool
-	case 6:
-		return *token.Num
-	}
-	return nil
-}
-
-func (token *TemplateToken) ToJSONRawObject() interface{} {
-	switch token.Type {
-	case 0:
-		return escapeExpression(*token.Lit)
-	case 1:
-		a := make([]interface{}, 0)
-		for _, v := range *token.Seq {
-			a = append(a, v.ToJSONRawObject())
-		}
-		return a
-	case 2:
-		m := make(map[string]interface{})
-		for _, v := range *token.Map {
-			k := v.Key.ToJSONRawObject()
-			if s, ok := k.(string); ok {
-				m[s] = v.Value.ToJSONRawObject()
+			c, err := converter.ToRawObject(v)
+			if err != nil {
+				return nil, err
 			}
+			a = append(a, c)
 		}
-		return m
+		return a, nil
+	case 2:
+		if converter.StringKeys {
+			m := make(map[interface{}]interface{})
+			for _, v := range *token.Map {
+				k, err := converter.ToRawObject(v.Key)
+				if err != nil {
+					return nil, err
+				}
+				m[k], err = converter.ToRawObject(v.Value)
+				if err != nil {
+					return nil, err
+				}
+			}
+			return m, nil
+		} else {
+			m := make(map[string]interface{})
+			for _, v := range *token.Map {
+				k, err := converter.ToRawObject(v.Key)
+				if err != nil {
+					return nil, err
+				}
+				if s, ok := k.(string); ok {
+					m[s], err = converter.ToRawObject(v.Value)
+					if err != nil {
+						return nil, err
+					}
+				} else {
+					return nil, fmt.Errorf("unexpected key type %v", k)
+				}
+			}
+			return m, nil
+		}
 	case 3:
-		return "${{" + *token.Expr + "}}"
+		if !converter.AllowExpressions {
+			return nil, fmt.Errorf("expressions are not allowed: %s", *token.Expr)
+		}
+		return "${{" + *token.Expr + "}}", nil
 	case 4:
-		return "${{" + *token.Directive + "}}"
+		if !converter.AllowExpressions {
+			return nil, fmt.Errorf("directives are not allowed: %s", *token.Directive)
+		}
+		return "${{" + *token.Directive + "}}", nil
 	case 5:
-		return *token.Bool
+		return *token.Bool, nil
 	case 6:
-		return *token.Num
+		return *token.Num, nil
+	default:
+		return nil, fmt.Errorf("unexpected TemplateToken type: %v", token.Type)
 	}
-	return nil
 }
 
-func (token *TemplateToken) ToYamlNode() (ret *yaml.Node) {
+func (converter *TemplateTokenConverter) ToYamlNode(token *TemplateToken) (ret *yaml.Node, err error) {
 	defer func() {
 		if ret != nil {
 			if token.Column != nil {
@@ -249,36 +307,59 @@ func (token *TemplateToken) ToYamlNode() (ret *yaml.Node) {
 	}()
 	switch token.Type {
 	case 0:
-		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: escapeExpression(*token.Lit)}
+		val := *token.Lit
+		if converter.AllowExpressions {
+			val = escapeExpression(val)
+		}
+		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: val}, nil
 	case 1:
 		a := make([]*yaml.Node, 0)
 		for _, v := range *token.Seq {
-			a = append(a, v.ToYamlNode())
+			r, err := converter.ToYamlNode(v)
+			if err != nil {
+				return nil, err
+			}
+			a = append(a, r)
 		}
-		return &yaml.Node{Kind: yaml.SequenceNode, Content: a}
+		return &yaml.Node{Kind: yaml.SequenceNode, Content: a}, nil
 	case 2:
 		a := make([]*yaml.Node, 0)
 		for _, v := range *token.Map {
-			a = append(a, v.Key.ToYamlNode(), v.Value.ToYamlNode())
+			k, err := converter.ToYamlNode(v.Key)
+			if err != nil {
+				return nil, err
+			}
+			v, err := converter.ToYamlNode(v.Value)
+			if err != nil {
+				return nil, err
+			}
+			a = append(a, k, v)
 		}
-		return &yaml.Node{Kind: yaml.MappingNode, Content: a}
+		return &yaml.Node{Kind: yaml.MappingNode, Content: a}, nil
 	case 3:
-		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: "${{" + *token.Expr + "}}"}
+		if !converter.AllowExpressions {
+			return nil, fmt.Errorf("expressions are not allowed: %s", *token.Expr)
+		}
+		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: "${{" + *token.Expr + "}}"}, nil
 	case 4:
-		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: "${{" + *token.Directive + "}}"}
+		if !converter.AllowExpressions {
+			return nil, fmt.Errorf("directives are not allowed: %s", *token.Expr)
+		}
+		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: "${{" + *token.Directive + "}}"}, nil
 	case 5:
 		val, _ := yaml.Marshal(token.Bool)
-		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.FlowStyle, Value: string(val[:len(val)-1])}
+		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.FlowStyle, Value: string(val[:len(val)-1])}, nil
 	case 6:
 		val, _ := yaml.Marshal(token.Num)
-		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.FlowStyle, Value: string(val[:len(val)-1])}
+		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.FlowStyle, Value: string(val[:len(val)-1])}, nil
 	case 7:
-		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.FlowStyle, Value: "null"}
+		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.FlowStyle, Value: "null"}, nil
+	default:
+		return nil, fmt.Errorf("unexpected TemplateToken type: %v", token.Type)
 	}
-	return nil
 }
 
-func ToTemplateToken(node yaml.Node) (ret *TemplateToken) {
+func (converter *TemplateTokenConverter) FromYamlNode(node *yaml.Node) (ret *TemplateToken, err error) {
 	defer func() {
 		if ret != nil && (node.Column != 0 || node.Line != 0) {
 			column := int32(node.Column)
@@ -287,53 +368,66 @@ func ToTemplateToken(node yaml.Node) (ret *TemplateToken) {
 			ret.Line = &line
 		}
 	}()
+	retNil := func() (*TemplateToken, error) {
+		if converter.IgnoreDefaultValues {
+			return nil, nil
+		}
+		return &TemplateToken{Type: 7}, nil
+	}
+	if node == nil || node.IsZero() {
+		return retNil()
+	}
 	switch node.Kind {
 	case yaml.DocumentNode:
-		return ToTemplateToken(*node.Content[0])
+		return converter.FromYamlNode(node.Content[0])
 	case yaml.ScalarNode:
 		var number float64
-		// var str string
-		// var b bool
 		var c interface{}
 		var val interface{}
-		if node.Tag == "!!null" || node.Value == "" {
-			return nil
+		if node.Tag == "!!null" || converter.IgnoreDefaultValues && node.Value == "" {
+			return retNil()
 		}
 		if err := node.Decode(&number); err == nil {
-			if number == 0 {
-				return nil
+			if converter.IgnoreDefaultValues && number == 0 {
+				return nil, nil
 			}
 			val = number
 		} else if err := node.Decode(&c); err == nil {
-			// container.reuse causes an error
 			if b, ok := c.(bool); ok {
-				if b {
+				if !converter.IgnoreDefaultValues || b {
 					val = b
 				}
 			} else if s, ok := c.(string); ok {
-				if s != "" {
+				if !converter.IgnoreDefaultValues || s != "" {
 					val = s
 				}
 			}
 		}
-		token := &TemplateToken{}
-		token.FromRawObject(val)
-		return token
+		return converter.FromRawObject(val)
 	case yaml.SequenceNode:
 		content := make([]*TemplateToken, len(node.Content))
 		for i := 0; i < len(content); i++ {
-			content[i] = ToTemplateToken(*node.Content[i])
+			content[i], err = converter.FromYamlNode(node.Content[i])
+			if err != nil {
+				return nil, err
+			}
 		}
 		return &TemplateToken{
 			Type: 1,
 			Seq:  &content,
-		}
+		}, nil
 	case yaml.MappingNode:
 		cap := len(node.Content) / 2
 		content := make([]MapEntry, 0, cap)
 		for i := 0; i < cap; i++ {
-			key := ToTemplateToken(*node.Content[i*2])
-			val := ToTemplateToken(*node.Content[i*2+1])
+			key, err := converter.FromYamlNode(node.Content[i*2])
+			if err != nil {
+				return nil, err
+			}
+			val, err := converter.FromYamlNode(node.Content[i*2+1])
+			if err != nil {
+				return nil, err
+			}
 			// skip null values of some yaml structures of act
 			if key != nil && val != nil {
 				content = append(content, MapEntry{Key: key, Value: val})
@@ -342,7 +436,8 @@ func ToTemplateToken(node yaml.Node) (ret *TemplateToken) {
 		return &TemplateToken{
 			Type: 2,
 			Map:  &content,
-		}
+		}, nil
+	default:
+		return nil, fmt.Errorf("unexpected yaml kind: %v", node.Kind)
 	}
-	return nil
 }

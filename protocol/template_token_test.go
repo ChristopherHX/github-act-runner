@@ -7,6 +7,9 @@ import (
 )
 
 func TestToTemplateToken(t *testing.T) {
+	converter := &TemplateTokenConverter{
+		AllowExpressions: true,
+	}
 	node := &yaml.Node{}
 	err := yaml.Unmarshal([]byte(`
 on: push
@@ -20,7 +23,10 @@ jobs:
 	if err != nil {
 		t.Error(err)
 	}
-	token := ToTemplateToken(*node)
+	token, err := converter.FromYamlNode(node)
+	if err != nil {
+		t.Error(err)
+	}
 	kv := (*token.Map)[0]
 	if *kv.Key.Lit != "on" {
 		t.Error("Unexpected key")
@@ -49,6 +55,10 @@ jobs:
 }
 
 func TestParsingAndSerializingInsertDirective(t *testing.T) {
+	converter := &TemplateTokenConverter{
+		AllowExpressions: true,
+	}
+
 	node := &yaml.Node{}
 	err := yaml.Unmarshal([]byte(`
 ${{ insert }}:
@@ -62,7 +72,10 @@ z: z
 	if err != nil {
 		t.Error(err)
 	}
-	token := ToTemplateToken(*node)
+	token, err := converter.FromYamlNode(node)
+	if err != nil {
+		t.Error(err)
+	}
 	for i := 0; i < 3; i++ {
 		kv := (*token.Map)[i]
 		if *kv.Key.Directive != "insert" {
@@ -70,7 +83,10 @@ z: z
 		}
 	}
 
-	anotherNode := token.ToYamlNode()
+	anotherNode, err := converter.ToYamlNode(token)
+	if err != nil {
+		t.Error(err)
+	}
 	if anotherNode.Content[0].Value != "${{insert}}" {
 		t.Error("Unexpected key", anotherNode.Content[0].Value)
 	}

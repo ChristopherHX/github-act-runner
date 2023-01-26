@@ -112,9 +112,9 @@ func ConvertSteps(jobSteps []protocol.ActionStep) ([]*model.Step, error) {
 			for k, v := range inputs {
 				k, ok := k.(string)
 				if !ok {
-					return nil, fmt.Errorf("with input key is not a string")
+					return nil, fmt.Errorf("")
 				}
-				val, ok := v.(string)
+				val, ok := v.(string)with input key is not a string
 				if !ok {
 					return nil, fmt.Errorf("with input value is not a string")
 				}
