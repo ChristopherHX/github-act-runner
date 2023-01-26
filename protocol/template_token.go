@@ -236,7 +236,17 @@ func (token *TemplateToken) ToJSONRawObject() interface{} {
 	return nil
 }
 
-func (token *TemplateToken) ToYamlNode() *yaml.Node {
+func (token *TemplateToken) ToYamlNode() (ret *yaml.Node) {
+	defer func() {
+		if ret != nil {
+			if token.Column != nil {
+				ret.Column = int(*token.Column)
+			}
+			if token.Line != nil {
+				ret.Line = int(*token.Line)
+			}
+		}
+	}()
 	switch token.Type {
 	case 0:
 		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: escapeExpression(*token.Lit)}
@@ -268,7 +278,15 @@ func (token *TemplateToken) ToYamlNode() *yaml.Node {
 	return nil
 }
 
-func ToTemplateToken(node yaml.Node) *TemplateToken {
+func ToTemplateToken(node yaml.Node) (ret *TemplateToken) {
+	defer func() {
+		if ret != nil && (node.Column != 0 || node.Line != 0) {
+			column := int32(node.Column)
+			line := int32(node.Line)
+			ret.Column = &column
+			ret.Line = &line
+		}
+	}()
 	switch node.Kind {
 	case yaml.DocumentNode:
 		return ToTemplateToken(*node.Content[0])
