@@ -244,7 +244,7 @@ func (converter *TemplateTokenConverter) ToRawObject(token *TemplateToken) (inte
 		}
 		return a, nil
 	case 2:
-		if converter.StringKeys {
+		if !converter.StringKeys {
 			m := make(map[interface{}]interface{})
 			for _, v := range *token.Map {
 				k, err := converter.ToRawObject(v.Key)
