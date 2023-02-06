@@ -26,43 +26,48 @@ type ghaFormatter struct {
 	linefeedregex *regexp.Regexp
 }
 
-func (f *ghaFormatter) flushInternal(res *model.StepResult) {
+func flushInternal(rec *TimelineRecord, res *model.StepResult) {
 	if res.Conclusion == model.StepStatusSuccess {
-		f.logger.Current().Complete("Succeeded")
+		rec.Complete("Succeeded")
 	} else if res.Conclusion == model.StepStatusSkipped {
-		f.logger.Current().Complete("Skipped")
+		rec.Complete("Skipped")
 	} else {
-		f.logger.Current().Complete("Failed")
+		rec.Complete("Failed")
 	}
 }
 
 func (f *ghaFormatter) Flush() {
-	if res, ok := f.rc.StepResults[f.logger.Current().RefName]; ok && f.logger.Current() != nil {
-		f.flushInternal(res)
+	cur := f.logger.Current()
+	if cur == nil {
+		return
+	}
+	if res, ok := f.rc.StepResults[cur.RefName]; ok {
+		flushInternal(cur, res)
 	}
 	for {
 		next := f.logger.MoveNext()
 		if next == nil {
 			break
 		}
-		f.logger.Current().Complete("Skipped")
+		next.Complete("Skipped")
 	}
 }
 
 func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	b := &bytes.Buffer{}
-
-	if f.rc != nil && f.rc.Parent == nil && (f.logger.Current() == nil || f.logger.Current().RefName != f.rc.CurrentStep) {
-		if res, ok := f.rc.StepResults[f.logger.Current().RefName]; ok && f.logger.Current() != nil {
-			f.flushInternal(res)
+	if cur := f.logger.Current(); f.rc != nil && f.rc.Parent == nil && cur != nil && cur.RefName != f.rc.CurrentStep {
+		if res, ok := f.rc.StepResults[cur.RefName]; ok {
+			flushInternal(cur, res)
 			for {
 				next := f.logger.MoveNext()
 				if next == nil || next.RefName == f.rc.CurrentStep {
 					break
 				}
-				f.logger.Current().Complete("Skipped")
+				next.Complete("Skipped")
 			}
-			f.logger.Current().Start()
+			if cur := f.logger.Current(); cur != nil {
+				cur.Start()
+			}
 		}
 	}
 	if f.rqt.MaskHints != nil {
