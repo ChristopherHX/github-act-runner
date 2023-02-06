@@ -48,8 +48,11 @@ func (logger *WebsocketLivelogger) Close() error {
 
 func (logger *WebsocketLivelogger) Connect() error {
 	err := logger.Close()
-	if err != nil {
-		return err
+	if err != nil && logger.Connection.Trace {
+		fmt.Printf("Failed to close old websocket connection %s\n", err.Error())
+	}
+	if logger.Connection.Trace {
+		fmt.Printf("Try to connect to websocket %s\n", logger.FeedStreamUrl)
 	}
 	origin, err := url.Parse(logger.Connection.TenantURL)
 	if err != nil {
@@ -122,13 +125,22 @@ func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *TimelineRecordFe
 	}
 	err := logger.currentLogger.SendLog(wrapper)
 	if err != nil {
+		if logger.Connection.Trace {
+			fmt.Printf("Failed to send webconsole log %s\n", err.Error())
+		}
 		if wslogger, err := logger.currentLogger.(*WebsocketLivelogger); err {
 			if err := wslogger.Connect(); err != nil {
+				if logger.Connection.Trace {
+					fmt.Printf("Failed to reconnect to websocket %s, fallback to vsslogger\n", err.Error())
+				}
 				logger.InitializeVssLogger()
 				return logger.currentLogger.SendLog(wrapper)
 			}
 			err := logger.currentLogger.SendLog(wrapper)
 			if err != nil {
+				if logger.Connection.Trace {
+					fmt.Printf("Failed to send webconsole log %s, fallback to vsslogger\n", err.Error())
+				}
 				logger.InitializeVssLogger()
 				return logger.currentLogger.SendLog(wrapper)
 			}
