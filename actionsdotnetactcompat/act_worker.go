@@ -26,7 +26,7 @@ type ghaFormatter struct {
 	linefeedregex *regexp.Regexp
 }
 
-func flushInternal(rec *TimelineRecord, res *model.StepResult) {
+func flushInternal(rec *protocol.TimelineRecord, res *model.StepResult) {
 	if res.Conclusion == model.StepStatusSuccess {
 		rec.Complete("Succeeded")
 	} else if res.Conclusion == model.StepStatusSkipped {
