@@ -5,7 +5,7 @@ import (
 	"path"
 	"strings"
 	"time"
-	"url"
+	"net/url"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
 )
