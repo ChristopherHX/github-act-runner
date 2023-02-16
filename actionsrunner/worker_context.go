@@ -2,7 +2,10 @@ package actionsrunner
 
 import (
 	"context"
+	"path"
+	"strings"
 	"time"
+	"net/url"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
 )
@@ -24,6 +27,37 @@ type DefaultWorkerContext struct {
 }
 
 func (wc *DefaultWorkerContext) FinishJob(result string, outputs *map[string]protocol.VariableValue) {
+	if strings.EqualFold(wc.Message().MessageType, "RunnerJobRequest") {
+		payload := struct {
+			PlanID     string
+			JobID      string
+			Conclusion string
+			Outputs    *map[string]protocol.VariableValue
+		}{
+			PlanID: wc.Message().Plan.PlanID,
+    		JobID: wc.Message().JobID,
+    		Conclusion: result,
+    		Outputs: outputs,
+		}
+
+		completejobUrl, _ := url.Parse(wc.VssConnection.TenantURL)
+		completejobUrl.Path = path.Join(completejobUrl.Path, "completejob")
+		for i := 0; ; i++ {
+			if err := wc.VssConnection.RequestWithContext2(context.Background(), "POST", completejobUrl.String(), "", payload, nil); err != nil {
+				wc.RunnerLogger.Printf("Failed to finish Job '%v' with Status %v: %v\n", wc.Message().JobDisplayName, result, err.Error())
+			} else {
+				wc.RunnerLogger.Printf("Finished Job '%v' with Status %v\n", wc.Message().JobDisplayName, result)
+				break
+			}
+			if i < 10 {
+				wc.RunnerLogger.Printf("Retry finishing '%v' in 10 seconds attempt %v of 10\n", wc.Message().JobDisplayName, i+1)
+				<-time.After(time.Second * 10)
+			} else {
+				break
+			}
+		}
+		return
+	}
 	finish := &protocol.JobEvent{
 		Name:      "JobCompleted",
 		JobID:     wc.Message().JobID,

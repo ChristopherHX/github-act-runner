@@ -2,7 +2,6 @@ package actionsdotnetactcompat
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/ChristopherHX/github-act-runner/actionsrunner"
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/google/uuid"
 	"github.com/nektos/act/pkg/common"
@@ -105,7 +105,9 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func ExecWorker(rqt *protocol.AgentJobRequestMessage, jlogger *protocol.JobLogger, jobExecCtx context.Context) {
+func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerContext) {
+	jlogger := wc.Logger()
+	jobExecCtx := wc.JobExecCtx()
 	logger := logrus.New()
 	logger.SetOutput(jlogger)
 	formatter := &ghaFormatter{
@@ -119,14 +121,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, jlogger *protocol.JobLogge
 		jlogger.TimelineRecords.Value[0].Complete(result)
 		jlogger.Logger.Close()
 		jlogger.Finish()
-		finish := &protocol.JobEvent{
-			Name:      "JobCompleted",
-			JobID:     rqt.JobID,
-			RequestID: rqt.RequestID,
-			Result:    result,
-			Outputs:   outputs,
-		}
-		vssConnection.FinishJob(finish, rqt.Plan)
+		wc.FinishJob(result, outputs)
 	}
 	finishJob := func(result string) {
 		finishJob2(result, &map[string]protocol.VariableValue{})
