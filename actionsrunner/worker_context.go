@@ -2,7 +2,10 @@ package actionsrunner
 
 import (
 	"context"
+	"path"
+	"strings"
 	"time"
+	"url"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
 )
@@ -40,7 +43,7 @@ func (wc *DefaultWorkerContext) FinishJob(result string, outputs *map[string]pro
 		completejobUrl, _ := url.Parse(wc.VssConnection.TenantURL)
 		completejobUrl.Path = path.Join(completejobUrl.Path, "completejob")
 		for i := 0; ; i++ {
-			if err := vssConnection.RequestWithContext2(jobctx, "POST", completejobUrl.String(), "", payload, &src); err != nil {
+			if err := wc.VssConnection.RequestWithContext2(context.Background(), "POST", completejobUrl.String(), "", payload, nil); err != nil {
 				wc.RunnerLogger.Printf("Failed to finish Job '%v' with Status %v: %v\n", wc.Message().JobDisplayName, result, err.Error())
 			} else {
 				wc.RunnerLogger.Printf("Finished Job '%v' with Status %v\n", wc.Message().JobDisplayName, result)
