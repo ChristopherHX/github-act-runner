@@ -303,7 +303,7 @@ func main() {
 							wc.Init()
 							wc.Logger().Append(protocol.CreateTimelineEntry(jobreq.JobID, "__setup", "Set up Job")).Start()
 							wc.Logger().Update()
-							actionsdotnetactcompat.ExecWorker(jobreq, wc.Logger(), execcontext)
+							actionsdotnetactcompat.ExecWorker(jobreq, wc)
 							logf.WriteString("Finish Job\n")
 						}()
 					default:
