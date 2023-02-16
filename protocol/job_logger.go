@@ -240,12 +240,13 @@ func (logger *JobLogger) Current() *TimelineRecord {
 }
 
 func (logger *JobLogger) MoveNext() *TimelineRecord {
-	if logger.Current() == nil {
+	cur := logger.Current()
+	if cur == nil {
 		return nil
 	}
 	if logger.CurrentBuffer.Len() > 0 {
 		if logid, err := logger.Connection.UploadLogFile(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.CurrentBuffer.String()); err == nil {
-			logger.Current().Log = &TaskLogReference{ID: logid}
+			cur.Log = &TaskLogReference{ID: logid}
 		}
 	}
 	logger.CurrentRecord++
@@ -296,12 +297,16 @@ func (logger *JobLogger) Log(lines string) {
 	}
 	lines = logger.linefeedregex.ReplaceAllString(strings.TrimSuffix(lines, "\r\n"), "\n")
 	_, _ = logger.JobBuffer.WriteString(lines + "\n")
+	cur := logger.Current()
+	if cur == nil {
+		return
+	}
 	_, _ = logger.CurrentBuffer.WriteString(lines + "\n")
 	cline := logger.CurrentLine
 	wrapper := &TimelineRecordFeedLinesWrapper{
 		StartLine: &cline,
 		Value:     strings.Split(lines, "\n"),
-		StepID:    logger.Current().ID,
+		StepID:    cur.ID,
 	}
 	wrapper.Count = int64(len(wrapper.Value))
 	logger.CurrentLine += wrapper.Count
