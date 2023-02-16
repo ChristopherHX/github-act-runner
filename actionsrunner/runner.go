@@ -36,6 +36,7 @@ type JobRun struct {
 	Plan            *protocol.TaskOrchestrationPlanReference
 	Name            string
 	RegistrationURL string
+	RunServiceURL   string
 }
 
 type RunnerEnvironment interface {
@@ -439,6 +440,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 			plogger.Printf("%v\n", string(src))
 		}
 		jobreq := &protocol.AgentJobRequestMessage{}
+		var runServiceUrl string
 		{
 			if strings.EqualFold(message.MessageType, "RunnerJobRequest") {
 				rjrr := &RunnerJobRequestRef{}
@@ -452,13 +454,14 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 					} else {
 						copy := *vssConnection
 						vssConnection = &copy
-						vssConnection.Token = ""
-						runServiceUrl, _ := url.ParseRequestURI(rjrr.RunServiceUrl)
-						vssConnection.TenantURL = runServiceUrl.Host
+						runServiceUrl = rjrr.RunServiceUrl
+						acquirejobUrl, _ := url.Parse(runServiceUrl)
+						acquirejobUrl.Path = path.Join(acquirejobUrl.Path, "acquirejob")
+						vssConnection.TenantURL = runServiceUrl
 						payload := &RunnerServicePayload{
 							StreamID: rjrr.RunnerRequestId,
 						}
-						err = vssConnection.RequestWithContext2(jobctx, "POST", rjrr.RunServiceUrl, "", payload, &src)
+						err = vssConnection.RequestWithContext2(jobctx, "POST", acquirejobUrl.String(), "", payload, &src)
 					}
 					if err == nil {
 						json.Unmarshal(src, jobreq)
@@ -476,6 +479,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 			Plan:            jobreq.Plan,
 			RegistrationURL: instance.RegistrationURL,
 			Name:            instance.Agent.Name,
+			RunServiceURL:   runServiceUrl,
 		}
 		{
 			// TODO multi repository runners can receive multiple job requests at the same time and this protection doesn't work there
