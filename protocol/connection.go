@@ -85,25 +85,6 @@ func (vssConnection *VssConnection) Request(serviceID string, protocol string, m
 	return vssConnection.RequestWithContext(context.Background(), serviceID, protocol, method, urlParameter, queryParameter, requestBody, responseBody)
 }
 
-func AddContentType(header http.Header, apiversion string) {
-	if len(apiversion) > 0 {
-		header["Content-Type"] = []string{"application/json; charset=utf-8; api-version=" + apiversion}
-		header["Accept"] = []string{"application/json; api-version=" + apiversion}
-	}
-}
-
-func AddBearer(header http.Header, token string) {
-	if len(token) > 0 {
-		header["Authorization"] = []string{"bearer " + token}
-	}
-}
-
-func AddHeaders(header http.Header) {
-	header["X-VSS-E2EID"] = []string{uuid.NewString()}
-	header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
-	header["X-TFS-Session"] = []string{uuid.NewString()}
-}
-
 func (vssConnection *VssConnection) GetServiceURL(ctx context.Context, serviceID string, urlParameter map[string]string, queryParameter map[string]string) (string, error) {
 	if vssConnection.connectionData == nil {
 		for i := 1; ; {
@@ -147,19 +128,19 @@ func (vssConnection *VssConnection) RequestWithContext(ctx context.Context, serv
 	return vssConnection.RequestWithContext2(ctx, method, url, protocol, requestBody, responseBody)
 }
 
-func extractReader(body interface{}) (io.Reader, error) {
+func extractReader(body interface{}) (io.Reader, []string, error) {
 	if body == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if buf, ok := body.(*bytes.Buffer); ok {
-		return buf, nil
+		return buf, []string{"application/octet-stream"}, nil
 	}
 	buf := new(bytes.Buffer)
 	enc := json.NewEncoder(buf)
 	if err := enc.Encode(body); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return buf, nil
+	return buf, []string{"application/json", "charset=utf-8"}, nil
 }
 
 func getHeadersAsString(header http.Header) string {
@@ -196,8 +177,8 @@ func setResponseBody(r io.Reader, body interface{}) error {
 	return nil
 }
 
-func (vssConnection *VssConnection) requestWithContextNoAuth(ctx context.Context, method string, url string, protocol string, requestBody interface{}, responseBody interface{}) (int, error) {
-	buf, err := extractReader(requestBody)
+func (vssConnection *VssConnection) requestWithContextNoAuth(ctx context.Context, method string, url string, apiversion string, requestBody interface{}, responseBody interface{}) (int, error) {
+	buf, reqContentType, err := extractReader(requestBody)
 	if err != nil {
 		return 0, err
 	}
@@ -205,9 +186,33 @@ func (vssConnection *VssConnection) requestWithContextNoAuth(ctx context.Context
 	if err != nil {
 		return 0, err
 	}
-	AddContentType(request.Header, protocol)
-	AddHeaders(request.Header)
-	AddBearer(request.Header, vssConnection.Token)
+	header := request.Header
+	contentTypeHeader := http.CanonicalHeaderKey("Content-Type")
+	acceptHeader := http.CanonicalHeaderKey("Accept")
+	if len(reqContentType) > 0 {
+		header[contentTypeHeader] = reqContentType
+	}
+	if responseBody != nil {
+		if _, ok := responseBody.(*[]byte); ok {
+			header.Set(acceptHeader, "application/octet-stream")
+		} else {
+			header.Set(acceptHeader, "application/json")
+		}
+	}
+	if len(apiversion) > 0 {
+		if len(header[contentTypeHeader]) > 0 {
+			header.Add(contentTypeHeader, "api-version="+apiversion)
+		}
+		if len(header[acceptHeader]) > 0 {
+			header.Add(acceptHeader, "api-version="+apiversion)
+		}
+		header["X-VSS-E2EID"] = []string{uuid.NewString()}
+		header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
+		header["X-TFS-Session"] = []string{uuid.NewString()}
+	}
+	if len(vssConnection.Token) > 0 {
+		header["Authorization"] = []string{"bearer " + vssConnection.Token}
+	}
 	if vssConnection.Trace {
 		fmt.Printf("Http %v Request started %v\nHeaders:\n%v\nBody: `%v`\n", method, url, getHeadersAsString(request.Header), getBodyAsString(buf))
 	}
