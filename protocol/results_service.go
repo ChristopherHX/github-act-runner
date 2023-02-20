@@ -232,7 +232,7 @@ func (rs *ResultsService) UploadResultsJobLogAsync(ctx context.Context, planId s
 }
 
 var (
-	TimestampFormat = "yyyy-MM-dd'T'HH:mm:ss.fffK"
+	TimestampFormat = "2006-01-02T15:04:05.999Z" // dotnet "yyyy-MM-dd'T'HH:mm:ss.fffK"
 
 	ResultsReceiverTwirpEndpoint = "twirp/results.services.receiver.Receiver/"
 	GetStepSummarySignedBlobURL  = ResultsReceiverTwirpEndpoint + "GetStepSummarySignedBlobURL"
