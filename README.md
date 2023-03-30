@@ -33,12 +33,12 @@ Follow the instruction of https://github.com/ChristopherHX/github-act-runner/rel
 ### Add debian repository
 `/etc/apt/sources.list.d/github-act-runner.list` file:
 ```
-deb http://gagis.hopto.org/repo/chrishx/deb all main
+deb https://gagis.hopto.org/repo/chrishx/deb all main
 ```
 
 ### Import repository public key
 ```console
-curl -sS http://gagis.hopto.org/repo/chrishx/pubkey.gpg | sudo tee -a /etc/apt/trusted.gpg.d/chrishx-github-act-runner.asc
+curl -sS https://gagis.hopto.org/repo/chrishx/pubkey.gpg | sudo tee -a /etc/apt/trusted.gpg.d/chrishx-github-act-runner.asc
 ```
 
 ### Install the runner
