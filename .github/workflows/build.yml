@@ -178,9 +178,9 @@ jobs:
     - name: add cppfw repo to install myci scripts from
       uses: myci-actions/add-deb-repo@master
       with:
-        repo: deb http://gagis.hopto.org/repo/cppfw/$(lsb_release --id --short | tr '[:upper:]' '[:lower:]') $(lsb_release --codename --short) main
+        repo: deb https://gagis.hopto.org/repo/cppfw/$(lsb_release --id --short | tr '[:upper:]' '[:lower:]') $(lsb_release --codename --short) main
         repo-name: cppfw
-        key-server: http://gagis.hopto.org/repo/cppfw/pubkey.gpg
+        keys-asc: https://gagis.hopto.org/repo/cppfw/pubkey.gpg
     - name: install debian package tools
       run: |
         sudo apt --quiet update
