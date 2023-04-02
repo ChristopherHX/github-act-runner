@@ -19,6 +19,7 @@ type GitHubAuthResult struct {
 	TenantURL   string `json:"url"`
 	TokenSchema string `json:"token_schema"`
 	Token       string `json:"token"`
+	UseV2FLow   string `json:"use_v2_flow"`
 }
 
 type TaskOrchestrationPlanReference struct {

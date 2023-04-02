@@ -63,10 +63,33 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 		Token:     res.Token,
 		Trace:     config.Trace,
 	}
+	
+	getRunnerGroups := func() (*TaskAgentPools, error) {
+		return vssConnection.GetAgentPools()
+	}
+	if res.UseV2FLow {
+		apiBuilder, err := NewGithubApiUrlBuilder(config.URL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Url: %v\n", config.URL)
+		}
+		getRunnerGroups = func() (*protocol.TaskAgentPools, error) {
+			runnerGroupsURL, err := apiBuilder.AbsoluteApiUrl("actions/runner-groups")
+			if err != nil {
+				return nil, err
+			}
+			runnerGroups := &protocol.RunnerGroupList{}
+			err = vssConnection.RequestWithContext2(context.Background(), "GET", runnerGroupsURL, "", nil, runnerGroups)
+			if err != nil {
+				return nil, err
+			}
+			poolList := &protocol.TaskAgentPools{}
+			return poolList, nil
+		}
+	}
 	{
 		taskAgentPool := ""
 		taskAgentPools := []string{}
-		_taskAgentPools, err := vssConnection.GetAgentPools()
+		_taskAgentPools, err := getRunnerGroups()
 		if err != nil {
 			return nil, fmt.Errorf("failed to configure runner: %v\n", err)
 		}
