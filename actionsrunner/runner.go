@@ -407,7 +407,8 @@ type RunnerJobRequestRef struct {
 }
 
 type RunnerServicePayload struct {
-	StreamID string `json:"streamID"`
+	StreamID string `json:"streamId"` // Deprecated: https://github.com/actions/runner/pull/2547
+	JobMessageID string `json:"jobMessageId"`
 }
 
 type plainTextFormatter struct {
@@ -460,7 +461,8 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 						acquirejobUrl.Path = path.Join(acquirejobUrl.Path, "acquirejob")
 						vssConnection.TenantURL = runServiceUrl
 						payload := &RunnerServicePayload{
-							StreamID: rjrr.RunnerRequestId,
+							StreamID: rjrr.RunnerRequestId, // Deprecated: https://github.com/actions/runner/pull/2547
+							JobMessageID: rjrr.RunnerRequestId,
 						}
 						err = vssConnection.RequestWithContext2(jobctx, "POST", acquirejobUrl.String(), "", payload, &src)
 					}
