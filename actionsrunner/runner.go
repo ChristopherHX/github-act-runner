@@ -504,7 +504,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 					resp := map[string]interface{}{}
 					err = vssConnection.RequestWithContext2(jobctx, "POST", renewjobUrl.String(), "", payload, &resp)
 				} else {
-					err := con.RequestWithContext(jobctx, "fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
+					err = con.RequestWithContext(jobctx, "fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
 						"poolId":    fmt.Sprint(instance.PoolID),
 						"requestId": fmt.Sprint(jobreq.RequestID),
 					}, map[string]string{
