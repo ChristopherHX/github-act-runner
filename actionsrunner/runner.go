@@ -497,11 +497,11 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 					renewjobUrl, _ := url.Parse(runServiceUrl)
 					renewjobUrl.Path = path.Join(renewjobUrl.Path, "renewjob")
 					vssConnection.TenantURL = runServiceUrl
-					payload := map[string]interface{
+					payload := map[string]interface{}{
 						"planId": jobreq.Plan.PlanID,
 						"jobId":  jobreq.JobID
 					}
-					resp := map[string]interface{}
+					resp := map[string]interface{}{}
 					err = vssConnection.RequestWithContext2(jobctx, "POST", renewjobUrl.String(), "", payload, &resp)
 				} else {
 					err := con.RequestWithContext(jobctx, "fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
