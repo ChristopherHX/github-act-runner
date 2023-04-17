@@ -491,12 +491,26 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 		con := *vssConnection
 		go func() {
 			for {
-				err := con.RequestWithContext(jobctx, "fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
-					"poolId":    fmt.Sprint(instance.PoolID),
-					"requestId": fmt.Sprint(jobreq.RequestID),
-				}, map[string]string{
-					"lockToken": "00000000-0000-0000-0000-000000000000",
-				}, &protocol.RenewAgent{RequestID: jobreq.RequestID}, nil)
+				var err error
+				if runServiceUrl != "" {
+					vssConnection = &con
+					renewjobUrl, _ := url.Parse(runServiceUrl)
+					renewjobUrl.Path = path.Join(renewjobUrl.Path, "renewjob")
+					vssConnection.TenantURL = runServiceUrl
+					payload := map[string]interface{
+						"planId": jobreq.Plan.PlanID,
+						"jobId":  jobreq.JobID
+					}
+					resp := map[string]interface{}
+					err = vssConnection.RequestWithContext2(jobctx, "POST", renewjobUrl.String(), "", payload, &resp)
+				} else {
+					err := con.RequestWithContext(jobctx, "fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
+						"poolId":    fmt.Sprint(instance.PoolID),
+						"requestId": fmt.Sprint(jobreq.RequestID),
+					}, map[string]string{
+						"lockToken": "00000000-0000-0000-0000-000000000000",
+					}, &protocol.RenewAgent{RequestID: jobreq.RequestID}, nil)
+				}
 				if err != nil {
 					if errors.Is(err, context.Canceled) {
 						return
