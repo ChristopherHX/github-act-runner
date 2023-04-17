@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"time"
 )
 
@@ -92,7 +91,7 @@ func (rs *ResultsService) UploadResultsStepSummaryAsync(ctx context.Context, pla
 		return fmt.Errorf("failed to get step log upload url")
 	}
 	if fileSize > uploadUrlResponse.SoftSizeLimit {
-		return fmt.Errorf("file size is larger than the upload url allows, file size: %v, upload url size: %v", fi.Size(), uploadUrlResponse.SoftSizeLimit)
+		return fmt.Errorf("file size is larger than the upload url allows, file size: %v, upload url size: %v", fileSize, uploadUrlResponse.SoftSizeLimit)
 	}
 	err = rs.UploadBlockFileAsync(ctx, uploadUrlResponse.SummaryUrl, uploadUrlResponse.BlobStorageType, fileContent)
 	if err != nil {
@@ -184,7 +183,7 @@ func (rs *ResultsService) UploadResultsJobLogAsync(ctx context.Context, planId s
 			return err
 		}
 	}
-	err = rs.UploadAppendFileAsync(ctx, uploadUrlResponse.LogsUrl, uploadUrlResponse.BlobStorageType, fileStream, finalize, fileSize)
+	err = rs.UploadAppendFileAsync(ctx, uploadUrlResponse.LogsUrl, uploadUrlResponse.BlobStorageType, fileContent, finalize, fileSize)
 	if err != nil {
 		return err
 	}
