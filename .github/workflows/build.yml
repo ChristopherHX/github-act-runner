@@ -96,7 +96,7 @@ jobs:
         TARGET: ${{ matrix.TARGET }}
     - name: Build
       run: |
-        go build -ldflags "-X main.version=${{ github.event.inputs.version || format('{0}-dev-{1}', env.RUNNER_DEV_VERSION, github.sha) }}" ${{ matrix.GOOS == 'android' && '-tags=''androiddnsfix''' || ''}} -o github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
+        go build -ldflags "-X main.version=${{ github.event.inputs.version || format('{0}-dev-{1}', env.RUNNER_DEV_VERSION, github.sha) }}" -o github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
         mkdir output
         cp github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}} output/github-act-runner${{matrix.suffix}}
       env:
