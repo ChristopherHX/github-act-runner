@@ -74,7 +74,7 @@ func (rs *ResultsService) UploadAppendFileAsync(ctx context.Context, url string,
 	return fmt.Errorf("failed to upload append file, status code: %v", response.StatusCode)
 }
 
-func (rs *ResultsService) UploadResultsStepSummaryAsync(ctx context.Context, planId string, jobId string, stepId string, file string) error {
+func (rs *ResultsService) UploadResultsStepSummaryAsync(ctx context.Context, planId string, jobId string, stepId string, fileContent io.Reader, fileSize int64) error {
 	req := &GetSignedStepSummaryURLRequest{
 		WorkflowRunBackendId:    planId,
 		WorkflowJobRunBackendId: jobId,
@@ -91,18 +91,10 @@ func (rs *ResultsService) UploadResultsStepSummaryAsync(ctx context.Context, pla
 	if uploadUrlResponse.SummaryUrl == "" {
 		return fmt.Errorf("failed to get step log upload url")
 	}
-	fileStream, err := os.OpenFile(file, os.O_RDONLY, 0)
-	if err != nil {
-		return err
-	}
-	fi, err := os.Stat(file)
-	if err != nil {
-		return err
-	}
-	if fi.Size() > uploadUrlResponse.SoftSizeLimit {
+	if fileSize > uploadUrlResponse.SoftSizeLimit {
 		return fmt.Errorf("file size is larger than the upload url allows, file size: %v, upload url size: %v", fi.Size(), uploadUrlResponse.SoftSizeLimit)
 	}
-	err = rs.UploadBlockFileAsync(ctx, uploadUrlResponse.SummaryUrl, uploadUrlResponse.BlobStorageType, fileStream)
+	err = rs.UploadBlockFileAsync(ctx, uploadUrlResponse.SummaryUrl, uploadUrlResponse.BlobStorageType, fileContent)
 	if err != nil {
 		return err
 	}
@@ -123,7 +115,7 @@ func (rs *ResultsService) UploadResultsStepSummaryAsync(ctx context.Context, pla
 	return nil
 }
 
-func (rs *ResultsService) UploadResultsStepLogAsync(ctx context.Context, planId string, jobId string, stepId string, file string, finalize bool, firstBlock bool, lineCount int64) error {
+func (rs *ResultsService) UploadResultsStepLogAsync(ctx context.Context, planId string, jobId string, stepId string, fileContent io.Reader, fileSize int64, finalize bool, firstBlock bool, lineCount int64) error {
 	req := &GetSignedStepLogsURLRequest{
 		WorkflowRunBackendId:    planId,
 		WorkflowJobRunBackendId: jobId,
@@ -146,15 +138,7 @@ func (rs *ResultsService) UploadResultsStepLogAsync(ctx context.Context, planId 
 			return err
 		}
 	}
-	fileStream, err := os.OpenFile(file, os.O_RDONLY, 0)
-	if err != nil {
-		return err
-	}
-	fi, err := os.Stat(file)
-	if err != nil {
-		return err
-	}
-	err = rs.UploadAppendFileAsync(ctx, uploadUrlResponse.LogsUrl, uploadUrlResponse.BlobStorageType, fileStream, finalize, fi.Size())
+	err = rs.UploadAppendFileAsync(ctx, uploadUrlResponse.LogsUrl, uploadUrlResponse.BlobStorageType, fileContent, finalize, fileSize)
 	if err != nil {
 		return err
 	}
@@ -178,7 +162,7 @@ func (rs *ResultsService) UploadResultsStepLogAsync(ctx context.Context, planId 
 	return nil
 }
 
-func (rs *ResultsService) UploadResultsJobLogAsync(ctx context.Context, planId string, jobId string, file string, finalize bool, firstBlock bool, lineCount int64) error {
+func (rs *ResultsService) UploadResultsJobLogAsync(ctx context.Context, planId string, jobId string, fileContent io.Reader, fileSize int64, finalize bool, firstBlock bool, lineCount int64) error {
 	req := &GetSignedJobLogsURLRequest{
 		WorkflowRunBackendId:    planId,
 		WorkflowJobRunBackendId: jobId,
@@ -200,15 +184,7 @@ func (rs *ResultsService) UploadResultsJobLogAsync(ctx context.Context, planId s
 			return err
 		}
 	}
-	fileStream, err := os.OpenFile(file, os.O_RDONLY, 0)
-	if err != nil {
-		return err
-	}
-	fi, err := os.Stat(file)
-	if err != nil {
-		return err
-	}
-	err = rs.UploadAppendFileAsync(ctx, uploadUrlResponse.LogsUrl, uploadUrlResponse.BlobStorageType, fileStream, finalize, fi.Size())
+	err = rs.UploadAppendFileAsync(ctx, uploadUrlResponse.LogsUrl, uploadUrlResponse.BlobStorageType, fileStream, finalize, fileSize)
 	if err != nil {
 		return err
 	}
