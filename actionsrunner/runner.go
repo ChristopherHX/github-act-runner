@@ -499,7 +499,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 					vssConnection.TenantURL = runServiceUrl
 					payload := map[string]interface{}{
 						"planId": jobreq.Plan.PlanID,
-						"jobId":  jobreq.JobID
+						"jobId":  jobreq.JobID,
 					}
 					resp := map[string]interface{}{}
 					err = vssConnection.RequestWithContext2(jobctx, "POST", renewjobUrl.String(), "", payload, &resp)
