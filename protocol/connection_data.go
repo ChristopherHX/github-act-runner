@@ -15,6 +15,8 @@ type ServiceDefinition struct {
 	Description       string
 	ServiceOwner      string
 	ResourceVersion   int
+	MinVersion        string
+	MaxVersion        string
 }
 
 type LocationServiceData struct {
