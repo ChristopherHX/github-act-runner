@@ -38,7 +38,7 @@ $inputjob = Start-ThreadJob -ScriptBlock {
         $pipeOut.Flush()
     }
 }
-echo "Wait for exit "
+echo "Wait for exit"
 Wait-Process -InputObject $proc
 $exitCode = $proc.ExitCode
 // https://github.com/actions/runner/blob/af6ed41bcb47019cce2a7035bad76c97ac97b92a/src/Runner.Common/Util/TaskResultUtil.cs#L13-L14
