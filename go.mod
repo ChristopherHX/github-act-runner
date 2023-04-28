@@ -10,9 +10,9 @@ require (
 	github.com/nektos/act v0.2.22
 	github.com/robertkrimen/otto v0.0.0-20210614181706-373ff5438452
 	github.com/sirupsen/logrus v1.9.0
-	github.com/spf13/cobra v1.6.1
+	github.com/spf13/cobra v1.7.0
 	github.com/spf13/viper v1.8.1 // indirect
-	golang.org/x/net v0.0.0-20220906165146-f3363e06e74c
+	golang.org/x/net v0.7.0
 	gopkg.in/sourcemap.v1 v1.0.5 // indirect
 	gopkg.in/yaml.v3 v3.0.1
 )
