@@ -25,6 +25,7 @@ type TaskOrchestrationPlanReference struct {
 	ScopeIdentifier string
 	PlanID          string
 	PlanType        string
+	Version         int32
 }
 
 type JobAuthorization struct {
@@ -78,6 +79,7 @@ type ActionStep struct {
 	Condition        string
 	ContinueOnError  *TemplateToken
 	TimeoutInMinutes *TemplateToken
+	Id               string
 }
 
 type AgentJobRequestMessage struct {

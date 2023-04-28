@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/ChristopherHX/github-act-runner/actionsrunner"
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/google/uuid"
 	"github.com/nektos/act/pkg/common"
@@ -34,27 +35,36 @@ type ghaFormatter struct {
 	result        *model.StepResult
 }
 
-func (f *ghaFormatter) flushInternal(res *model.StepResult) {
+func flushInternal(rec *protocol.TimelineRecord, res *model.StepResult) {
 	if res.Conclusion == model.StepStatusSuccess {
-		f.logger.Current().Complete("Succeeded")
+		rec.Complete("Succeeded")
 	} else if res.Conclusion == model.StepStatusSkipped {
-		f.logger.Current().Complete("Skipped")
+		rec.Complete("Skipped")
 	} else {
-		f.logger.Current().Complete("Failed")
+		rec.Complete("Failed")
 	}
 }
 
 func (f *ghaFormatter) Flush() {
-	if f.result != nil && f.logger.Current() != nil {
-		f.flushInternal(f.result)
-		f.result = nil
+	// <<<<<<< HEAD
+	// 	if f.result != nil && f.logger.Current() != nil {
+	// 		f.flushInternal(f.result)
+	// 		f.result = nil
+	// =======
+	cur := f.logger.Current()
+	if cur == nil {
+		return
+	}
+	if res, ok := f.rc.StepResults[cur.RefName]; ok {
+		flushInternal(cur, res)
+		// >>>>>>> origin
 	}
 	for {
 		next := f.logger.MoveNext()
 		if next == nil {
 			break
 		}
-		f.logger.Current().Complete("Skipped")
+		next.Complete("Skipped")
 	}
 }
 
@@ -83,16 +93,17 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		}
 		stepID = prefix + stepIDArray[0]
 	}
+	cur := f.logger.Current()
 	if !f.main && hasStepID {
 		f.main = true
-		f.flushInternal(&model.StepResult{Conclusion: model.StepStatusSuccess})
+		flushInternal(cur, &model.StepResult{Conclusion: model.StepStatusSuccess})
 	}
 	stepName, hasStepName := entry.Data["step"]
 	if hasStepName && hasStepID && f.logger.Current().RefName != stepID {
 		if stage == "Post" {
 			f.Flush()
 		} else if f.result != nil {
-			f.flushInternal(f.result)
+			flushInternal(cur, f.result)
 		}
 		f.result = &model.StepResult{Conclusion: model.StepStatusSuccess}
 		if stage != "Main" {
@@ -112,9 +123,11 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 				if next == nil || next.RefName == stepID {
 					break
 				}
-				f.logger.Current().Complete("Skipped")
+				next.Complete("Skipped")
 			}
-			f.logger.Current().Start()
+			if cur := f.logger.Current(); cur != nil {
+				cur.Start()
+			}
 			f.logger.Update()
 		}
 	}
@@ -169,7 +182,9 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func ExecWorker(rqt *protocol.AgentJobRequestMessage, jlogger *protocol.JobLogger, jobExecCtx context.Context) {
+func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerContext) {
+	jlogger := wc.Logger()
+	jobExecCtx := wc.JobExecCtx()
 	logger := logrus.New()
 	logger.SetOutput(jlogger)
 	formatter := &ghaFormatter{
@@ -183,14 +198,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, jlogger *protocol.JobLogge
 		jlogger.TimelineRecords.Value[0].Complete(result)
 		jlogger.Logger.Close()
 		jlogger.Finish()
-		finish := &protocol.JobEvent{
-			Name:      "JobCompleted",
-			JobID:     rqt.JobID,
-			RequestID: rqt.RequestID,
-			Result:    result,
-			Outputs:   outputs,
-		}
-		vssConnection.FinishJob(finish, rqt.Plan)
+		wc.FinishJob(result, outputs)
 	}
 	finishJob := func(result string) {
 		finishJob2(result, &map[string]protocol.VariableValue{})
@@ -358,8 +366,12 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, jlogger *protocol.JobLogge
 				},
 			},
 		},
-		Matrix:    matrix,
-		EventJSON: payload,
+		Matrix:      matrix,
+		EventJSON:   payload,
+		ContextData: map[string]interface{}{},
+	}
+	for k, v := range rqt.ContextData {
+		rc.ContextData[k] = v.ToRawObject()
 	}
 
 	rc.ContextData = make(map[string]interface{})

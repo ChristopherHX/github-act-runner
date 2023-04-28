@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -48,8 +49,11 @@ func (logger *WebsocketLivelogger) Close() error {
 
 func (logger *WebsocketLivelogger) Connect() error {
 	err := logger.Close()
-	if err != nil {
-		return err
+	if err != nil && logger.Connection.Trace {
+		fmt.Printf("Failed to close old websocket connection %s\n", err.Error())
+	}
+	if logger.Connection.Trace {
+		fmt.Printf("Try to connect to websocket %s\n", logger.FeedStreamUrl)
 	}
 	origin, err := url.Parse(logger.Connection.TenantURL)
 	if err != nil {
@@ -122,13 +126,22 @@ func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *TimelineRecordFe
 	}
 	err := logger.currentLogger.SendLog(wrapper)
 	if err != nil {
+		if logger.Connection.Trace {
+			fmt.Printf("Failed to send webconsole log %s\n", err.Error())
+		}
 		if wslogger, err := logger.currentLogger.(*WebsocketLivelogger); err {
 			if err := wslogger.Connect(); err != nil {
+				if logger.Connection.Trace {
+					fmt.Printf("Failed to reconnect to websocket %s, fallback to vsslogger\n", err.Error())
+				}
 				logger.InitializeVssLogger()
 				return logger.currentLogger.SendLog(wrapper)
 			}
 			err := logger.currentLogger.SendLog(wrapper)
 			if err != nil {
+				if logger.Connection.Trace {
+					fmt.Printf("Failed to send webconsole log %s, fallback to vsslogger\n", err.Error())
+				}
 				logger.InitializeVssLogger()
 				return logger.currentLogger.SendLog(wrapper)
 			}
@@ -240,12 +253,13 @@ func (logger *JobLogger) Current() *TimelineRecord {
 }
 
 func (logger *JobLogger) MoveNext() *TimelineRecord {
-	if logger.Current() == nil {
+	cur := logger.Current()
+	if cur == nil {
 		return nil
 	}
 	if logger.CurrentBuffer.Len() > 0 {
 		if logid, err := logger.Connection.UploadLogFile(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.CurrentBuffer.String()); err == nil {
-			logger.Current().Log = &TaskLogReference{ID: logid}
+			cur.Log = &TaskLogReference{ID: logid}
 		}
 	}
 	logger.CurrentRecord++
@@ -296,12 +310,16 @@ func (logger *JobLogger) Log(lines string) {
 	}
 	lines = logger.linefeedregex.ReplaceAllString(strings.TrimSuffix(lines, "\r\n"), "\n")
 	_, _ = logger.JobBuffer.WriteString(lines + "\n")
+	cur := logger.Current()
+	if cur == nil {
+		return
+	}
 	_, _ = logger.CurrentBuffer.WriteString(lines + "\n")
 	cline := logger.CurrentLine
 	wrapper := &TimelineRecordFeedLinesWrapper{
 		StartLine: &cline,
 		Value:     strings.Split(lines, "\n"),
-		StepID:    logger.Current().ID,
+		StepID:    cur.ID,
 	}
 	wrapper.Count = int64(len(wrapper.Value))
 	logger.CurrentLine += wrapper.Count

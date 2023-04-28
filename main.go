@@ -158,7 +158,7 @@ func (run *RunRunner) Run() int {
 	return 0
 }
 
-var version string = "0.3.x-dev"
+var version string = "0.5.x-dev"
 
 type interactive struct {
 }
@@ -301,7 +301,7 @@ func main() {
 							wc.Init()
 							wc.Logger().Append(protocol.CreateTimelineEntry(jobreq.JobID, "__setup", "Set up Job")).Start()
 							wc.Logger().Update()
-							actionsdotnetactcompat.ExecWorker(jobreq, wc.Logger(), execcontext)
+							actionsdotnetactcompat.ExecWorker(jobreq, wc)
 							logf.WriteString("Finish Job\n")
 						}()
 					default:

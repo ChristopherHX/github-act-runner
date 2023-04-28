@@ -15,7 +15,7 @@ type ActionDownloadInfoCollection struct {
 }
 
 type ActionDownloadInfo struct {
-	Authentication        ActionDownloadAuthentication
+	Authentication        *ActionDownloadAuthentication `json:",omitempty"`
 	NameWithOwner         string
 	ResolvedNameWithOwner string
 	ResolvedSha           string
@@ -25,6 +25,6 @@ type ActionDownloadInfo struct {
 }
 
 type ActionDownloadAuthentication struct {
-	ExpiresAt string
+	ExpiresAt string `json:",omitempty"`
 	Token     string
 }

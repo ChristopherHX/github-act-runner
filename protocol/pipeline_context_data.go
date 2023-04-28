@@ -1,6 +1,9 @@
 package protocol
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 type DictionaryContextDataPair struct {
 	Key   string              `json:"k"`
@@ -74,4 +77,66 @@ func (ctx PipelineContextData) ToRawObject() interface{} {
 		return *ctx.NumberValue
 	}
 	return nil
+}
+
+func ToPipelineContextDataWithError(data interface{}) (PipelineContextData, error) {
+	if b, ok := data.(bool); ok {
+		var typ int32 = 3
+		return PipelineContextData{
+			Type:      &typ,
+			BoolValue: &b,
+		}, nil
+	} else if n, ok := data.(float64); ok {
+		var typ int32 = 4
+		return PipelineContextData{
+			Type:        &typ,
+			NumberValue: &n,
+		}, nil
+	} else if s, ok := data.(string); ok {
+		var typ int32
+		return PipelineContextData{
+			Type:        &typ,
+			StringValue: &s,
+		}, nil
+	} else if a, ok := data.([]interface{}); ok {
+		arr := []PipelineContextData{}
+		for _, v := range a {
+			e, err := ToPipelineContextDataWithError(v)
+			if err != nil {
+				return PipelineContextData{}, err
+			}
+			arr = append(arr, e)
+		}
+		var typ int32 = 1
+		return PipelineContextData{
+			Type:       &typ,
+			ArrayValue: &arr,
+		}, nil
+	} else if o, ok := data.(map[string]interface{}); ok {
+		obj := []DictionaryContextDataPair{}
+		for k, v := range o {
+			e, err := ToPipelineContextDataWithError(v)
+			if err != nil {
+				return PipelineContextData{}, err
+			}
+			obj = append(obj, DictionaryContextDataPair{Key: k, Value: e})
+		}
+		var typ int32 = 2
+		return PipelineContextData{
+			Type:            &typ,
+			DictionaryValue: &obj,
+		}, nil
+	}
+	if data == nil {
+		return PipelineContextData{}, nil
+	}
+	return PipelineContextData{}, fmt.Errorf("unknown type")
+}
+
+func ToPipelineContextData(data interface{}) PipelineContextData {
+	ret, err := ToPipelineContextDataWithError(data)
+	if err != nil {
+		panic(err)
+	}
+	return ret
 }

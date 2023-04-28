@@ -3,6 +3,7 @@ package runnerconfiguration
 import (
 	"bytes"
 	"crypto/rsa"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -11,17 +12,34 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
 )
 
 type ConfigureRemoveRunner struct {
+	Client     *http.Client
 	URL        string
 	Name       string
 	Token      string
 	Pat        string
 	Unattended bool
 	Trace      bool
+}
+
+func (c *ConfigureRemoveRunner) GetHttpClient() *http.Client {
+	if c.Client != nil {
+		return c.Client
+	}
+	customTransport := http.DefaultTransport.(*http.Transport).Clone()
+	if v, ok := os.LookupEnv("SKIP_TLS_CERT_VALIDATION"); ok && strings.EqualFold(v, "true") || strings.EqualFold(v, "Y") {
+		customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	c.Client = &http.Client{
+		Timeout:   100 * time.Second,
+		Transport: customTransport,
+	}
+	return c.Client
 }
 
 type ConfigureRunner struct {

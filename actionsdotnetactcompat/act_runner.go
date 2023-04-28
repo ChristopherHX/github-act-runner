@@ -10,10 +10,8 @@ type ActRunner struct {
 }
 
 func (arunner *ActRunner) ExecWorker(run *actionsrunner.RunRunner, wc actionsrunner.WorkerContext, jobreq *protocol.AgentJobRequestMessage, src []byte) error {
-	jlogger := wc.Logger()
-	jobExecCtx := wc.JobExecCtx()
 	if len(arunner.WorkerArgs) <= 0 {
-		ExecWorker(jobreq, jlogger, jobExecCtx)
+		ExecWorker(jobreq, wc)
 		return nil
 	}
 	return arunner.WorkerRunnerEnvironment.ExecWorker(run, wc, jobreq, src)

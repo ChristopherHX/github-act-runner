@@ -2,6 +2,7 @@ package actionsrunner
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -9,6 +10,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
+	"path"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -33,6 +37,7 @@ type JobRun struct {
 	Plan            *protocol.TaskOrchestrationPlanReference
 	Name            string
 	RegistrationURL string
+	RunServiceURL   string
 }
 
 type RunnerEnvironment interface {
@@ -147,13 +152,16 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 						fatalFailure = true
 					}
 				}()
+				customTransport := http.DefaultTransport.(*http.Transport).Clone()
+				customTransport.MaxIdleConns = 1
+				customTransport.IdleConnTimeout = 100 * time.Second
+				if v, ok := os.LookupEnv("SKIP_TLS_CERT_VALIDATION"); ok && strings.EqualFold(v, "true") || strings.EqualFold(v, "Y") {
+					customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+				}
 				vssConnection := &protocol.VssConnection{
 					Client: &http.Client{
-						Timeout: 100 * time.Second,
-						Transport: &http.Transport{
-							MaxIdleConns:    1,
-							IdleConnTimeout: 100 * time.Second,
-						},
+						Timeout:   100 * time.Second,
+						Transport: customTransport,
 					},
 					TenantURL: instance.Auth.TenantURL,
 					PoolID:    instance.PoolID,
@@ -192,9 +200,9 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 				var _session *protocol.AgentMessageConnection = nil
 				for _, session := range sessions {
 					if session.Agent.Name == instance.Agent.Name && session.Agent.Authorization.PublicKey == instance.Agent.Authorization.PublicKey {
-						session, err := vssConnection.LoadSession(session)
+						session, err := vssConnection.LoadSession(joblisteningctx, session)
 						if deleteSessions {
-							session.Delete()
+							session.Delete(joblisteningctx)
 							for i, _session := range sessions {
 								if session.TaskAgentSession.SessionID == _session.SessionID {
 									sessions[i] = sessions[len(sessions)-1]
@@ -214,7 +222,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 				}
 				deleteSession := func() {
 					if session != nil {
-						if err := session.Delete(); err != nil {
+						if err := session.Delete(joblisteningctx); err != nil {
 							runnerenv.Printf("WARNING: Failed to delete active session: %v\n", err)
 						} else {
 							mu.Lock()
@@ -245,7 +253,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 						}
 						if session == nil || time.Now().After(lastSuccess.Add(5*time.Minute)) {
 							deleteSession()
-							session2, err := vssConnection.CreateSession()
+							session2, err := vssConnection.CreateSession(joblisteningctx)
 							if err != nil {
 								if strings.Contains(err.Error(), "invalid_client") || strings.Contains(err.Error(), "TaskAgentNotFoundException") {
 									runnerenv.Printf("Fatal: It seems this runner was removed from GitHub, Failed to recreate Session for %v ( %v ): %v\n", instance.Agent.Name, instance.RegistrationURL, err.Error())
@@ -351,7 +359,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 										if firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
 											runnerenv.Printf("Skip deleting the duplicated job request, we hope that the actions service reschedules your job to a different runner\n")
 										} else {
-											session.DeleteMessage(message)
+											session.DeleteMessage(joblisteningctx, message)
 										}
 										if strings.EqualFold(message.MessageType, "JobCancellation") && cancelJob != nil {
 											message = nil
@@ -395,6 +403,11 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 type RunnerJobRequestRef struct {
 	Id              string `json:"id"`
 	RunnerRequestId string `json:"runner_request_id"`
+	RunServiceUrl   string `json:"run_service_url"`
+}
+
+type RunnerServicePayload struct {
+	StreamID string `json:"streamID"`
 }
 
 type plainTextFormatter struct {
@@ -428,14 +441,29 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 			plogger.Printf("%v\n", string(src))
 		}
 		jobreq := &protocol.AgentJobRequestMessage{}
+		var runServiceUrl string
 		{
 			if strings.EqualFold(message.MessageType, "RunnerJobRequest") {
 				rjrr := &RunnerJobRequestRef{}
 				json.Unmarshal(src, rjrr)
 				for retries := 0; retries < 5; retries++ {
-					err := vssConnection.Request("25adab70-1379-4186-be8e-b643061ebe3a", "6.0-preview", "GET", map[string]string{
-						"messageId": rjrr.RunnerRequestId,
-					}, map[string]string{}, nil, &src)
+					var err error
+					if len(rjrr.RunServiceUrl) == 0 {
+						err = vssConnection.RequestWithContext(jobctx, "25adab70-1379-4186-be8e-b643061ebe3a", "6.0-preview", "GET", map[string]string{
+							"messageId": rjrr.RunnerRequestId,
+						}, map[string]string{}, nil, &src)
+					} else {
+						copy := *vssConnection
+						vssConnection = &copy
+						runServiceUrl = rjrr.RunServiceUrl
+						acquirejobUrl, _ := url.Parse(runServiceUrl)
+						acquirejobUrl.Path = path.Join(acquirejobUrl.Path, "acquirejob")
+						vssConnection.TenantURL = runServiceUrl
+						payload := &RunnerServicePayload{
+							StreamID: rjrr.RunnerRequestId,
+						}
+						err = vssConnection.RequestWithContext2(jobctx, "POST", acquirejobUrl.String(), "", payload, &src)
+					}
 					if err == nil {
 						json.Unmarshal(src, jobreq)
 						break
@@ -452,6 +480,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 			Plan:            jobreq.Plan,
 			RegistrationURL: instance.RegistrationURL,
 			Name:            instance.Agent.Name,
+			RunServiceURL:   runServiceUrl,
 		}
 		{
 			// TODO multi repository runners can receive multiple job requests at the same time and this protection doesn't work there
@@ -462,7 +491,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 		con := *vssConnection
 		go func() {
 			for {
-				err := con.Request("fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
+				err := con.RequestWithContext(jobctx, "fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
 					"poolId":    fmt.Sprint(instance.PoolID),
 					"requestId": fmt.Sprint(jobreq.RequestID),
 				}, map[string]string{
