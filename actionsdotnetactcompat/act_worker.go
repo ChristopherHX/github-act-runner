@@ -289,6 +289,8 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	runnerConfig.GitHubGraphQlApiServerUrl = githubCtxMap["graphql_url"].(string)
 	runnerConfig.NoSkipCheckout = true // Needed to avoid copy the non exiting working dir
 	runnerConfig.AutoRemove = true     // Needed to cleanup always cleanup container
+	runnerConfig.ForcePull = true
+	runnerConfig.ForceRebuild = true
 	runnerConfig.DownloadAction = func(ngcei git.NewGitCloneExecutorInput) common.Executor {
 		return func(ctx context.Context) error {
 			actionList := &protocol.ActionReferenceList{}
