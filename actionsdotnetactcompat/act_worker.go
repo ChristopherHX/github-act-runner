@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/ChristopherHX/github-act-runner/actionsrunner"
 	"github.com/ChristopherHX/github-act-runner/protocol"
@@ -466,7 +467,18 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	select {
 	case <-jobExecCtx.Done():
 	default:
-		ctxError := common.WithJobErrorContainer(common.WithLogger(jobExecCtx, logger))
+		fcancelctx, fcancel := context.WithCancel(context.Background())
+		defer fcancel()
+		ctxError := common.WithJobErrorContainer(common.WithLogger(fcancelctx, logger))
+		go func() {
+			select {
+			case <-jobExecCtx.Done():
+				<-time.After(5 * time.Minute)
+				fcancel()
+			case <-fcancelctx.Done():
+			}
+		}()
+		ctxError = context.WithValue(ctxError, common.JobCancelCtxVal, jobExecCtx)
 		err = rc.Executor()(ctxError)
 		if err == nil {
 			err = common.JobError(ctxError)
