@@ -8,7 +8,7 @@ Unlike the official [actions/runner](https://github.com/actions/runner), this wo
 # Usage
 
 ## Dependencies
-|Actions Type|Host|[JobContainer](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idcontainer) (only Linux, Windows, macOS or Openbsd)|
+|Actions Type|Host|[JobContainer](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idcontainer) (only Linux, Windows, macOS)|
 ---|---|---
 |([composite](https://docs.github.com/en/actions/creating-actions/creating-a-composite-run-steps-action)) [run steps](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idstepsrun)|`bash` or [explicit shell](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#custom-shell) in your `PATH` (prior running the runner)|Docker ([*1](#docker-daemon-via-docker_host)), `bash` or [explicit shell](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#custom-shell) in your `PATH` (inside your container image)|
 |[nodejs actions](https://docs.github.com/en/actions/creating-actions/creating-a-javascript-action)|`node` ([*2](#nodejs-via-path)) in your `PATH` (prior running the runner)|Docker ([*1](#docker-daemon-via-docker_host)), `node` ([*2](#nodejs-via-path)) in your `PATH` (inside your container image)|
@@ -112,10 +112,20 @@ Replace `label1,label2` with a custom list of runner labels.
 go run . run
 ```
 
+# Breaking changes in 0.6.0
+
+- `runner.os` changed from `darwin` to `macOS`
+- `runner.arch` changed from `x86_64` to `x64`
+- `runner.arch` changed from `386` to `x86`
+- `runner.arch` changed from `aarch64` to `arm64`
+- `shell` parameter might behave differently
+- based on `nektos/act@d77991c95ab6eb357b9327163ac9ceca3d04ce9b`
+
 # Known Limitations
-- This runner ignores pre and post steps of javascript actions
-- [actions/cache](https://github.com/actions/cache) is incompatible and won't be able to **save your cache**
-  - Using https://github.com/actions/toolkit/tree/main/packages/cache directly should allow you to save your cache
+- ~~This runner ignores pre and post steps of javascript actions~~ Is now working in 0.6.0
+- ~~[actions/cache](https://github.com/actions/cache) is incompatible and won't be able to **save your cache**~~
+  - ~~Using https://github.com/actions/toolkit/tree/main/packages/cache directly should allow you to save your cache~~
+  Is now working in 0.6.0, including hashfiles
 - ~~You won't be able to run steps after a failure without using `continue-on-error: true`~~ Implemented since v0.2.0 via nektos/act contribution ( https://github.com/nektos/act/commit/1891c72ab158508e36009d16b24913fa5836422b )
 - ~~The expression interpreter of this runner doesn't always behave like you would expect and you might see errors or other expressions which shouldn't work are working here ( based on javascript, not on actions/runner )~~ v0.2.0 uses rhysd/actionlint instead with much better compatibility https://github.com/nektos/act/pull/908
 - Most issues of https://github.com/nektos/act/issues applies to this runner as well

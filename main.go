@@ -18,6 +18,7 @@ import (
 	"github.com/ChristopherHX/github-act-runner/actionsrunner"
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/ChristopherHX/github-act-runner/runnerconfiguration"
+	"github.com/nektos/act/pkg/container"
 
 	"github.com/spf13/cobra"
 )
@@ -110,6 +111,7 @@ func loadConfiguration() (*runnerconfiguration.RunnerSettings, error) {
 }
 
 func (run *RunRunner) Run() int {
+	container.SetContainerAllocateTerminal(run.Terminal)
 	// trap Ctrl+C
 	channel := make(chan os.Signal, 1)
 	signal.Notify(channel, syscall.SIGTERM, os.Interrupt)
