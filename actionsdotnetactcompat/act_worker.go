@@ -47,18 +47,12 @@ func flushInternal(rec *protocol.TimelineRecord, res *model.StepResult) {
 }
 
 func (f *ghaFormatter) Flush() {
-	// <<<<<<< HEAD
-	// 	if f.result != nil && f.logger.Current() != nil {
-	// 		f.flushInternal(f.result)
-	// 		f.result = nil
-	// =======
 	cur := f.logger.Current()
 	if cur == nil {
 		return
 	}
-	if res, ok := f.rc.StepResults[cur.RefName]; ok {
-		flushInternal(cur, res)
-		// >>>>>>> origin
+	if f.result != nil {
+		flushInternal(cur, f.result)
 	}
 	for {
 		next := f.logger.MoveNext()
@@ -108,13 +102,10 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		}
 		f.result = &model.StepResult{Conclusion: model.StepStatusSuccess}
 		if stage != "Main" {
-			f.logger.MoveNext()
+			// skip starting the first main step record
+			f.logger.MoveNextExt(false)
 			te := protocol.CreateTimelineEntry(f.logger.TimelineRecords.Value[0].ID, stepID, stage.(string)+" "+stepName.(string))
-			// if stage == "Pre" {
 			te.Order = f.logger.TimelineRecords.Value[f.logger.CurrentRecord-1].Order + 1
-			// } else {
-			// 	te.Order = f.logger.Current().Order + 1
-			// }
 			f.logger.Insert(te)
 			f.logger.Current().Start()
 			f.logger.Update()
