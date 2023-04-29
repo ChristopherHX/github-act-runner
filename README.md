@@ -121,6 +121,7 @@ go run . run
 - `shell` parameter might behave differently
 - based on `nektos/act@d77991c95ab6eb357b9327163ac9ceca3d04ce9b`
 - the docker client has been removed from openbsd builds
+- windows runners now use `powershell` as default shell, while running directly on windows
 
 # Known Limitations
 - ~~This runner ignores pre and post steps of javascript actions~~ Is now working in 0.6.0
