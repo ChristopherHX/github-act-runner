@@ -53,6 +53,9 @@ func (f *ghaFormatter) Flush() {
 	}
 	if f.result != nil {
 		flushInternal(cur, f.result)
+	} else if cur.Result == nil {
+		// If act fails during init e.g to docker is not running
+		cur.Complete("Failed")
 	}
 	for {
 		next := f.logger.MoveNext()
