@@ -645,7 +645,7 @@ function handle_run_command {
     exit "$exitcode"
 }
 
-function handle_run_command {
+function handle_worker_command {
     "${runner_bin}" worker "$@"
 }
 
