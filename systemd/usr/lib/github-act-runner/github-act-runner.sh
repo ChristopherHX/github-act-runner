@@ -63,6 +63,9 @@ declare -A commands=( \
         [start]="start runner service" \
         [restart]="restart runner service" \
         [log]="show logs of the runner service" \
+        [configure]="configure a runner instance in your cwd" \
+        [run]="run a runner instance in your cwd" \
+        [worker]="run a worker instance without configuration called by github-act-runner" \
     )
 
 while [[ $# > 0 ]] ; do
@@ -626,4 +629,24 @@ function handle_log_command {
     fi
 }
 
-handle_${command}_command $@
+function handle_configure_command {
+    "${runner_bin}" configure "$@"
+}
+
+function handle_run_command {
+    trap 'kill -INT $PID' INT
+    trap 'kill -TERM $PID' TERM
+    "${runner_bin}" run "$@" &
+    PID="$!"
+    wait "$PID" # wait for SIGINT (exit after finishing the running job) / SIGTERM (cancels running job) or normal exit
+    wait "$PID" # wait for job or SIGINT (cancels running job)
+    wait "$PID" # wait for graceful exit
+    exitcode="$?"
+    exit "$exitcode"
+}
+
+function handle_worker_command {
+    "${runner_bin}" worker "$@"
+}
+
+handle_${command}_command "$@"
