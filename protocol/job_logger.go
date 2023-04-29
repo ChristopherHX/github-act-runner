@@ -271,9 +271,9 @@ func (logger *JobLogger) MoveNextExt(startNextRecord bool) *TimelineRecord {
 	logger.CurrentBuffer.Reset()
 	if c := logger.Current(); c != nil && startNextRecord {
 		c.Start()
-		_ = logger.Update()
 		return c
 	}
+	_ = logger.Update()
 	return nil
 }
 
