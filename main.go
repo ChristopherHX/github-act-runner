@@ -271,8 +271,6 @@ func main() {
 		Args:  cobra.MaximumNArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
 			ccontext, cancelccontext := context.WithCancel(context.Background())
-			logf, _ := os.OpenFile("_diaglog.txt", os.O_CREATE|os.O_APPEND, 0777)
-			logf.WriteString("Start Worker\n")
 			go func() {
 				execcontext, cancelExec := context.WithCancel(context.Background())
 				defer cancelExec()
@@ -280,13 +278,10 @@ func main() {
 				for {
 					os.Stdin.Read(buf)
 					messageType := binary.BigEndian.Uint32(buf)
-					logf.WriteString(fmt.Sprintf("Received Message of type: %v\n", messageType))
 					os.Stdin.Read(buf)
 					messageLength := binary.BigEndian.Uint32(buf)
-					logf.WriteString(fmt.Sprintf("length: %v\n", messageLength))
 					src := make([]byte, messageLength)
 					os.Stdin.Read(src)
-					logf.WriteString(fmt.Sprintf("content: \n%v\n", string(src)))
 					switch messageType {
 					case 1:
 						jobreq := &protocol.AgentJobRequestMessage{}
@@ -294,7 +289,6 @@ func main() {
 						go func() {
 							defer cancelExec()
 							defer cancelccontext()
-							logf.WriteString("Start Job\n")
 							wc := &actionsrunner.DefaultWorkerContext{
 								RunnerMessage:       jobreq,
 								JobExecutionContext: execcontext,
@@ -304,7 +298,6 @@ func main() {
 							wc.Logger().Append(protocol.CreateTimelineEntry(jobreq.JobID, "__setup", "Set up Job")).Start()
 							wc.Logger().MoveNext()
 							actionsdotnetactcompat.ExecWorker(jobreq, wc)
-							logf.WriteString("Finish Job\n")
 						}()
 					default:
 						cancelExec()
@@ -312,7 +305,6 @@ func main() {
 				}
 			}()
 			<-ccontext.Done()
-			logf.WriteString("Stopped Worker\n")
 		},
 	}
 
