@@ -528,7 +528,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 
 		defer func() {
 			if err := recover(); err != nil {
-				wc.FailInitJob("Worker paniced", "The worker paniced with message: "+fmt.Sprint(err)+"\n"+string(debug.Stack()))
+				wc.FailInitJob("Worker panicked", "The worker panicked with message: "+fmt.Sprint(err)+"\n"+string(debug.Stack()))
 			}
 			runnerenv.Remove("jobrun.json")
 		}()

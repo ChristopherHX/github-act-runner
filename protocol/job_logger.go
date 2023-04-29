@@ -253,6 +253,10 @@ func (logger *JobLogger) Current() *TimelineRecord {
 }
 
 func (logger *JobLogger) MoveNext() *TimelineRecord {
+	return logger.MoveNextExt(true)
+}
+
+func (logger *JobLogger) MoveNextExt(startNextRecord bool) *TimelineRecord {
 	cur := logger.Current()
 	if cur == nil {
 		return nil
@@ -265,11 +269,11 @@ func (logger *JobLogger) MoveNext() *TimelineRecord {
 	logger.CurrentRecord++
 	logger.CurrentLine = 1
 	logger.CurrentBuffer.Reset()
-	if c := logger.Current(); c != nil {
+	if c := logger.Current(); c != nil && startNextRecord {
 		c.Start()
-		_ = logger.Update()
 		return c
 	}
+	_ = logger.Update()
 	return nil
 }
 

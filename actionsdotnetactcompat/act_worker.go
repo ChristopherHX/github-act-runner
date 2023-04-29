@@ -2,17 +2,25 @@ package actionsdotnetactcompat
 
 import (
 	"bytes"
+	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/ChristopherHX/github-act-runner/actionsrunner"
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/google/uuid"
 	"github.com/nektos/act/pkg/common"
+	"github.com/nektos/act/pkg/common/git"
+	"github.com/nektos/act/pkg/container"
 	"github.com/nektos/act/pkg/model"
 	"github.com/nektos/act/pkg/runner"
 	"github.com/sirupsen/logrus"
@@ -24,6 +32,8 @@ type ghaFormatter struct {
 	rc            *runner.RunContext
 	logger        *protocol.JobLogger
 	linefeedregex *regexp.Regexp
+	main          bool
+	result        *model.StepResult
 }
 
 func flushInternal(rec *protocol.TimelineRecord, res *model.StepResult) {
@@ -41,8 +51,11 @@ func (f *ghaFormatter) Flush() {
 	if cur == nil {
 		return
 	}
-	if res, ok := f.rc.StepResults[cur.RefName]; ok {
-		flushInternal(cur, res)
+	if f.result != nil {
+		flushInternal(cur, f.result)
+	} else if cur.Result == nil {
+		// If act fails during init e.g to docker is not running
+		cur.Complete("Failed")
 	}
 	for {
 		next := f.logger.MoveNext()
@@ -55,12 +68,54 @@ func (f *ghaFormatter) Flush() {
 
 func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	b := &bytes.Buffer{}
-	if cur := f.logger.Current(); f.rc != nil && f.rc.Parent == nil && cur != nil && cur.RefName != f.rc.CurrentStep {
-		if res, ok := f.rc.StepResults[cur.RefName]; ok {
-			flushInternal(cur, res)
+	var stepID string
+	stage, hasStage := entry.Data["stage"]
+	rawStepID, hasStepID := entry.Data["stepID"]
+
+	if stepResult, hasStepResult := entry.Data["stepResult"]; hasStepResult {
+		res := stepResult
+		switch res {
+		case model.StepStatusSuccess:
+			f.result = &model.StepResult{Conclusion: model.StepStatusSuccess}
+		case model.StepStatusFailure:
+			f.result = &model.StepResult{Conclusion: model.StepStatusFailure}
+		case model.StepStatusSkipped:
+			f.result = &model.StepResult{Conclusion: model.StepStatusSkipped}
+		}
+	}
+	if hasStepID {
+		stepIDArray, _ := rawStepID.([]string)
+		var prefix string
+		if hasStage && stage != "Main" {
+			prefix = stage.(string) + "-"
+		}
+		stepID = prefix + stepIDArray[0]
+	}
+	cur := f.logger.Current()
+	if !f.main && hasStepID {
+		f.main = true
+		flushInternal(cur, &model.StepResult{Conclusion: model.StepStatusSuccess})
+	}
+	stepName, hasStepName := entry.Data["step"]
+	if hasStepName && hasStepID && f.logger.Current().RefName != stepID {
+		if stage == "Post" {
+			f.Flush()
+		} else if f.result != nil {
+			flushInternal(cur, f.result)
+		}
+		f.result = &model.StepResult{Conclusion: model.StepStatusSuccess}
+		if stage != "Main" {
+			// skip starting the first main step record
+			f.logger.MoveNextExt(false)
+			te := protocol.CreateTimelineEntry(f.logger.TimelineRecords.Value[0].ID, stepID, stage.(string)+" "+stepName.(string))
+			te.Order = f.logger.TimelineRecords.Value[f.logger.CurrentRecord-1].Order + 1
+			f.logger.Insert(te)
+			f.logger.Current().Start()
+			f.logger.Update()
+		} else {
 			for {
 				next := f.logger.MoveNext()
-				if next == nil || next.RefName == f.rc.CurrentStep {
+				if next == nil || next.RefName == stepID {
 					break
 				}
 				next.Complete("Skipped")
@@ -68,8 +123,25 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 			if cur := f.logger.Current(); cur != nil {
 				cur.Start()
 			}
+			f.logger.Update()
 		}
 	}
+	//js, _ := json.Marshal(entry.Data)
+	//entry.Message = (string)(js) + "|" + entry.Message
+
+	// if f.rc != nil && f.rc.Parent == nil && (f.logger.Current() == nil || f.logger.Current().RefName != f.rc.CurrentStep) {
+	// 	if res, ok := f.rc.StepResults[f.logger.Current().RefName]; ok && f.logger.Current() != nil {
+	// 		f.flushInternal(res)
+	// 		for {
+	// 			next := f.logger.MoveNext()
+	// 			if next == nil || next.RefName == f.rc.CurrentStep {
+	// 				break
+	// 			}
+	// 			f.logger.Current().Complete("Skipped")
+	// 		}
+	// 		f.logger.Current().Start()
+	// 	}
+	// }
 	if f.rqt.MaskHints != nil {
 		for _, v := range f.rqt.MaskHints {
 			if strings.ToLower(v.Type) == "regex" {
@@ -137,6 +209,9 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		failInitJob2("Failed to initialize Job", message)
 	}
 	secrets := map[string]string{}
+	runnerConfig := &runner.Config{
+		Secrets: secrets,
+	}
 	if rqt.Variables != nil {
 		for k, v := range rqt.Variables {
 			if v.IsSecret && k != "system.github.token" {
@@ -145,15 +220,8 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		}
 		if rawGithubToken, ok := rqt.Variables["system.github.token"]; ok {
 			secrets["GITHUB_TOKEN"] = rawGithubToken.Value
+			runnerConfig.Token = rawGithubToken.Value
 		}
-	}
-	runnerConfig := &runner.Config{
-		Secrets: secrets,
-		CompositeRestrictions: &model.CompositeRestrictions{
-			AllowCompositeUses:            true,
-			AllowCompositeIf:              true,
-			AllowCompositeContinueOnError: true,
-		},
 	}
 	rawGithubCtx, ok := rqt.ContextData["github"]
 	if !ok {
@@ -196,19 +264,6 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	rawContainer := yaml.Node{}
 	if rqt.JobContainer != nil {
 		rawContainer = *rqt.JobContainer.ToYamlNode()
-		if actions_step_debug {
-			// Fake step to catch the post debug log
-			steps = append(steps, &model.Step{
-				ID:               "___finish_job",
-				If:               yaml.Node{Kind: yaml.ScalarNode, Value: "false"},
-				Name:             "Finish Job",
-				Run:              "",
-				Env:              yaml.Node{},
-				ContinueOnError:  true,
-				WorkingDirectory: "",
-				Shell:            "",
-			})
-		}
 	}
 	services, err := ConvertServiceContainer(rqt.JobServiceContainers)
 	githubCtxMap, ok := githubCtx.(map[string]interface{})
@@ -231,11 +286,61 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	}
 	runnerConfig.LogOutput = true
 	runnerConfig.EventName = githubCtxMap["event_name"].(string)
+	runnerConfig.GitHubInstance = "github.com"
 	runnerConfig.GitHubServerUrl = githubCtxMap["server_url"].(string)
 	runnerConfig.GitHubApiServerUrl = githubCtxMap["api_url"].(string)
 	runnerConfig.GitHubGraphQlApiServerUrl = githubCtxMap["graphql_url"].(string)
-	runnerConfig.ForceRemoteCheckout = true // Needed to avoid copy the non exiting working dir
-	runnerConfig.AutoRemove = true          // Needed to cleanup always cleanup container
+	runnerConfig.NoSkipCheckout = true // Needed to avoid copy the non exiting working dir
+	runnerConfig.AutoRemove = true     // Needed to cleanup always cleanup container
+	runnerConfig.ForcePull = true
+	runnerConfig.ForceRebuild = true
+	runnerConfig.DownloadAction = func(ngcei git.NewGitCloneExecutorInput) common.Executor {
+		return func(ctx context.Context) error {
+			actionList := &protocol.ActionReferenceList{}
+			actionurl := strings.Split(ngcei.URL, "/")
+			actionurl = actionurl[len(actionurl)-2:]
+			actionList.Actions = []protocol.ActionReference{
+				{NameWithOwner: strings.Join(actionurl, "/"), Ref: ngcei.Ref},
+			}
+			actionDownloadInfo := &protocol.ActionDownloadInfoCollection{}
+			err := vssConnection.RequestWithContext(ctx, "27d7f831-88c1-4719-8ca1-6a061dad90eb", "6.0-preview", "POST", map[string]string{
+				"scopeIdentifier": rqt.Plan.ScopeIdentifier,
+				"hubName":         rqt.Plan.PlanType,
+				"planId":          rqt.Plan.PlanID,
+			}, nil, actionList, actionDownloadInfo)
+			if err != nil {
+				return err
+			}
+			for _, v := range actionDownloadInfo.Actions {
+				cachedTar := filepath.Join(ngcei.Dir, "..", actionurl[0]+"."+actionurl[1]+"."+v.ResolvedSha+".tar")
+				var tarstream io.Reader
+				if fr, err := os.Open(cachedTar); err == nil {
+					tarstream = fr
+				} else {
+					req, _ := http.NewRequestWithContext(ctx, "GET", v.TarballUrl, nil)
+					rsp, err := vssConnection.Client.Do(req)
+					if err != nil {
+						return err
+					}
+					defer rsp.Body.Close()
+					if len(v.ResolvedSha) > 0 {
+						fo, _ := os.OpenFile(cachedTar, os.O_TRUNC|os.O_CREATE, 0777)
+						io.Copy(fo, rsp.Body)
+						tarstream = fo
+						fo.Seek(0, 0)
+					} else {
+						tarstream = rsp.Body
+					}
+				}
+				gzr, _ := gzip.NewReader(tarstream)
+				err = container.ExtractTar(gzr, ngcei.Dir)
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}
 	rc := &runner.RunContext{
 		Name:   uuid.New().String(),
 		Config: runnerConfig,
@@ -266,12 +371,10 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		rc.ContextData[k] = v.ToRawObject()
 	}
 
+	rc.ContextData = make(map[string]interface{})
 	// Prepare act to provide inputs for workflow_call
-	if rawInputsCtx, ok := rqt.ContextData["inputs"]; ok {
-		rawInputs := rawInputsCtx.ToRawObject()
-		if rawInputsMap, ok := rawInputs.(map[string]interface{}); ok {
-			rc.Inputs = rawInputsMap
-		}
+	for k, rawInputsCtx := range rqt.ContextData {
+		rc.ContextData[k] = rawInputsCtx.ToRawObject()
 	}
 	// Prepare act to fill previous job outputs
 	if rawNeedstx, ok := rqt.ContextData["needs"]; ok {
@@ -327,11 +430,12 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 			githubCtxMap["job"] = name.Value
 		}
 	}
+	rc.ContextData["github"] = githubCtxMap
 	val, _ := json.Marshal(githubCtx)
 	sv := string(val)
-	rc.GithubContextBase = &sv
+	rc.GHContextData = &sv
 
-	ee := rc.NewExpressionEvaluator()
+	ee := rc.NewExpressionEvaluator(jobExecCtx)
 	rc.ExprEval = ee
 
 	formatter.rc = rc
@@ -341,12 +445,10 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		logger.SetLevel(logrus.InfoLevel)
 	}
 
-	rc.CurrentStep = jlogger.Current().RefName
 	rc.StepResults = make(map[string]*model.StepResult)
-	rc.StepResults[rc.CurrentStep] = &model.StepResult{}
 
 	for i := 0; i < len(steps); i++ {
-		jlogger.Append(protocol.CreateTimelineEntry(rqt.JobID, steps[i].ID, steps[i].String()))
+		jlogger.Append(protocol.CreateTimelineEntry(rqt.JobID, steps[i].ID, steps[i].String())).Order = int32(i + len(steps))
 	}
 
 	logrus.SetLevel(logger.GetLevel())
@@ -361,7 +463,18 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	select {
 	case <-jobExecCtx.Done():
 	default:
-		ctxError := common.WithJobErrorContainer(common.WithLogger(jobExecCtx, logger))
+		fcancelctx, fcancel := context.WithCancel(context.Background())
+		defer fcancel()
+		ctxError := common.WithJobErrorContainer(common.WithLogger(fcancelctx, logger))
+		go func() {
+			select {
+			case <-jobExecCtx.Done():
+				<-time.After(5 * time.Minute)
+				fcancel()
+			case <-fcancelctx.Done():
+			}
+		}()
+		ctxError = context.WithValue(ctxError, common.JobCancelCtxVal, jobExecCtx)
 		err = rc.Executor()(ctxError)
 		if err == nil {
 			err = common.JobError(ctxError)
