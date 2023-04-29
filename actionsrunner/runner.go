@@ -222,7 +222,9 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 				}
 				deleteSession := func() {
 					if session != nil {
-						if err := session.Delete(joblisteningctx); err != nil {
+						timeout, cancelT := context.WithTimeout(context.Background(), time.Minute)
+						defer cancelT()
+						if err := session.Delete(timeout); err != nil {
 							runnerenv.Printf("WARNING: Failed to delete active session: %v\n", err)
 						} else {
 							mu.Lock()
