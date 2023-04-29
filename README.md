@@ -131,6 +131,8 @@ go run . run
   Is now working in 0.6.0, including hashfiles
 - ~~You won't be able to run steps after a failure without using `continue-on-error: true`~~ Implemented since v0.2.0 via nektos/act contribution ( https://github.com/nektos/act/commit/1891c72ab158508e36009d16b24913fa5836422b )
 - ~~The expression interpreter of this runner doesn't always behave like you would expect and you might see errors or other expressions which shouldn't work are working here ( based on javascript, not on actions/runner )~~ v0.2.0 uses rhysd/actionlint instead with much better compatibility https://github.com/nektos/act/pull/908
+- Service Container are not implemented
+- You need to manually update the runner
 - Most issues of https://github.com/nektos/act/issues applies to this runner as well
 
 # How does it work?

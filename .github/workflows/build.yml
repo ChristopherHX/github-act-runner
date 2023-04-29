@@ -15,8 +15,8 @@ on:
         type: boolean
   
 env:
-  RUNNER_DEV_VERSION: "0.5.x"
-  RUNNER_SERVER_VERSION: "3.11.2"
+  RUNNER_DEV_VERSION: "0.6.x"
+  RUNNER_SERVER_VERSION: "3.11.4"
 jobs:
   build:
     runs-on: ubuntu-latest
