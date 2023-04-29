@@ -67,7 +67,8 @@ jobs:
         - {GOOS: windows,   GOARCH: amd64,    suffix: .exe}
         - {GOOS: windows,   GOARCH: arm,      suffix: .exe}
         - {GOOS: windows,   GOARCH: arm64,    suffix: .exe}
-
+    env:
+      CGO_ENABLED: 0 # Only android should build with cgo
     steps:
     - uses: actions/checkout@v3
       with:
