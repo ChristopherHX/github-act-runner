@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 	"time"
-	
+
 	"github.com/ChristopherHX/github-act-runner/protocol"
 )
 
@@ -23,7 +23,7 @@ func (rs *ResultsService) UploadBlockFileAsync(ctx context.Context, url string, 
 	if blobStorageType == BlobStorageTypeAzureBlobStorage {
 		request.Header.Set(AzureBlobTypeHeader, AzureBlockBlob)
 	}
-	response, err := rs.Connection.httpClient().Do(request)
+	response, err := rs.Connection.HttpClient().Do(request)
 	if err != nil {
 		return fmt.Errorf("failed to upload file, error %v", err.Error())
 	}
@@ -42,7 +42,7 @@ func (rs *ResultsService) CreateAppendFileAsync(ctx context.Context, url string,
 		request.Header.Set(AzureBlobTypeHeader, AzureAppendBlob)
 		request.Header.Set("Content-Length", "0")
 	}
-	response, err := rs.Connection.httpClient().Do(request)
+	response, err := rs.Connection.HttpClient().Do(request)
 	if err != nil {
 		return fmt.Errorf("failed to create append file, error %v", err.Error())
 	}
@@ -65,7 +65,7 @@ func (rs *ResultsService) UploadAppendFileAsync(ctx context.Context, url string,
 		request.Header.Set(AzureBlobSealedHeader, fmt.Sprint(finalize))
 		request.Header.Set("Content-Length", fmt.Sprint(fileSize))
 	}
-	response, err := rs.Connection.httpClient().Do(request)
+	response, err := rs.Connection.HttpClient().Do(request)
 	if err != nil {
 		return fmt.Errorf("failed to upload append file, error %v", err.Error())
 	}
