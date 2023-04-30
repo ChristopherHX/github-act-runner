@@ -1,5 +1,7 @@
 package results
 
+import "github.com/ChristopherHX/github-act-runner/protocol"
+
 type GetSignedStepSummaryURLRequest struct {
 	WorkflowJobRunBackendId string `json:"workflow_job_run_backend_id,omitempty"`
 	WorkflowRunBackendId    string `json:"workflow_run_backend_id,omitempty"`
@@ -59,6 +61,85 @@ type StepLogsMetadataCreate struct {
 
 type CreateMetadataResponse struct {
 	Ok bool `json:"ok,omitempty"`
+}
+
+type StepsUpdateRequest struct {
+	Steps                   []Step `json:"steps"`
+	ChangeOrder             int64  `json:"change_order"`
+	WorkflowJobRunBackendID string `json:"workflow_job_run_backend_id"`
+	WorkflowRunBackendID    string `json:"workflow_run_backend_id"`
+}
+
+type Step struct {
+	ExternalID  string     `json:"external_id"`
+	Number      int32      `json:"number"`
+	Name        string     `json:"name"`
+	Status      Status     `json:"status"`
+	StartedAt   string     `json:"started_at"`
+	CompletedAt string     `json:"completed_at"`
+	Conclusion  Conclusion `json:"conclusion"`
+}
+
+type Status int
+
+const (
+	StatusUnknown Status = iota
+	StatusInProgress
+	StatusPending
+	StatusCompleted
+)
+
+type Conclusion int
+
+const (
+	ConclusionUnknown   Conclusion = 0
+	ConclusionSuccess   Conclusion = 2
+	ConclusionFailure   Conclusion = 3
+	ConclusionCancelled Conclusion = 4
+	ConclusionSkipped   Conclusion = 7
+)
+
+func ConvertTimelineRecordToStep(r protocol.TimelineRecord) Step {
+	return Step{
+		ExternalID:  r.ID,
+		Number:      r.Order,
+		Name:        r.Name,
+		Status:      ConvertStateToStatus(r.State),
+		StartedAt:   r.StartTime,
+		CompletedAt: *r.FinishTime,
+		Conclusion:  ConvertResultToConclusion(r.Result),
+	}
+}
+
+func ConvertStateToStatus(s string) Status {
+	switch s {
+	case "Completed":
+		return StatusCompleted
+	case "Pending":
+		return StatusPending
+	case "InProgress":
+		return StatusInProgress
+	default:
+		return StatusUnknown
+	}
+}
+
+func ConvertResultToConclusion(s *string) Conclusion {
+	if s == nil {
+		return ConclusionUnknown
+	}
+	switch *s {
+	case "Succeeded":
+		return ConclusionSuccess
+	case "Skipped":
+		return ConclusionSkipped
+	case "Failed":
+		return ConclusionFailure
+	case "Canceled":
+		return ConclusionCancelled
+	default:
+		return ConclusionUnknown
+	}
 }
 
 var (
