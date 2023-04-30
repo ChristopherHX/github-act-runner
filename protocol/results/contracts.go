@@ -1,4 +1,4 @@
-package protocol
+package results
 
 type GetSignedStepSummaryURLRequest struct {
 	WorkflowJobRunBackendId string `json:"workflow_job_run_backend_id,omitempty"`

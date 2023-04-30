@@ -1,4 +1,4 @@
-package protocol
+package results
 
 import (
 	"bytes"
@@ -7,10 +7,12 @@ import (
 	"io"
 	"net/http"
 	"time"
+	
+	"github.com/ChristopherHX/github-act-runner/protocol"
 )
 
 type ResultsService struct {
-	Connection *VssConnection
+	Connection *protocol.VssConnection
 }
 
 func (rs *ResultsService) UploadBlockFileAsync(ctx context.Context, url string, blobStorageType string, fileContent io.Reader) error {
