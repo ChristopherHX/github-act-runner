@@ -2,10 +2,10 @@ package actionsrunner
 
 import (
 	"context"
+	"net/url"
 	"path"
 	"strings"
 	"time"
-	"net/url"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
 )
@@ -29,15 +29,15 @@ type DefaultWorkerContext struct {
 func (wc *DefaultWorkerContext) FinishJob(result string, outputs *map[string]protocol.VariableValue) {
 	if strings.EqualFold(wc.Message().MessageType, "RunnerJobRequest") {
 		payload := struct {
-			PlanID     string
-			JobID      string
-			Conclusion string
-			Outputs    *map[string]protocol.VariableValue
+			PlanID     string                             `json:"planId"`
+			JobID      string                             `json:"jobId"`
+			Conclusion string                             `json:"conclusion"`
+			Outputs    *map[string]protocol.VariableValue `json:"outputs"`
 		}{
-			PlanID: wc.Message().Plan.PlanID,
-    		JobID: wc.Message().JobID,
-    		Conclusion: result,
-    		Outputs: outputs,
+			PlanID:     wc.Message().Plan.PlanID,
+			JobID:      wc.Message().JobID,
+			Conclusion: result,
+			Outputs:    outputs,
 		}
 
 		completejobUrl, _ := url.Parse(wc.VssConnection.TenantURL)
