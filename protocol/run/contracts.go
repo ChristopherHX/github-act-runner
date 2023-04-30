@@ -10,6 +10,7 @@ type AcquireJobRequest struct {
 	StreamID     string `json:"streamId,omitempty"` // Deprecated: https://github.com/actions/runner/pull/2547
 	JobMessageID string `json:"jobMessageId"`
 }
+
 type CompleteJobRequest struct {
 	PlanID      string                            `json:"planId,omitempty"`
 	JobID       string                            `json:"jobId,omitempty"`
@@ -36,52 +37,4 @@ type StepResult struct {
 	CompletedAt       *string `json:"completed_at,omitempty"`
 	CompletedLogURL   string  `json:"completed_log_url,omitempty"`
 	CompletedLogLines *int64  `json:"completed_log_lines,omitempty"`
-}
-type StepsUpdateRequest struct {
-	Steps                   []Step `json:"steps"`
-	ChangeOrder             int64  `json:"change_order"`
-	WorkflowJobRunBackendID string `json:"workflow_job_run_backend_id"`
-	WorkflowRunBackendID    string `json:"workflow_run_backend_id"`
-}
-
-type Step struct {
-	ExternalID  string `json:"external_id"`
-	Number      int32  `json:"number"`
-	Name        string `json:"name"`
-	Status      Status `json:"status"`
-	StartedAt   string `json:"started_at"`
-	CompletedAt string `json:"completed_at"`
-}
-
-type Status int
-
-const (
-	StatusUnknown Status = iota
-	StatusInProgress
-	StatusPending
-	StatusCompleted
-)
-
-func ConvertTimelineRecordToStep(r protocol.TimelineRecord) Step {
-	return Step{
-		ExternalID:  r.ID,
-		Number:      r.Order,
-		Name:        r.Name,
-		Status:      ConvertStateToStatus(r.State),
-		StartedAt:   r.StartTime,
-		CompletedAt: *r.FinishTime,
-	}
-}
-
-func ConvertStateToStatus(s string) Status {
-	switch s {
-	case "Completed":
-		return StatusCompleted
-	case "Pending":
-		return StatusPending
-	case "InProgress":
-		return StatusInProgress
-	default:
-		return StatusUnknown
-	}
 }
