@@ -415,7 +415,7 @@ type plainTextFormatter struct {
 }
 
 func (f *plainTextFormatter) Format(entry *logrus.Entry) ([]byte, error) {
-	return []byte(entry.Time.UTC().Format("2006-01-02T15:04:05.0000000Z ") + entry.Message + "\n"), nil
+	return []byte(entry.Time.UTC().Format(protocol.TimestampOutputFormat) + " " + entry.Message + "\n"), nil
 }
 
 func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *protocol.VssConnection, run *RunRunner, cancel context.CancelFunc, cancelJob context.CancelFunc, finishJob context.CancelFunc, jobExecCtx context.Context, jobctx context.Context, session *protocol.AgentMessageConnection, message protocol.TaskAgentMessage, instance *runnerconfiguration.RunnerInstance) {
@@ -541,6 +541,17 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 		setupJobEntry.Order = 0
 		setupJobEntry.Start()
 		jlogger.MoveNext()
+
+		if resultsEndpoint, ok := jobreq.Variables["system.github.results_endpoint"]; ok {
+			service := &results.ResultsService{
+				Connection: &protocol.VssConnection{
+					TenantURL: resultsEndpoint.Value,
+					Token:     jlogger.Connection.Token,
+				},
+			}
+			bytes.NewBufferString("# My first step summary in github-act-runner!")
+			service.UploadResultsStepSummaryAsync(jobExecCtx, jobreq.Plan.PlanID, jobreq.JobID, jobreq.Steps[0].ID, io.MultiReader(), 0)
+		}
 
 		defer func() {
 			if err := recover(); err != nil {

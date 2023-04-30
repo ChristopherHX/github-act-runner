@@ -138,7 +138,7 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 	}
 	taskAgent.MaxParallelism = 1
 	taskAgent.ProvisioningState = "Provisioned"
-	taskAgent.CreatedOn = time.Now().UTC().Format("2006-01-02T15:04:05")
+	taskAgent.CreatedOn = time.Now().UTC().Format(protocol.TimestampOutputFormat)
 	taskAgent.Ephemeral = config.Ephemeral
 	{
 		err := vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "POST", map[string]string{

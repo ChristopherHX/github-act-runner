@@ -99,7 +99,7 @@ func (rs *ResultsService) UploadResultsStepSummaryAsync(ctx context.Context, pla
 	if err != nil {
 		return err
 	}
-	timestamp := time.Now().UTC().Format(TimestampFormat)
+	timestamp := time.Now().UTC().Format(TimestampOutputFormat)
 	mreq := &StepSummaryMetadataCreate{
 		WorkflowJobRunBackendId: jobId,
 		WorkflowRunBackendId:    planId,
@@ -144,7 +144,7 @@ func (rs *ResultsService) UploadResultsStepLogAsync(ctx context.Context, planId 
 		return err
 	}
 	if finalize {
-		timestamp := time.Now().UTC().Format(TimestampFormat)
+		timestamp := time.Now().UTC().Format(TimestampOutputFormat)
 		req := &StepLogsMetadataCreate{
 			WorkflowJobRunBackendId: jobId,
 			WorkflowRunBackendId:    planId,
@@ -190,7 +190,7 @@ func (rs *ResultsService) UploadResultsJobLogAsync(ctx context.Context, planId s
 		return err
 	}
 	if finalize {
-		timestamp := time.Now().UTC().Format(TimestampFormat)
+		timestamp := time.Now().UTC().Format(TimestampOutputFormat)
 		req := &JobLogsMetadataCreate{
 			WorkflowJobRunBackendId: jobId,
 			WorkflowRunBackendId:    planId,
@@ -217,7 +217,8 @@ func (rs *ResultsService) UpdateWorkflowStepsAsync(ctx context.Context, update *
 }
 
 var (
-	TimestampFormat = "2006-01-02T15:04:05.999Z" // dotnet "yyyy-MM-dd'T'HH:mm:ss.fffK"
+	TimestampInputFormat  = "2006-01-02T15:04:05.999Z07:00" // allow to omit fractional seconds
+	TimestampOutputFormat = "2006-01-02T15:04:05.000Z07:00" // dotnet "yyyy-MM-dd'T'HH:mm:ss.fffK"
 
 	ResultsReceiverTwirpEndpoint = "twirp/results.services.receiver.Receiver/"
 	GetStepSummarySignedBlobURL  = ResultsReceiverTwirpEndpoint + "GetStepSummarySignedBlobURL"

@@ -1,6 +1,10 @@
 package results
 
-import "github.com/ChristopherHX/github-act-runner/protocol"
+import (
+	"time"
+
+	"github.com/ChristopherHX/github-act-runner/protocol"
+)
 
 type GetSignedStepSummaryURLRequest struct {
 	WorkflowJobRunBackendId string `json:"workflow_job_run_backend_id,omitempty"`
@@ -109,6 +113,13 @@ func ConvertTimelineRecordToStep(r protocol.TimelineRecord) Step {
 		CompletedAt: *r.FinishTime,
 		Conclusion:  ConvertResultToConclusion(r.Result),
 	}
+}
+
+func ConvertTimestamp(s string) string {
+	if t, err := time.Parse(protocol.TimestampInputFormat, s); err == nil {
+		return t.Format(TimestampOutputFormat)
+	}
+	return ""
 }
 
 func ConvertStateToStatus(s string) Status {

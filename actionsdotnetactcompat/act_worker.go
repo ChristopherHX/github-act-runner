@@ -163,7 +163,7 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		f.linefeedregex = regexp.MustCompile(`(\r\n|\r|\n)`)
 	}
 
-	prefix := entry.Time.UTC().Format("2006-01-02T15:04:05.0000000Z ")
+	prefix := entry.Time.UTC().Format(protocol.TimestampOutputFormat) + " "
 	if entry.Level == logrus.DebugLevel {
 		prefix += "##[debug]"
 	} else if entry.Level == logrus.WarnLevel {
