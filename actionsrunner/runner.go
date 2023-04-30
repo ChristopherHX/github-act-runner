@@ -1,6 +1,7 @@
 package actionsrunner
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -20,6 +21,8 @@ import (
 	"time"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
+	"github.com/ChristopherHX/github-act-runner/protocol/results"
+	runservice "github.com/ChristopherHX/github-act-runner/protocol/run"
 	"github.com/ChristopherHX/github-act-runner/runnerconfiguration"
 	"github.com/sirupsen/logrus"
 )
@@ -408,10 +411,6 @@ type RunnerJobRequestRef struct {
 	RunServiceUrl   string `json:"run_service_url"`
 }
 
-type RunnerServicePayload struct {
-	StreamID string `json:"streamID"`
-}
-
 type plainTextFormatter struct {
 }
 
@@ -461,8 +460,9 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 						acquirejobUrl, _ := url.Parse(runServiceUrl)
 						acquirejobUrl.Path = path.Join(acquirejobUrl.Path, "acquirejob")
 						vssConnection.TenantURL = runServiceUrl
-						payload := &RunnerServicePayload{
-							StreamID: rjrr.RunnerRequestId,
+						payload := &runservice.AcquireJobRequest{
+							StreamID:     rjrr.RunnerRequestId,
+							JobMessageID: rjrr.RunnerRequestId,
 						}
 						err = vssConnection.RequestWithContext2(jobctx, "POST", acquirejobUrl.String(), "", payload, &src)
 					}
@@ -493,12 +493,26 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 		con := *vssConnection
 		go func() {
 			for {
-				err := con.RequestWithContext(jobctx, "fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
-					"poolId":    fmt.Sprint(instance.PoolID),
-					"requestId": fmt.Sprint(jobreq.RequestID),
-				}, map[string]string{
-					"lockToken": "00000000-0000-0000-0000-000000000000",
-				}, &protocol.RenewAgent{RequestID: jobreq.RequestID}, nil)
+				var err error
+				if runServiceUrl != "" {
+					vssConnection = &con
+					renewjobUrl, _ := url.Parse(runServiceUrl)
+					renewjobUrl.Path = path.Join(renewjobUrl.Path, "renewjob")
+					vssConnection.TenantURL = runServiceUrl
+					payload := &runservice.RenewJobRequest{
+						PlanID: jobreq.Plan.PlanID,
+						JobID:  jobreq.JobID,
+					}
+					resp := &runservice.RenewJobResponse{}
+					err = vssConnection.RequestWithContext2(jobctx, "POST", renewjobUrl.String(), "", payload, &resp)
+				} else {
+					err = con.RequestWithContext(jobctx, "fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
+						"poolId":    fmt.Sprint(instance.PoolID),
+						"requestId": fmt.Sprint(jobreq.RequestID),
+					}, map[string]string{
+						"lockToken": "00000000-0000-0000-0000-000000000000",
+					}, &protocol.RenewAgent{RequestID: jobreq.RequestID}, nil)
+				}
 				if err != nil {
 					if errors.Is(err, context.Canceled) {
 						return

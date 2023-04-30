@@ -208,6 +208,14 @@ func (rs *ResultsService) UploadResultsJobLogAsync(ctx context.Context, planId s
 	return nil
 }
 
+func (rs *ResultsService) UpdateWorkflowStepsAsync(ctx context.Context, update *StepsUpdateRequest) error {
+	url, err := rs.Connection.BuildURL(WorkflowStepsUpdate, nil, nil)
+	if err != nil {
+		return err
+	}
+	return rs.Connection.RequestWithContext2(ctx, "POST", url, "", update, nil)
+}
+
 var (
 	TimestampFormat = "2006-01-02T15:04:05.999Z" // dotnet "yyyy-MM-dd'T'HH:mm:ss.fffK"
 
@@ -218,6 +226,8 @@ var (
 	CreateStepLogsMetadata       = ResultsReceiverTwirpEndpoint + "CreateStepLogsMetadata"
 	GetJobLogsSignedBlobURL      = ResultsReceiverTwirpEndpoint + "GetJobLogsSignedBlobURL"
 	CreateJobLogsMetadata        = ResultsReceiverTwirpEndpoint + "CreateJobLogsMetadata"
+	ResultsProtoApiV1Endpoint    = "twirp/github.actions.results.api.v1.WorkflowStepUpdateService/"
+	WorkflowStepsUpdate          = ResultsProtoApiV1Endpoint + "WorkflowStepsUpdate"
 
 	AzureBlobSealedHeader = "x-ms-blob-sealed"
 	AzureBlobTypeHeader   = "x-ms-blob-type"

@@ -17,6 +17,7 @@ import (
 
 	"github.com/ChristopherHX/github-act-runner/actionsrunner"
 	"github.com/ChristopherHX/github-act-runner/protocol"
+	"github.com/ChristopherHX/github-act-runner/protocol/logger"
 	"github.com/google/uuid"
 	"github.com/nektos/act/pkg/common"
 	"github.com/nektos/act/pkg/common/git"
@@ -30,7 +31,7 @@ import (
 type ghaFormatter struct {
 	rqt           *protocol.AgentJobRequestMessage
 	rc            *runner.RunContext
-	logger        *protocol.JobLogger
+	logger        *logger.JobLogger
 	linefeedregex *regexp.Regexp
 	main          bool
 	result        *model.StepResult

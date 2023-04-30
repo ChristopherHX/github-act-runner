@@ -2,25 +2,27 @@ package actionsrunner
 
 import (
 	"context"
+	"net/url"
 	"path"
 	"strings"
 	"time"
-	"net/url"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
+	"github.com/ChristopherHX/github-act-runner/protocol/logger"
+	"github.com/ChristopherHX/github-act-runner/protocol/run"
 )
 
 type WorkerContext interface {
 	FinishJob(result string, outputs *map[string]protocol.VariableValue)
 	FailInitJob(title string, message string)
 	Message() *protocol.AgentJobRequestMessage
-	Logger() *protocol.JobLogger
+	Logger() *logger.JobLogger
 	JobExecCtx() context.Context
 }
 
 type DefaultWorkerContext struct {
 	RunnerMessage       *protocol.AgentJobRequestMessage
-	JobLogger           *protocol.JobLogger
+	JobLogger           *logger.JobLogger
 	JobExecutionContext context.Context
 	VssConnection       *protocol.VssConnection
 	RunnerLogger        BasicLogger
@@ -28,16 +30,14 @@ type DefaultWorkerContext struct {
 
 func (wc *DefaultWorkerContext) FinishJob(result string, outputs *map[string]protocol.VariableValue) {
 	if strings.EqualFold(wc.Message().MessageType, "RunnerJobRequest") {
-		payload := struct {
-			PlanID     string
-			JobID      string
-			Conclusion string
-			Outputs    *map[string]protocol.VariableValue
-		}{
-			PlanID: wc.Message().Plan.PlanID,
-    		JobID: wc.Message().JobID,
-    		Conclusion: result,
-    		Outputs: outputs,
+		payload := &run.CompleteJobRequest{
+			PlanID:     wc.Message().Plan.PlanID,
+			JobID:      wc.Message().JobID,
+			Conclusion: result,
+			Outputs:    nil,
+		}
+		if outputs != nil {
+			payload.Outputs = *outputs
 		}
 
 		completejobUrl, _ := url.Parse(wc.VssConnection.TenantURL)
@@ -109,7 +109,7 @@ func (wc *DefaultWorkerContext) Message() *protocol.AgentJobRequestMessage {
 	return wc.RunnerMessage
 }
 
-func (wc *DefaultWorkerContext) Logger() *protocol.JobLogger {
+func (wc *DefaultWorkerContext) Logger() *logger.JobLogger {
 	return wc.JobLogger
 }
 
@@ -130,14 +130,14 @@ func (wc *DefaultWorkerContext) Init() {
 	}
 	wc.VssConnection = jobVssConnection
 
-	wc.JobLogger = &protocol.JobLogger{
+	wc.JobLogger = &logger.JobLogger{
 		JobRequest:      wc.Message(),
 		Connection:      jobVssConnection,
 		TimelineRecords: &protocol.TimelineRecordWrapper{},
 		CurrentLine:     1,
 		CurrentRecord:   0,
-		Logger: &protocol.BufferedLiveLogger{
-			LiveLogger: &protocol.WebsocketLiveloggerWithFallback{
+		Logger: &logger.BufferedLiveLogger{
+			LiveLogger: &logger.WebsocketLiveloggerWithFallback{
 				JobRequest:    wc.Message(),
 				Connection:    jobVssConnection,
 				FeedStreamUrl: vssConnectionData["FeedStreamUrl"],
