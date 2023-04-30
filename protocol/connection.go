@@ -55,7 +55,7 @@ func (vssConnection *VssConnection) BuildURL(relativePath string, ppath map[stri
 	return url2.String(), nil
 }
 
-func (vssConnection *VssConnection) httpClient() *http.Client {
+func (vssConnection *VssConnection) HttpClient() *http.Client {
 	if vssConnection.Client == nil {
 		customTransport := http.DefaultTransport.(*http.Transport).Clone()
 		customTransport.MaxIdleConns = 1
@@ -74,7 +74,7 @@ func (vssConnection *VssConnection) httpClient() *http.Client {
 func (vssConnection *VssConnection) authorize() (*VssOAuthTokenResponse, error) {
 	var authResponse *VssOAuthTokenResponse
 	var err error
-	authResponse, err = vssConnection.TaskAgent.Authorize(vssConnection.httpClient(), vssConnection.Key)
+	authResponse, err = vssConnection.TaskAgent.Authorize(vssConnection.HttpClient(), vssConnection.Key)
 	if err == nil {
 		return authResponse, nil
 	}
@@ -219,7 +219,7 @@ func (vssConnection *VssConnection) requestWithContextNoAuth(ctx context.Context
 		fmt.Printf("Http %v Request started %v\nHeaders:\n%v\nBody: `%v`\n", method, url, getHeadersAsString(request.Header), getBodyAsString(buf))
 	}
 
-	response, err := vssConnection.httpClient().Do(request)
+	response, err := vssConnection.HttpClient().Do(request)
 	if err != nil {
 		return 0, err
 	}
