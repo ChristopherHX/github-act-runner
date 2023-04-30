@@ -1,13 +1,15 @@
 package runneradmin
 
+type Authorization struct {
+	AuthorizationUrl string `json:"authorization_url"`
+	ServerUrl        string `json:"server_url"`
+	ClientId         string `json:"client_id"`
+}
+
 type Runner struct {
-	Name          string `json:"name"`
-	Id            int32  `json:"id"`
-	Authorization struct {
-		AuthorizationUrl string `json:"authorization_url"`
-		ServerUrl        string `json:"server_url"`
-		ClientId         string `json:"client_id"`
-	} `json:"authorization"`
+	Name          string        `json:"name"`
+	Id            int32         `json:"id"`
+	Authorization Authorization `json:"authorization"`
 }
 
 type RunnerGroup struct {
