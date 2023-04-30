@@ -177,6 +177,18 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+type JobLoggerFactory struct {
+	Logger *logrus.Logger
+}
+
+func (factory *JobLoggerFactory) WithJobLogger() *logrus.Logger {
+	logger := logrus.New()
+	logger.SetOutput(factory.Logger.Out)
+	logger.SetLevel(factory.Logger.Level)
+	logger.SetFormatter(factory.Logger.Formatter)
+	return logger
+}
+
 func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerContext) {
 	jlogger := wc.Logger()
 	jobExecCtx := wc.JobExecCtx()
@@ -465,7 +477,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	default:
 		fcancelctx, fcancel := context.WithCancel(context.Background())
 		defer fcancel()
-		ctxError := common.WithJobErrorContainer(common.WithLogger(fcancelctx, logger))
+		ctxError := common.WithJobErrorContainer(runner.WithJobLogger(runner.WithJobLoggerFactory(common.WithLogger(fcancelctx, logger), &JobLoggerFactory{Logger: logger}), "", "", runnerConfig, &rc.Masks, rc.Matrix))
 		go func() {
 			select {
 			case <-jobExecCtx.Done():
