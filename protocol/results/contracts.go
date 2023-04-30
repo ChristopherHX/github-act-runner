@@ -109,14 +109,17 @@ func ConvertTimelineRecordToStep(r protocol.TimelineRecord) Step {
 		Number:      r.Order,
 		Name:        r.Name,
 		Status:      ConvertStateToStatus(r.State),
-		StartedAt:   r.StartTime,
-		CompletedAt: *r.FinishTime,
+		StartedAt:   ConvertTimestamp(&r.StartTime),
+		CompletedAt: ConvertTimestamp(r.FinishTime),
 		Conclusion:  ConvertResultToConclusion(r.Result),
 	}
 }
 
-func ConvertTimestamp(s string) string {
-	if t, err := time.Parse(protocol.TimestampInputFormat, s); err == nil {
+func ConvertTimestamp(s *string) string {
+	if s == nil || *s == "" {
+		return ""
+	}
+	if t, err := time.Parse(protocol.TimestampInputFormat, *s); err != nil {
 		return t.Format(TimestampOutputFormat)
 	}
 	return ""
