@@ -70,6 +70,7 @@ type ActionStepDefinitionReference struct {
 }
 
 type ActionStep struct {
+	ID               string
 	Type             string
 	Reference        ActionStepDefinitionReference
 	DisplayNameToken *TemplateToken
@@ -79,7 +80,6 @@ type ActionStep struct {
 	Condition        string
 	ContinueOnError  *TemplateToken
 	TimeoutInMinutes *TemplateToken
-	Id               string
 }
 
 type AgentJobRequestMessage struct {
