@@ -76,7 +76,7 @@ type Step struct {
 	Name        string     `json:"name"`
 	Status      Status     `json:"status"`
 	StartedAt   string     `json:"started_at,omitempty"`
-	CompletedAt *string    `json:"completed_at,omitempty"`
+	CompletedAt string     `json:"completed_at,omitempty"`
 	Conclusion  Conclusion `json:"conclusion"`
 }
 
@@ -106,7 +106,7 @@ func ConvertTimelineRecordToStep(r protocol.TimelineRecord) Step {
 		Name:        r.Name,
 		Status:      ConvertStateToStatus(r.State),
 		StartedAt:   r.StartTime,
-		CompletedAt: r.FinishTime,
+		CompletedAt: *r.FinishTime,
 		Conclusion:  ConvertResultToConclusion(r.Result),
 	}
 }
