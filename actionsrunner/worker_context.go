@@ -130,19 +130,33 @@ func (wc *DefaultWorkerContext) Init() {
 	}
 	wc.VssConnection = jobVssConnection
 
+	jobreq := wc.Message()
+	resultsEndpoint, hasResultsEndpoint := jobreq.Variables["system.github.results_endpoint"]
 	wc.JobLogger = &logger.JobLogger{
-		JobRequest:      wc.Message(),
+		JobRequest:      jobreq,
 		Connection:      jobVssConnection,
 		TimelineRecords: &protocol.TimelineRecordWrapper{},
-		CurrentLine:     1,
-		CurrentRecord:   0,
-		Logger: &logger.BufferedLiveLogger{
+	}
+
+	if hasResultsEndpoint && strings.EqualFold(jobreq.MessageType, "RunnerJobRequest") {
+		wc.JobLogger.IsResults = true
+		jobVssConnection.TenantURL = resultsEndpoint.Value
+		wc.JobLogger.Logger = &logger.BufferedLiveLogger{
 			LiveLogger: &logger.WebsocketLiveloggerWithFallback{
-				JobRequest:    wc.Message(),
+				JobRequest:    jobreq,
+				Connection:    jobVssConnection,
+				FeedStreamUrl: vssConnectionData["FeedStreamUrl"],
+				ForceWebsock:  true,
+			},
+		}
+	} else {
+		wc.JobLogger.Logger = &logger.BufferedLiveLogger{
+			LiveLogger: &logger.WebsocketLiveloggerWithFallback{
+				JobRequest:    jobreq,
 				Connection:    jobVssConnection,
 				FeedStreamUrl: vssConnectionData["FeedStreamUrl"],
 			},
-		},
+		}
 	}
 	jobEntry := wc.Logger().Append(protocol.CreateTimelineEntry("", wc.Message().JobName, wc.Message().JobDisplayName))
 	jobEntry.ID = wc.Message().JobID

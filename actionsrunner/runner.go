@@ -1,7 +1,6 @@
 package actionsrunner
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -21,7 +20,6 @@ import (
 	"time"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
-	"github.com/ChristopherHX/github-act-runner/protocol/results"
 	runservice "github.com/ChristopherHX/github-act-runner/protocol/run"
 	"github.com/ChristopherHX/github-act-runner/runnerconfiguration"
 	"github.com/sirupsen/logrus"
@@ -541,17 +539,6 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 		setupJobEntry.Order = 0
 		setupJobEntry.Start()
 		jlogger.MoveNext()
-
-		if resultsEndpoint, ok := jobreq.Variables["system.github.results_endpoint"]; ok {
-			service := &results.ResultsService{
-				Connection: &protocol.VssConnection{
-					TenantURL: resultsEndpoint.Value,
-					Token:     jlogger.Connection.Token,
-				},
-			}
-			bytes.NewBufferString("# My first step summary in github-act-runner!")
-			service.UploadResultsStepSummaryAsync(jobExecCtx, jobreq.Plan.PlanID, jobreq.JobID, jobreq.Steps[0].ID, io.MultiReader(), 0)
-		}
 
 		defer func() {
 			if err := recover(); err != nil {

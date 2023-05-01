@@ -87,6 +87,7 @@ type WebsocketLiveloggerWithFallback struct {
 	Connection    *protocol.VssConnection
 	currentLogger LiveLogger
 	FeedStreamUrl string
+	ForceWebsock  bool
 }
 
 func (logger *WebsocketLiveloggerWithFallback) InitializeVssLogger() {
@@ -111,7 +112,9 @@ func (logger *WebsocketLiveloggerWithFallback) Initialize() {
 			return
 		}
 	}
-	logger.InitializeVssLogger()
+	if !logger.ForceWebsock {
+		logger.InitializeVssLogger()
+	}
 }
 
 func (logger *WebsocketLiveloggerWithFallback) Close() error {
@@ -134,19 +137,25 @@ func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *protocol.Timelin
 		}
 		if wslogger, err := logger.currentLogger.(*WebsocketLivelogger); err {
 			if err := wslogger.Connect(); err != nil {
-				if logger.Connection.Trace {
-					fmt.Printf("Failed to reconnect to websocket %s, fallback to vsslogger\n", err.Error())
+				if !logger.ForceWebsock {
+					if logger.Connection.Trace {
+						fmt.Printf("Failed to reconnect to websocket %s, fallback to vsslogger\n", err.Error())
+					}
+					logger.InitializeVssLogger()
+					return logger.currentLogger.SendLog(wrapper)
 				}
-				logger.InitializeVssLogger()
-				return logger.currentLogger.SendLog(wrapper)
+				return err
 			}
 			err := logger.currentLogger.SendLog(wrapper)
 			if err != nil {
-				if logger.Connection.Trace {
-					fmt.Printf("Failed to send webconsole log %s, fallback to vsslogger\n", err.Error())
+				if !logger.ForceWebsock {
+					if logger.Connection.Trace {
+						fmt.Printf("Failed to send webconsole log %s, fallback to vsslogger\n", err.Error())
+					}
+					logger.InitializeVssLogger()
+					return logger.currentLogger.SendLog(wrapper)
 				}
-				logger.InitializeVssLogger()
-				return logger.currentLogger.SendLog(wrapper)
+				return err
 			}
 			return nil
 		}
@@ -240,6 +249,8 @@ type JobLogger struct {
 	IsResults       bool
 	ChangeId        int64
 	CurrentJobLine  int64
+	FirstBlock      bool
+	FirstJobBlock   bool
 }
 
 func (logger *JobLogger) Write(p []byte) (n int, err error) {
@@ -267,21 +278,8 @@ func (logger *JobLogger) MoveNextExt(startNextRecord bool) *protocol.TimelineRec
 	if cur == nil {
 		return nil
 	}
-	if logger.CurrentBuffer.Len() > 0 {
-		if logger.IsResults {
-			rs := &results.ResultsService{
-				Connection: logger.Connection,
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-			defer cancel()
-			// TODO send via smaller chunks
-			rs.UploadResultsStepLogAsync(ctx, logger.JobRequest.Plan.PlanID, logger.JobRequest.JobID, cur.ID, &logger.CurrentBuffer, int64(logger.CurrentBuffer.Len()), true, true, logger.CurrentLine)
-		} else if logid, err := logger.Connection.UploadLogFile(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.CurrentBuffer.String()); err == nil {
-			cur.Log = &protocol.TaskLogReference{ID: logid}
-		}
-	}
+	logger.uploadBlock(cur, true)
 	logger.CurrentRecord++
-	logger.CurrentLine = 1
 	logger.CurrentBuffer.Reset()
 	if c := logger.Current(); c != nil && startNextRecord {
 		c.Start()
@@ -291,18 +289,46 @@ func (logger *JobLogger) MoveNextExt(startNextRecord bool) *protocol.TimelineRec
 	return nil
 }
 
-func (logger *JobLogger) Finish() {
-	if logger.JobBuffer.Len() > 0 && len(logger.TimelineRecords.Value) > 0 {
+func (logger *JobLogger) uploadBlock(cur *protocol.TimelineRecord, finalBlock bool) {
+	if finalBlock && logger.CurrentBuffer.Len() > 0 || logger.IsResults && (finalBlock || logger.CurrentBuffer.Len() > 2*1024*1024) {
 		if logger.IsResults {
 			rs := &results.ResultsService{
 				Connection: logger.Connection,
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
-			rs.UploadResultsJobLogAsync(ctx, logger.JobRequest.Plan.PlanID, logger.JobRequest.JobID, &logger.JobBuffer, int64(logger.JobBuffer.Len()), true, true, logger.CurrentJobLine)
-		} else if logid, err := logger.Connection.UploadLogFile(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.JobBuffer.String()); err == nil {
-			logger.TimelineRecords.Value[0].Log = &protocol.TaskLogReference{ID: logid}
-			_ = logger.Update()
+			rs.UploadResultsStepLogAsync(ctx, logger.JobRequest.Plan.PlanID, logger.JobRequest.JobID, cur.ID, &logger.CurrentBuffer, int64(logger.CurrentBuffer.Len()), logger.FirstBlock, finalBlock, logger.CurrentLine)
+			logger.FirstBlock = false
+			logger.CurrentBuffer.Reset()
+		} else if finalBlock {
+			if logid, err := logger.Connection.UploadLogFile(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.CurrentBuffer.String()); err == nil {
+				cur.Log = &protocol.TaskLogReference{ID: logid}
+			}
+		}
+	}
+}
+
+func (logger *JobLogger) Finish() {
+	finalBlock := false
+	logger.uploadJobBlob(finalBlock)
+}
+
+func (logger *JobLogger) uploadJobBlob(finalBlock bool) {
+	if (finalBlock && logger.JobBuffer.Len() > 0 || logger.IsResults && (finalBlock || logger.JobBuffer.Len() > 2*1024*1024)) && len(logger.TimelineRecords.Value) > 0 {
+		if logger.IsResults {
+			rs := &results.ResultsService{
+				Connection: logger.Connection,
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			rs.UploadResultsJobLogAsync(ctx, logger.JobRequest.Plan.PlanID, logger.JobRequest.JobID, &logger.JobBuffer, int64(logger.JobBuffer.Len()), logger.FirstJobBlock, finalBlock, logger.CurrentJobLine)
+			logger.FirstJobBlock = false
+			logger.JobBuffer.Reset()
+		} else if finalBlock {
+			if logid, err := logger.Connection.UploadLogFile(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.JobBuffer.String()); err == nil {
+				logger.TimelineRecords.Value[0].Log = &protocol.TaskLogReference{ID: logid}
+				_ = logger.Update()
+			}
 		}
 	}
 }
@@ -350,6 +376,11 @@ func (logger *JobLogger) Log(lines string) {
 	if logger.linefeedregex == nil {
 		logger.linefeedregex = regexp.MustCompile(`(\r\n|\r|\n)`)
 	}
+	if logger.CurrentLine == 0 {
+		logger.CurrentLine = 1
+		logger.FirstBlock = true
+		logger.FirstJobBlock = true
+	}
 	lines = logger.linefeedregex.ReplaceAllString(strings.TrimSuffix(lines, "\r\n"), "\n")
 	_, _ = logger.JobBuffer.WriteString(lines + "\n")
 	cur := logger.Current()
@@ -374,4 +405,6 @@ func (logger *JobLogger) Log(lines string) {
 		}
 	}
 	logger.Logger.SendLog(wrapper)
+	logger.uploadBlock(cur, false)
+	logger.uploadJobBlob(false)
 }

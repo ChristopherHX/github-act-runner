@@ -9,8 +9,6 @@ import (
 func TestJobLogger(t *testing.T) {
 	logger := &JobLogger{
 		TimelineRecords: &protocol.TimelineRecordWrapper{},
-		CurrentLine:     1,
-		CurrentRecord:   0,
 	}
 	logger.Append(protocol.CreateTimelineEntry("", "_init", "Init")).Start()
 	logger.Append(protocol.CreateTimelineEntry("", "_init3", "Init")).Start()
