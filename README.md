@@ -10,7 +10,7 @@ Unlike the official [actions/runner](https://github.com/actions/runner), this wo
 ## Dependencies
 |Actions Type|Host|[JobContainer](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idcontainer) (only Linux, Windows, macOS)|
 ---|---|---
-|([composite](https://docs.github.com/en/actions/creating-actions/creating-a-composite-run-steps-action)) [run steps](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idstepsrun)|`bash` or [explicit shell](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#custom-shell) in your `PATH` (prior running the runner)|Docker ([*1](#docker-daemon-via-docker_host)), `bash` or [explicit shell](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#custom-shell) in your `PATH` (inside your container image)|
+|([composite](https://docs.github.com/en/actions/creating-actions/creating-a-composite-run-steps-action)) [run steps](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idstepsrun)|`bash` (preferred), `sh` or [explicit shell](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#custom-shell) in your `PATH` (prior running the runner). On windows are `pwsh` (preferred) and `powershell` the default shells instead of `bash` or `sh`|Docker ([*1](#docker-daemon-via-docker_host)), `sh` or [explicit shell](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#custom-shell) in your `PATH` (inside your container image)|
 |[nodejs actions](https://docs.github.com/en/actions/creating-actions/creating-a-javascript-action)|`node` ([*2](#nodejs-via-path)) in your `PATH` (prior running the runner)|Docker ([*1](#docker-daemon-via-docker_host)), `node` ([*2](#nodejs-via-path)) in your `PATH` (inside your container image)|
 |[docker actions](https://docs.github.com/en/actions/creating-actions/creating-a-docker-container-action)|Not available|Docker ([*1](#docker-daemon-via-docker_host))|
 |[service container](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idservices)|Not available|Not available|
@@ -121,8 +121,10 @@ go run . run
 - `shell` parameter might behave differently
 - based on `nektos/act@d77991c95ab6eb357b9327163ac9ceca3d04ce9b`
 - the docker client has been removed from openbsd builds
-- windows runners now use `powershell` as default shell, while running directly on windows
+- windows runners now prefers `pwsh` and `powershell` as default shell, while running directly on windows
+- all other systems now fallback to `sh` if bash is not found
 - now requires go 1.18 to compile
+- `protocol.JobLogger` moved to `"protocol/logger"` package
 
 # Known Limitations
 - ~~This runner ignores pre and post steps of javascript actions~~ Is now working in 0.6.0
