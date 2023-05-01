@@ -330,8 +330,8 @@ func (vssConnection *VssConnection) UploadLogFile(timelineID string, jobreq *Age
 	log := &TaskLog{}
 	p := "logs/" + uuid.NewString()
 	log.Path = &p
-	log.CreatedOn = time.Now().UTC().Format("2006-01-02T15:04:05")
-	log.LastChangedOn = time.Now().UTC().Format("2006-01-02T15:04:05")
+	log.CreatedOn = time.Now().UTC().Format(TimestampOutputFormat)
+	log.LastChangedOn = time.Now().UTC().Format(TimestampOutputFormat)
 
 	err := vssConnection.Request("46f5667d-263a-4684-91b1-dff7fdcf64e2", "5.1-preview", "POST", map[string]string{
 		"scopeIdentifier": jobreq.Plan.ScopeIdentifier,

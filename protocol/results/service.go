@@ -99,7 +99,7 @@ func (rs *ResultsService) UploadResultsStepSummaryAsync(ctx context.Context, pla
 	if err != nil {
 		return err
 	}
-	timestamp := time.Now().UTC().Format(TimestampFormat)
+	timestamp := time.Now().UTC().Format(TimestampOutputFormat)
 	mreq := &StepSummaryMetadataCreate{
 		WorkflowJobRunBackendId: jobId,
 		WorkflowRunBackendId:    planId,
@@ -144,7 +144,7 @@ func (rs *ResultsService) UploadResultsStepLogAsync(ctx context.Context, planId 
 		return err
 	}
 	if finalize {
-		timestamp := time.Now().UTC().Format(TimestampFormat)
+		timestamp := time.Now().UTC().Format(TimestampOutputFormat)
 		req := &StepLogsMetadataCreate{
 			WorkflowJobRunBackendId: jobId,
 			WorkflowRunBackendId:    planId,
@@ -190,7 +190,7 @@ func (rs *ResultsService) UploadResultsJobLogAsync(ctx context.Context, planId s
 		return err
 	}
 	if finalize {
-		timestamp := time.Now().UTC().Format(TimestampFormat)
+		timestamp := time.Now().UTC().Format(TimestampOutputFormat)
 		req := &JobLogsMetadataCreate{
 			WorkflowJobRunBackendId: jobId,
 			WorkflowRunBackendId:    planId,
@@ -208,8 +208,17 @@ func (rs *ResultsService) UploadResultsJobLogAsync(ctx context.Context, planId s
 	return nil
 }
 
+func (rs *ResultsService) UpdateWorkflowStepsAsync(ctx context.Context, update *StepsUpdateRequest) error {
+	url, err := rs.Connection.BuildURL(WorkflowStepsUpdate, nil, nil)
+	if err != nil {
+		return err
+	}
+	return rs.Connection.RequestWithContext2(ctx, "POST", url, "", update, nil)
+}
+
 var (
-	TimestampFormat = "2006-01-02T15:04:05.999Z" // dotnet "yyyy-MM-dd'T'HH:mm:ss.fffK"
+	TimestampInputFormat  = "2006-01-02T15:04:05.999Z07:00" // allow to omit fractional seconds
+	TimestampOutputFormat = "2006-01-02T15:04:05.000Z07:00" // dotnet "yyyy-MM-dd'T'HH:mm:ss.fffK"
 
 	ResultsReceiverTwirpEndpoint = "twirp/results.services.receiver.Receiver/"
 	GetStepSummarySignedBlobURL  = ResultsReceiverTwirpEndpoint + "GetStepSummarySignedBlobURL"
@@ -218,6 +227,8 @@ var (
 	CreateStepLogsMetadata       = ResultsReceiverTwirpEndpoint + "CreateStepLogsMetadata"
 	GetJobLogsSignedBlobURL      = ResultsReceiverTwirpEndpoint + "GetJobLogsSignedBlobURL"
 	CreateJobLogsMetadata        = ResultsReceiverTwirpEndpoint + "CreateJobLogsMetadata"
+	ResultsProtoApiV1Endpoint    = "twirp/github.actions.results.api.v1.WorkflowStepUpdateService/"
+	WorkflowStepsUpdate          = ResultsProtoApiV1Endpoint + "WorkflowStepsUpdate"
 
 	AzureBlobSealedHeader = "x-ms-blob-sealed"
 	AzureBlobTypeHeader   = "x-ms-blob-type"

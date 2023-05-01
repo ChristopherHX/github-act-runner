@@ -67,7 +67,7 @@ type TimelineRecordFeedLinesWrapper struct {
 }
 
 func (rec *TimelineRecord) Start() {
-	time := time.Now().UTC().Format("2006-01-02T15:04:05")
+	time := time.Now().UTC().Format(TimestampOutputFormat)
 	rec.PercentComplete = 0
 	rec.State = "InProgress"
 	rec.StartTime = time
@@ -76,7 +76,7 @@ func (rec *TimelineRecord) Start() {
 }
 
 func (rec *TimelineRecord) Complete(res string) {
-	time := time.Now().UTC().Format("2006-01-02T15:04:05")
+	time := time.Now().UTC().Format(TimestampOutputFormat)
 	rec.PercentComplete = 100
 	rec.State = "Completed"
 	rec.FinishTime = &time
@@ -93,7 +93,7 @@ func CreateTimelineEntry(parent string, refname string, name string) TimelineRec
 	record.WorkerName = "golang-go"
 	record.ParentID = parent
 	record.State = "Pending"
-	record.LastModified = time.Now().UTC().Format("2006-01-02T15:04:05")
+	record.LastModified = time.Now().UTC().Format(TimestampOutputFormat)
 	record.Order = 1
 	return record
 }

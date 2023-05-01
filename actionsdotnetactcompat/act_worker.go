@@ -17,6 +17,7 @@ import (
 
 	"github.com/ChristopherHX/github-act-runner/actionsrunner"
 	"github.com/ChristopherHX/github-act-runner/protocol"
+	"github.com/ChristopherHX/github-act-runner/protocol/logger"
 	"github.com/google/uuid"
 	"github.com/nektos/act/pkg/common"
 	"github.com/nektos/act/pkg/common/git"
@@ -30,7 +31,7 @@ import (
 type ghaFormatter struct {
 	rqt           *protocol.AgentJobRequestMessage
 	rc            *runner.RunContext
-	logger        *protocol.JobLogger
+	logger        *logger.JobLogger
 	linefeedregex *regexp.Regexp
 	main          bool
 	result        *model.StepResult
@@ -162,7 +163,7 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		f.linefeedregex = regexp.MustCompile(`(\r\n|\r|\n)`)
 	}
 
-	prefix := entry.Time.UTC().Format("2006-01-02T15:04:05.0000000Z ")
+	prefix := entry.Time.UTC().Format(protocol.TimestampOutputFormat) + " "
 	if entry.Level == logrus.DebugLevel {
 		prefix += "##[debug]"
 	} else if entry.Level == logrus.WarnLevel {
