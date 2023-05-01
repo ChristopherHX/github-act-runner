@@ -309,8 +309,7 @@ func (logger *JobLogger) uploadBlock(cur *protocol.TimelineRecord, finalBlock bo
 }
 
 func (logger *JobLogger) Finish() {
-	finalBlock := false
-	logger.uploadJobBlob(finalBlock)
+	logger.uploadJobBlob(true)
 }
 
 func (logger *JobLogger) uploadJobBlob(finalBlock bool) {
