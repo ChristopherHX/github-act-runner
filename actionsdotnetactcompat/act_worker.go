@@ -354,6 +354,9 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 			return nil
 		}
 	}
+	if strings.EqualFold(rqt.MessageType, "RunnerJobRequest") {
+		runnerConfig.DownloadAction = nil
+	}
 	rc := &runner.RunContext{
 		Name:   uuid.New().String(),
 		Config: runnerConfig,
