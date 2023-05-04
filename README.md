@@ -133,7 +133,16 @@ go run . run
   Is now working in 0.6.0, including hashfiles
 - ~~You won't be able to run steps after a failure without using `continue-on-error: true`~~ Implemented since v0.2.0 via nektos/act contribution ( https://github.com/nektos/act/commit/1891c72ab158508e36009d16b24913fa5836422b )
 - ~~The expression interpreter of this runner doesn't always behave like you would expect and you might see errors or other expressions which shouldn't work are working here ( based on javascript, not on actions/runner )~~ v0.2.0 uses rhysd/actionlint instead with much better compatibility https://github.com/nektos/act/pull/908
+- ~~Running steps after cancellation~~ Is now working in 0.6.0
+- ~~steps.timeout-minutes not implemented~~ Is now working in 0.6.0
 - Service Container are not implemented
+- Step Summaries are not implemented (only file command is provided)
+- Annotations are not implemented
+- Problem Matcher are not implemented
+- Expressions in `with` and `env` (also applies to workflow and job env blocks) keys / directly assign to a mapping expression are not implemented
+- Secret masking may leak more secrets than the one of actions/runner
+- Job Outputs are sent regardless if they would leak secret data to non secret storage
+- You need to provide the `node` program yourself in all containers / host configurations
 - You need to manually update the runner
 - Most issues of https://github.com/nektos/act/issues applies to this runner as well
 
