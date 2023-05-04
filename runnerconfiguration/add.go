@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ChristopherHX/github-act-runner/common"
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/google/uuid"
 )
@@ -185,8 +186,8 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 func (config *ConfigureRunner) ReadFromEnvironment() {
 	config.ConfigureRemoveRunner.ReadFromEnvironment()
 	if !config.Ephemeral {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_EPHEMERAL"); ok {
-			config.Ephemeral = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+		if v, ok := common.LookupEnvBool("ACTIONS_RUNNER_INPUT_EPHEMERAL"); ok {
+			config.Ephemeral = v
 		}
 	}
 	if len(config.Name) == 0 {
@@ -200,8 +201,8 @@ func (config *ConfigureRunner) ReadFromEnvironment() {
 		}
 	}
 	if !config.Replace {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_REPLACE"); ok {
-			config.Replace = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+		if v, ok := common.LookupEnvBool("ACTIONS_RUNNER_INPUT_REPLACE"); ok {
+			config.Replace = v
 		}
 	}
 }

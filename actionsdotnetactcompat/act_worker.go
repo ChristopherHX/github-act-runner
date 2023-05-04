@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ChristopherHX/github-act-runner/actionsrunner"
+	rcommon "github.com/ChristopherHX/github-act-runner/common"
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/ChristopherHX/github-act-runner/protocol/logger"
 	"github.com/google/uuid"
@@ -355,6 +356,9 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		}
 	}
 	if strings.EqualFold(rqt.MessageType, "RunnerJobRequest") {
+		runnerConfig.DownloadAction = nil
+	}
+	if viaGit, hasViaGit := rcommon.LookupEnvBool("GITHUB_ACT_RUNNER_DOWNLOAD_ACTIONS_VIA_GIT"); hasViaGit && viaGit {
 		runnerConfig.DownloadAction = nil
 	}
 	rc := &runner.RunContext{
