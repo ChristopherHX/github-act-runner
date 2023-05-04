@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ChristopherHX/github-act-runner/common"
 	"github.com/ChristopherHX/github-act-runner/protocol"
 )
 
@@ -32,7 +33,7 @@ func (c *ConfigureRemoveRunner) GetHttpClient() *http.Client {
 		return c.Client
 	}
 	customTransport := http.DefaultTransport.(*http.Transport).Clone()
-	if v, ok := os.LookupEnv("SKIP_TLS_CERT_VALIDATION"); ok && strings.EqualFold(v, "true") || strings.EqualFold(v, "Y") {
+	if v, ok := common.LookupEnvBool("SKIP_TLS_CERT_VALIDATION"); ok && v {
 		customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 	c.Client = &http.Client{
@@ -176,8 +177,8 @@ func (confremove *ConfigureRemoveRunner) ReadFromEnvironment() {
 		}
 	}
 	if !confremove.Unattended {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_UNATTENDED"); ok {
-			confremove.Unattended = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+		if v, ok := common.LookupEnvBool("ACTIONS_RUNNER_INPUT_UNATTENDED"); ok {
+			confremove.Unattended = v
 		}
 	}
 	if len(confremove.URL) == 0 {

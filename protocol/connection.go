@@ -11,12 +11,12 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/ChristopherHX/github-act-runner/common"
 	"github.com/google/uuid"
 )
 
@@ -60,7 +60,7 @@ func (vssConnection *VssConnection) HttpClient() *http.Client {
 		customTransport := http.DefaultTransport.(*http.Transport).Clone()
 		customTransport.MaxIdleConns = 1
 		customTransport.IdleConnTimeout = 100 * time.Second
-		if v, ok := os.LookupEnv("SKIP_TLS_CERT_VALIDATION"); ok && strings.EqualFold(v, "true") || strings.EqualFold(v, "Y") {
+		if v, ok := common.LookupEnvBool("SKIP_TLS_CERT_VALIDATION"); ok && v {
 			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 		}
 		vssConnection.Client = &http.Client{

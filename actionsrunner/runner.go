@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"runtime"
 	"runtime/debug"
@@ -19,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ChristopherHX/github-act-runner/common"
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	runservice "github.com/ChristopherHX/github-act-runner/protocol/run"
 	"github.com/ChristopherHX/github-act-runner/runnerconfiguration"
@@ -156,7 +156,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 				customTransport := http.DefaultTransport.(*http.Transport).Clone()
 				customTransport.MaxIdleConns = 1
 				customTransport.IdleConnTimeout = 100 * time.Second
-				if v, ok := os.LookupEnv("SKIP_TLS_CERT_VALIDATION"); ok && strings.EqualFold(v, "true") || strings.EqualFold(v, "Y") {
+				if v, ok := common.LookupEnvBool("SKIP_TLS_CERT_VALIDATION"); ok && v {
 					customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 				}
 				vssConnection := &protocol.VssConnection{
