@@ -17,6 +17,7 @@ import (
 
 	"github.com/ChristopherHX/github-act-runner/actionsrunner"
 	"github.com/ChristopherHX/github-act-runner/protocol"
+	"github.com/ChristopherHX/github-act-runner/protocol/launch"
 	"github.com/ChristopherHX/github-act-runner/protocol/logger"
 	"github.com/google/uuid"
 	"github.com/nektos/act/pkg/common"
@@ -325,28 +326,11 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 				return err
 			}
 			for _, v := range actionDownloadInfo.Actions {
-				cachedTar := filepath.Join(ngcei.Dir, "..", actionurl[0]+"."+actionurl[1]+"."+v.ResolvedSha+".tar")
-				var tarstream io.Reader
-				if fr, err := os.Open(cachedTar); err == nil {
-					tarstream = fr
-				} else {
-					req, _ := http.NewRequestWithContext(ctx, "GET", v.TarballUrl, nil)
-					rsp, err := vssConnection.Client.Do(req)
-					if err != nil {
-						return err
-					}
-					defer rsp.Body.Close()
-					if len(v.ResolvedSha) > 0 {
-						fo, _ := os.OpenFile(cachedTar, os.O_TRUNC|os.O_CREATE, 0777)
-						io.Copy(fo, rsp.Body)
-						tarstream = fo
-						fo.Seek(0, 0)
-					} else {
-						tarstream = rsp.Body
-					}
+				token := runnerConfig.Token
+				if v.Authentication != nil && v.Authentication.Token != "" {
+					token = v.Authentication.Token
 				}
-				gzr, _ := gzip.NewReader(tarstream)
-				err = container.ExtractTar(gzr, ngcei.Dir)
+				err := downloadAndExtractAction(ctx, ngcei.Dir, actionurl[0], actionurl[1], v.ResolvedSha, v.TarballUrl, token, vssConnection.Client)
 				if err != nil {
 					return err
 				}
@@ -356,6 +340,43 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	}
 	if strings.EqualFold(rqt.MessageType, "RunnerJobRequest") {
 		runnerConfig.DownloadAction = nil
+		launchEndpoint, hasLaunchEndpoint := rqt.Variables["system.github.launch_endpoint"]
+		if hasLaunchEndpoint && launchEndpoint.Value != "" {
+			runnerConfig.DownloadAction = func(ngcei git.NewGitCloneExecutorInput) common.Executor {
+				return func(ctx context.Context) error {
+					actionList := &launch.ActionReferenceRequestList{}
+					actionurl := strings.Split(ngcei.URL, "/")
+					actionurl = actionurl[len(actionurl)-2:]
+					actionList.Actions = []launch.ActionReferenceRequest{
+						{Action: strings.Join(actionurl, "/"), Version: ngcei.Ref},
+					}
+					actionDownloadInfo := &launch.ActionDownloadInfoResponseCollection{}
+					urlBuilder := protocol.VssConnection{TenantURL: launchEndpoint.Value}
+					url, err := urlBuilder.BuildURL("actions/build/{planId}/jobs/{jobId}/runnerresolve/actions", map[string]string{
+						"jobId":  rqt.JobID,
+						"planId": rqt.Plan.PlanID,
+					}, nil)
+					if err != nil {
+						return err
+					}
+					err = vssConnection.RequestWithContext2(ctx, "POST", url, "", actionList, actionDownloadInfo)
+					if err != nil {
+						return err
+					}
+					for _, v := range actionDownloadInfo.Actions {
+						token := runnerConfig.Token
+						if v.Authentication != nil && v.Authentication.Token != "" {
+							token = v.Authentication.Token
+						}
+						err := downloadAndExtractAction(ctx, ngcei.Dir, actionurl[0], actionurl[1], v.ResolvedSha, v.TarUrl, token, vssConnection.Client)
+						if err != nil {
+							return err
+						}
+					}
+					return nil
+				}
+			}
+		}
 	}
 	rc := &runner.RunContext{
 		Name:   uuid.New().String(),
@@ -523,4 +544,62 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	default:
 	}
 	finishJob2(jobStatus, outputMap)
+}
+
+func downloadAndExtractAction(ctx context.Context, target string, owner string, name string, resolvedSha string, tarURL string, token string, httpClient *http.Client) (reterr error) {
+	cachedTar := filepath.Join(target, "..", owner+"."+name+"."+resolvedSha+".tar")
+	defer func() {
+		if reterr != nil {
+			os.Remove(cachedTar)
+		}
+	}()
+	var tarstream io.Reader
+	if fr, err := os.Open(cachedTar); err == nil {
+		tarstream = fr
+		defer fr.Close()
+	} else {
+		req, err := http.NewRequestWithContext(ctx, "GET", tarURL, nil)
+		if err != nil {
+			return err
+		}
+		if token != "" {
+			req.Header.Add("Authorization", "token "+token)
+		}
+		rsp, err := httpClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer rsp.Body.Close()
+		if len(resolvedSha) == len("0000000000000000000000000000000000000000") {
+			fo, err := os.OpenFile(cachedTar, os.O_TRUNC|os.O_CREATE, 0777)
+			if err != nil {
+				return err
+			}
+			defer fo.Close()
+			len, err := io.Copy(fo, rsp.Body)
+			if err != nil {
+				return err
+			}
+			if rsp.ContentLength >= 0 && len != rsp.ContentLength {
+				return fmt.Errorf("failed to download tar expected %v, but copied %v", rsp.ContentLength, len)
+			}
+			tarstream = fo
+			fo.Seek(0, 0)
+		} else {
+			tarstream = rsp.Body
+		}
+	}
+	if err := extractTarGz(tarstream, target); err != nil {
+		return err
+	}
+	return nil
+}
+
+func extractTarGz(reader io.Reader, dir string) error {
+	gzr, err := gzip.NewReader(reader)
+	if err != nil {
+		return err
+	}
+	defer gzr.Close()
+	return container.ExtractTar(gzr, dir)
 }
