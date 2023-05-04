@@ -39,6 +39,22 @@ func (wc *DefaultWorkerContext) FinishJob(result string, outputs *map[string]pro
 		if outputs != nil {
 			payload.Outputs = *outputs
 		}
+		recs := wc.Logger().TimelineRecords
+		if recs != nil {
+			stepResults := []run.StepResult{}
+			for i, rec := range recs.Value {
+				if i == 0 {
+					annotations := make([]run.Annotation, len(rec.Issues))
+					for i, issue := range rec.Issues {
+						annotations[i] = run.IssueToAnnotation(issue)
+					}
+					payload.Annotations = annotations
+				} else if rec != nil {
+					stepResults = append(stepResults, run.TimeLineRecordToStepResult(*rec))
+				}
+			}
+			payload.StepResults = stepResults
+		}
 
 		completejobUrl, _ := url.Parse(wc.VssConnection.TenantURL)
 		completejobUrl.Path = path.Join(completejobUrl.Path, "completejob")
