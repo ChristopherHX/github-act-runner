@@ -29,3 +29,8 @@ override_dh_auto_install:
 .PHONY: override_dh_strip
 override_dh_strip:
 	@echo "skip stripping"
+
+# override build rule to use old gzip compression instead of new zst compression
+# because some not very old Debian releases do not support zst compression
+override_dh_builddeb:
+	dh_builddeb -- -Zgzip
