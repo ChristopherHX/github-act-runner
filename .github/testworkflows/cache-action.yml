@@ -19,6 +19,6 @@ jobs:
     steps:
     - uses: actions/cache/restore@v3
       with:
-        key: test-f4a655c454e2ef407eeeca5889cf1dcb9588cfec33f975f1c9a29a15d33c7e2a
+        key: test-90bee283b2ec9ea9041c504b22928b2ca973d1887e3bfd704c709c65e4fd032d
         path: test.txt
         fail-on-cache-miss: true
