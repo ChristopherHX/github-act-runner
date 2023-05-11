@@ -194,10 +194,10 @@ func main() {
 				WriteJson("settings.json", settings)
 			}
 			if err != nil {
-				fmt.Printf("failed to configure: %v", err)
+				fmt.Printf("failed to configure: %v\n", err)
 				os.Exit(1)
 			} else {
-				fmt.Printf("success")
+				fmt.Printf("success\n")
 				os.Exit(0)
 			}
 		},
@@ -248,10 +248,10 @@ func main() {
 				WriteJson("settings.json", settings)
 			}
 			if err != nil {
-				fmt.Printf("failed to remove: %v", err)
+				fmt.Printf("failed to remove: %v\n", err)
 				os.Exit(1)
 			} else {
-				fmt.Printf("success")
+				fmt.Printf("success\n")
 				os.Exit(0)
 			}
 		},
