@@ -1,0 +1,11 @@
+name: matrix
+on: push
+jobs:
+  matrix-test:
+    runs-on: [self-hosted]
+    steps:
+    - uses: christopherhx/script@main
+      with:
+        pre: echo Pre
+        main: echo Main
+        post: echo Post
