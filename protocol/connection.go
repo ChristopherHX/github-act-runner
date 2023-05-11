@@ -66,6 +66,15 @@ func (vssConnection *VssConnection) HttpClient() *http.Client {
 		vssConnection.Client = &http.Client{
 			Timeout:   100 * time.Second,
 			Transport: customTransport,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return fmt.Errorf("stopped after 10 redirects")
+				}
+				if len(via) >= 1 && req.Host != via[0].Host {
+					req.Header.Del("Authorization")
+				}
+				return nil
+			},
 		}
 	}
 	return vssConnection.Client

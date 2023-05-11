@@ -551,6 +551,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 }
 
 func downloadAndExtractAction(ctx context.Context, target string, owner string, name string, resolvedSha string, tarURL string, token string, httpClient *http.Client) (reterr error) {
+	logger := common.Logger(ctx)
 	cachedTar := filepath.Join(target, "..", owner+"."+name+"."+resolvedSha+".tar")
 	defer func() {
 		if reterr != nil {
@@ -561,7 +562,13 @@ func downloadAndExtractAction(ctx context.Context, target string, owner string, 
 	if fr, err := os.Open(cachedTar); err == nil {
 		tarstream = fr
 		defer fr.Close()
+		if logger != nil {
+			logger.Infof("Found cache for action %v/%v (sha:%v) from %v", owner, name, resolvedSha, cachedTar)
+		}
 	} else {
+		if logger != nil {
+			logger.Infof("Downloading action %v/%v (sha:%v) from %v", owner, name, resolvedSha, tarURL)
+		}
 		req, err := http.NewRequestWithContext(ctx, "GET", tarURL, nil)
 		if err != nil {
 			return err
@@ -569,13 +576,20 @@ func downloadAndExtractAction(ctx context.Context, target string, owner string, 
 		if token != "" {
 			req.Header.Add("Authorization", "token "+token)
 		}
+		req.Header.Add("User-Agent", "github-act-runner/1.0.0")
+		req.Header.Add("Accept", "*/*")
 		rsp, err := httpClient.Do(req)
 		if err != nil {
 			return err
 		}
 		defer rsp.Body.Close()
+		if rsp.StatusCode != 200 {
+			buf := &bytes.Buffer{}
+			io.Copy(buf, rsp.Body)
+			return fmt.Errorf("Failed to download action from %v response %v", tarURL, buf.String())
+		}
 		if len(resolvedSha) == len("0000000000000000000000000000000000000000") {
-			fo, err := os.OpenFile(cachedTar, os.O_TRUNC|os.O_CREATE, 0777)
+			fo, err := os.Create(cachedTar)
 			if err != nil {
 				return err
 			}
