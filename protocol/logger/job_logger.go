@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
@@ -251,9 +252,13 @@ type JobLogger struct {
 	CurrentJobLine  int64
 	FirstBlock      bool
 	FirstJobBlock   bool
+	linesync        sync.Mutex
+	loggersync      sync.Mutex
 }
 
 func (logger *JobLogger) Write(p []byte) (n int, err error) {
+	logger.linesync.Lock()
+	defer logger.linesync.Unlock()
 	logger.lineBuffer = append(logger.lineBuffer, p...)
 	if i := bytes.LastIndexByte(logger.lineBuffer, byte('\n')); i != -1 {
 		logger.Log(string(logger.lineBuffer[:i]))
@@ -262,11 +267,17 @@ func (logger *JobLogger) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func (logger *JobLogger) Current() *protocol.TimelineRecord {
+func (logger *JobLogger) current() *protocol.TimelineRecord {
 	if logger.CurrentRecord < logger.TimelineRecords.Count {
 		return logger.TimelineRecords.Value[logger.CurrentRecord]
 	}
 	return nil
+}
+
+func (logger *JobLogger) Current() *protocol.TimelineRecord {
+	logger.loggersync.Lock()
+	defer logger.loggersync.Unlock()
+	return logger.current()
 }
 
 func (logger *JobLogger) MoveNext() *protocol.TimelineRecord {
@@ -274,18 +285,20 @@ func (logger *JobLogger) MoveNext() *protocol.TimelineRecord {
 }
 
 func (logger *JobLogger) MoveNextExt(startNextRecord bool) *protocol.TimelineRecord {
-	cur := logger.Current()
+	logger.loggersync.Lock()
+	defer logger.loggersync.Unlock()
+	cur := logger.current()
 	if cur == nil {
 		return nil
 	}
 	logger.uploadBlock(cur, true)
 	logger.CurrentRecord++
 	logger.CurrentBuffer.Reset()
-	if c := logger.Current(); c != nil && startNextRecord {
+	if c := logger.current(); c != nil && startNextRecord {
 		c.Start()
 		return c
 	}
-	_ = logger.Update()
+	_ = logger.update()
 	return nil
 }
 
@@ -309,6 +322,8 @@ func (logger *JobLogger) uploadBlock(cur *protocol.TimelineRecord, finalBlock bo
 }
 
 func (logger *JobLogger) Finish() {
+	logger.loggersync.Lock()
+	defer logger.loggersync.Unlock()
 	logger.uploadJobBlob(true)
 }
 
@@ -326,13 +341,19 @@ func (logger *JobLogger) uploadJobBlob(finalBlock bool) {
 		} else if finalBlock {
 			if logid, err := logger.Connection.UploadLogFile(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.JobBuffer.String()); err == nil {
 				logger.TimelineRecords.Value[0].Log = &protocol.TaskLogReference{ID: logid}
-				_ = logger.Update()
+				_ = logger.update()
 			}
 		}
 	}
 }
 
 func (logger *JobLogger) Update() error {
+	logger.loggersync.Lock()
+	defer logger.loggersync.Unlock()
+	return logger.update()
+}
+
+func (logger *JobLogger) update() error {
 	if logger.IsResults {
 		logger.ChangeId++
 		updatereq := &results.StepsUpdateRequest{}
@@ -354,6 +375,8 @@ func (logger *JobLogger) Update() error {
 }
 
 func (logger *JobLogger) Append(record protocol.TimelineRecord) *protocol.TimelineRecord {
+	logger.loggersync.Lock()
+	defer logger.loggersync.Unlock()
 	if l := len(logger.TimelineRecords.Value); l > 0 {
 		record.Order = logger.TimelineRecords.Value[l-1].Order + 1
 	}
@@ -363,6 +386,8 @@ func (logger *JobLogger) Append(record protocol.TimelineRecord) *protocol.Timeli
 }
 
 func (logger *JobLogger) Insert(record protocol.TimelineRecord) *protocol.TimelineRecord {
+	logger.loggersync.Lock()
+	defer logger.loggersync.Unlock()
 	x := append(make([]*protocol.TimelineRecord, 0), logger.TimelineRecords.Value[:logger.CurrentRecord]...)
 	y := append(x, &record)
 	z := append(y, logger.TimelineRecords.Value[logger.CurrentRecord:]...)
@@ -372,6 +397,8 @@ func (logger *JobLogger) Insert(record protocol.TimelineRecord) *protocol.Timeli
 }
 
 func (logger *JobLogger) Log(lines string) {
+	logger.loggersync.Lock()
+	defer logger.loggersync.Unlock()
 	if logger.linefeedregex == nil {
 		logger.linefeedregex = regexp.MustCompile(`(\r\n|\r|\n)`)
 	}
@@ -382,7 +409,7 @@ func (logger *JobLogger) Log(lines string) {
 	}
 	lines = logger.linefeedregex.ReplaceAllString(strings.TrimSuffix(lines, "\r\n"), "\n")
 	_, _ = logger.JobBuffer.WriteString(lines + "\n")
-	cur := logger.Current()
+	cur := logger.current()
 	if cur == nil {
 		return
 	}
