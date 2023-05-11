@@ -491,7 +491,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	for i := 0; i < len(steps); i++ {
 		rec := protocol.CreateTimelineEntry(rqt.JobID, steps[i].ID, steps[i].String())
 		rec.ID = rqt.Steps[i].ID // This allows the actions_runner adapter to work in gitea
-		jlogger.Append(rec).Order = int32(i + len(steps))
+		jlogger.Append(rec).Order = int32(i + len(steps) + 1)
 	}
 
 	logrus.SetLevel(logger.GetLevel())
