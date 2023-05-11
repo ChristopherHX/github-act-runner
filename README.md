@@ -119,7 +119,7 @@ go run . run
 - `runner.arch` changed from `386` to `x86`
 - `runner.arch` changed from `aarch64` to `arm64`
 - `shell` parameter might behave differently
-- based on `nektos/act@d77991c95ab6eb357b9327163ac9ceca3d04ce9b`
+- based on `nektos/act@65ef31f102ceb75623973921099454637bab55b0`
 - the docker client has been removed from openbsd builds
 - windows runners now prefers `pwsh` and `powershell` as default shell, while running directly on windows
 - all other systems now fallback to `sh` if bash is not found
