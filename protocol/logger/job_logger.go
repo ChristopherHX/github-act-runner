@@ -14,7 +14,8 @@ import (
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/ChristopherHX/github-act-runner/protocol/results"
-	"golang.org/x/net/websocket"
+	"nhooyr.io/websocket"
+	"nhooyr.io/websocket/wsjson"
 )
 
 type LiveLogger interface {
@@ -44,7 +45,7 @@ type WebsocketLivelogger struct {
 
 func (logger *WebsocketLivelogger) Close() error {
 	if logger.ws != nil {
-		err := logger.ws.Close()
+		err := logger.ws.Close(websocket.StatusGoingAway, "Bye!")
 		logger.ws = nil
 		return err
 	}
@@ -59,28 +60,22 @@ func (logger *WebsocketLivelogger) Connect() error {
 	if logger.Connection.Trace {
 		fmt.Printf("Try to connect to websocket %s\n", logger.FeedStreamUrl)
 	}
-	origin, err := url.Parse(logger.Connection.TenantURL)
-	if err != nil {
-		return err
-	}
 	re := regexp.MustCompile("(?i)^http(s?)://")
 	feedStreamUrl, err := url.Parse(re.ReplaceAllString(logger.FeedStreamUrl, "ws$1://"))
 	if err != nil {
 		return err
 	}
-	logger.ws, err = websocket.DialConfig(&websocket.Config{
-		Location: feedStreamUrl,
-		Origin:   origin,
-		Version:  13,
-		Header: http.Header{
+	logger.ws, _, err = websocket.Dial(context.Background(), feedStreamUrl.String(), &websocket.DialOptions{
+		HTTPHeader: http.Header{
 			"Authorization": []string{"Bearer " + logger.Connection.Token},
+			"User-Agent": []string{"github-act-runner/1.0.0"},
 		},
 	})
 	return err
 }
 
 func (logger *WebsocketLivelogger) SendLog(lines *protocol.TimelineRecordFeedLinesWrapper) error {
-	return websocket.JSON.Send(logger.ws, lines)
+	return wsjson.Write(context.Background(), logger.ws, lines)
 }
 
 type WebsocketLiveloggerWithFallback struct {
@@ -111,6 +106,8 @@ func (logger *WebsocketLiveloggerWithFallback) Initialize() {
 		if err == nil {
 			logger.currentLogger = wslogger
 			return
+		} else if logger.Connection.Trace {
+			fmt.Printf("Failed to connect to websocket %s, fallback to vsslogger\n", err.Error())
 		}
 	}
 	if !logger.ForceWebsock {
