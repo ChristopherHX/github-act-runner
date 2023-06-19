@@ -65,7 +65,10 @@ func (logger *WebsocketLivelogger) Connect() error {
 	if err != nil {
 		return err
 	}
-	logger.ws, _, err = websocket.Dial(context.Background(), feedStreamUrl.String(), &websocket.DialOptions{
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer cancel()
+	logger.ws, _, err = websocket.Dial(ctx, feedStreamUrl.String(), &websocket.DialOptions{
+		HTTPClient: logger.Connection.HttpClient(),
 		HTTPHeader: http.Header{
 			"Authorization": []string{"Bearer " + logger.Connection.Token},
 			"User-Agent": []string{"github-act-runner/1.0.0"},
@@ -75,7 +78,9 @@ func (logger *WebsocketLivelogger) Connect() error {
 }
 
 func (logger *WebsocketLivelogger) SendLog(lines *protocol.TimelineRecordFeedLinesWrapper) error {
-	return wsjson.Write(context.Background(), logger.ws, lines)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer cancel()
+	return wsjson.Write(ctx, logger.ws, lines)
 }
 
 type WebsocketLiveloggerWithFallback struct {
