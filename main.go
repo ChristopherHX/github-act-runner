@@ -16,34 +16,21 @@ import (
 
 	"github.com/ChristopherHX/github-act-runner/actionsdotnetactcompat"
 	"github.com/ChristopherHX/github-act-runner/actionsrunner"
+	"github.com/ChristopherHX/github-act-runner/common"
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/ChristopherHX/github-act-runner/runnerconfiguration"
+	runnerCompat "github.com/ChristopherHX/github-act-runner/runnerconfiguration/compat"
 	"github.com/nektos/act/pkg/container"
 
 	"github.com/spf13/cobra"
 )
-
-func WriteJson(path string, value interface{}) error {
-	b, err := json.MarshalIndent(value, "", "    ")
-	if err != nil {
-		return err
-	}
-	return ioutil.WriteFile(path, b, 0777)
-}
-
-func ReadJson(path string, value interface{}) error {
-	cont, err := ioutil.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(cont, value)
-}
 
 type RunRunner struct {
 	Once       bool
 	Terminal   bool
 	Trace      bool
 	WorkerArgs []string
+	JITConfig  string
 }
 
 type JobRun struct {
@@ -58,7 +45,7 @@ func readLegacyInstance(settings *runnerconfiguration.RunnerSettings, instance *
 	taskAgent := &protocol.TaskAgent{}
 	var key *rsa.PrivateKey
 	req := &protocol.GitHubAuthResult{}
-	err := ReadJson("agent.json", taskAgent)
+	err := common.ReadJson("agent.json", taskAgent)
 	if err != nil {
 		return 1
 	}
@@ -72,7 +59,7 @@ func readLegacyInstance(settings *runnerconfiguration.RunnerSettings, instance *
 			return 1
 		}
 	}
-	err = ReadJson("auth.json", req)
+	err = common.ReadJson("auth.json", req)
 	if err != nil {
 		return 1
 	}
@@ -87,7 +74,7 @@ func readLegacyInstance(settings *runnerconfiguration.RunnerSettings, instance *
 func loadConfiguration() (*runnerconfiguration.RunnerSettings, error) {
 	settings := &runnerconfiguration.RunnerSettings{}
 	{
-		err := ReadJson("settings.json", settings)
+		err := common.ReadJson("settings.json", settings)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				// Backward compat <= 0.0.3
@@ -104,6 +91,9 @@ func loadConfiguration() (*runnerconfiguration.RunnerSettings, error) {
 	{
 		instance := &runnerconfiguration.RunnerInstance{}
 		if readLegacyInstance(settings, instance) == 0 {
+			settings.Instances = append(settings.Instances, instance)
+		}
+		if instance, err := runnerCompat.ToRunnerInstance(runnerCompat.DefaultConfigFileAccess{}); err == nil {
 			settings.Instances = append(settings.Instances, instance)
 		}
 	}
@@ -137,8 +127,14 @@ func (run *RunRunner) Run() int {
 			}
 		}
 	}()
-	settings, err := loadConfiguration()
-	if err != nil {
+	var settings *runnerconfiguration.RunnerSettings
+	var err error
+	if run.JITConfig != "" {
+		if settings, err = runnerCompat.ParseJitRunnerConfig(run.JITConfig); err != nil {
+			fmt.Printf("jitconfig is corrupted: %v, please reconfigure the runner\n", err.Error())
+			return 1
+		}
+	} else if settings, err = loadConfiguration(); err != nil {
 		fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
 		return 1
 	}
@@ -179,26 +175,48 @@ func main() {
 	config := &runnerconfiguration.ConfigureRunner{}
 	run := &RunRunner{}
 	remove := &runnerconfiguration.RemoveRunner{}
+	printJITConfig := false
+	saveActionsRunnerConfig := false
 	var cmdConfigure = &cobra.Command{
 		Use:   "configure",
 		Short: "Configure your self-hosted runner",
 		Args:  cobra.MaximumNArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
 			config.ReadFromEnvironment()
-			settings, _ := loadConfiguration()
-			settings, err := config.Configure(settings, &interactive{}, nil)
-			if settings != nil {
-				os.Remove("agent.json")
-				os.Remove("auth.json")
-				os.Remove("cred.pkcs1")
-				WriteJson("settings.json", settings)
+			settings := &runnerconfiguration.RunnerSettings{}
+			if !printJITConfig {
+				settings, _ = loadConfiguration()
 			}
-			if err != nil {
-				fmt.Printf("failed to configure: %v\n", err)
-				os.Exit(1)
+			settings, err := config.Configure(settings, &interactive{}, nil)
+			if printJITConfig {
+				var jitconfig string
+				if err == nil {
+					jitconfig, err = runnerCompat.ToJitRunnerConfig(settings.Instances[0])
+				}
+				if err != nil {
+					fmt.Printf("failed to configure: %v\n", err)
+					os.Exit(1)
+				} else {
+					fmt.Println(jitconfig)
+				}
 			} else {
-				fmt.Printf("success\n")
-				os.Exit(0)
+				if settings != nil {
+					os.Remove("agent.json")
+					os.Remove("auth.json")
+					os.Remove("cred.pkcs1")
+					if saveActionsRunnerConfig && len(settings.Instances) == 1 {
+						runnerCompat.FromRunnerInstance(settings.Instances[0], runnerCompat.DefaultConfigFileAccess{})
+					} else {
+						common.WriteJson("settings.json", settings)
+					}
+				}
+				if err != nil {
+					fmt.Printf("failed to configure: %v\n", err)
+					os.Exit(1)
+				} else {
+					fmt.Printf("success\n")
+					os.Exit(0)
+				}
 			}
 		},
 	}
@@ -214,11 +232,16 @@ func main() {
 	cmdConfigure.Flags().BoolVar(&config.Unattended, "unattended", false, "suppress shell prompts during configure")
 	cmdConfigure.Flags().BoolVar(&config.Trace, "trace", false, "trace http communication with the github action service")
 	cmdConfigure.Flags().BoolVar(&config.Ephemeral, "ephemeral", false, "configure a single use runner, runner deletes it's setting.json ( and the actions service should remove their registrations at the same time ) after executing one job ( implies '--once' on run ). This is not supported for multi runners.")
-	cmdConfigure.Flags().StringVar(&config.RunnerGuard, "runner-guard", "", "reject jobs and configure act")
+	cmdConfigure.Flags().StringVar(&config.RunnerGuard, "runner-guard", "", "reject jobs and configure act (deprecated, code removed)")
 	cmdConfigure.Flags().BoolVar(&config.Replace, "replace", false, "replace any existing runner with the same name")
+	cmdConfigure.Flags().BoolVar(&config.DisableUpdate, "disableupdate", false, "actions/runner disable updates (has no effect)")
+	cmdConfigure.Flags().BoolVar(&printJITConfig, "print-jitconfig", false, "print the runner configuration as jitconfig")
+	cmdConfigure.Flags().BoolVar(&saveActionsRunnerConfig, "save-actionsrunnerconfig", false, "use the format of actions/runner to save the configuration")
+	cmdConfigure.Flags().StringVar(&config.WorkFolder, "work", "_work", "actions/runner work folder (has no effect)")
+
 	var cmdRun = &cobra.Command{
 		Use:   "run",
-		Short: "run your self-hosted runner",
+		Short: "Run your self-hosted runner",
 		Args:  cobra.MaximumNArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
 			os.Exit(run.Run())
@@ -229,23 +252,42 @@ func main() {
 	cmdRun.Flags().BoolVarP(&run.Terminal, "terminal", "t", true, "allocate a pty if possible")
 	cmdRun.Flags().BoolVar(&run.Trace, "trace", false, "trace http communication with the github action service")
 	cmdRun.Flags().StringSliceVar(&run.WorkerArgs, "worker-args", []string{}, "custom worker for your runner")
+	cmdRun.Flags().StringVarP(&run.JITConfig, "jitconfig", "", os.Getenv("ACTIONS_RUNNER_INPUT_JITCONFIG"), "read the runner configuration from the jitconfig")
+	var jitConfig string
+	local, _ := common.LookupEnvBool("ACTIONS_RUNNER_INPUT_LOCAL")
 	var cmdRemove = &cobra.Command{
 		Use:   "remove",
-		Short: "remove your self-hosted runner",
+		Short: "Remove your self-hosted runner",
 		Args:  cobra.MaximumNArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
 			remove.ReadFromEnvironment()
-			settings, err := loadConfiguration()
-			if err != nil {
-				fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
-				os.Exit(1)
+			var settings *runnerconfiguration.RunnerSettings
+			var err error
+			if local {
+				if jitConfig != "" {
+					if settings, err = runnerCompat.ParseJitRunnerConfig(jitConfig); err != nil {
+						fmt.Printf("jitconfig is corrupted: %v, please reconfigure the runner\n", err.Error())
+						os.Exit(1)
+					}
+				} else if settings, err = loadConfiguration(); err != nil {
+					fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
+					os.Exit(1)
+				}
+				settings, err = remove.Remove(settings, &interactive{}, nil)
 			}
-			settings, err = remove.Remove(settings, &interactive{}, nil)
-			if settings != nil {
+			if (settings != nil || local) && jitConfig == "" {
 				os.Remove("agent.json")
 				os.Remove("auth.json")
 				os.Remove("cred.pkcs1")
-				WriteJson("settings.json", settings)
+				os.Remove(".runner")
+				os.Remove(".credentials")
+				os.Remove(".credentials_rsaparams")
+
+				if !local && len(settings.Instances) > 0 {
+					common.WriteJson("settings.json", settings)
+				} else {
+					os.Remove("settings.json")
+				}
 			}
 			if err != nil {
 				fmt.Printf("failed to remove: %v\n", err)
@@ -264,10 +306,12 @@ func main() {
 	cmdRemove.Flags().StringVar(&remove.Name, "name", "", "name of the runner to remove")
 	cmdRemove.Flags().BoolVar(&remove.Trace, "trace", false, "trace http communication with the github action service")
 	cmdRemove.Flags().BoolVar(&remove.Force, "force", false, "force remove the instance even if the service responds with an error")
+	cmdRemove.Flags().StringVarP(&jitConfig, "jitconfig", "", os.Getenv("ACTIONS_RUNNER_INPUT_JITCONFIG"), "read the runner configuration from the jitconfig")
+	cmdRemove.Flags().BoolVar(&local, "local", local, "only delete the configuration")
 
 	var cmdWorker = &cobra.Command{
 		Use:   "worker",
-		Short: "run as self-hosted runner worker, can be used to create ephemeral worker without exposing other job requests",
+		Short: "Run as self-hosted runner worker, can be used to create ephemeral worker without exposing other job requests",
 		Args:  cobra.MaximumNArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
 			ccontext, cancelccontext := context.WithCancel(context.Background())

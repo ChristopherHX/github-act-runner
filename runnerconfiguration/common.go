@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -52,6 +54,8 @@ type ConfigureRunner struct {
 	Ephemeral       bool
 	RunnerGuard     string
 	Replace         bool
+	DisableUpdate   bool
+	WorkFolder      string
 }
 
 type RemoveRunner struct {
@@ -67,6 +71,22 @@ type RunnerInstance struct {
 	Key             string
 	PKey            *rsa.PrivateKey `json:"-"`
 	RunnerGuard     string
+	WorkFolder      string // Currently unused for actions/runner compat
+}
+
+func (instance *RunnerInstance) EnshurePKey() error {
+	if instance.PKey == nil {
+		key, err := base64.StdEncoding.DecodeString(instance.Key)
+		if err != nil {
+			return err
+		}
+		pkey, err := x509.ParsePKCS1PrivateKey(key)
+		if err != nil {
+			return err
+		}
+		instance.PKey = pkey
+	}
+	return nil
 }
 
 type RunnerSettings struct {

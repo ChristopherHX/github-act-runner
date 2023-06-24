@@ -3,8 +3,6 @@ package actionsrunner
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,16 +50,8 @@ type RunnerEnvironment interface {
 func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Context, corectx context.Context) error {
 	settings := run.Settings
 	for i := 0; i < len(settings.Instances); i++ {
-		if settings.Instances[i].PKey == nil {
-			key, err := base64.StdEncoding.DecodeString(settings.Instances[i].Key)
-			if err != nil {
-				return err
-			}
-			pkey, err := x509.ParsePKCS1PrivateKey(key)
-			if err != nil {
-				return err
-			}
-			settings.Instances[i].PKey = pkey
+		if err := settings.Instances[i].EnshurePKey(); err != nil {
+			return err
 		}
 	}
 	ctx, cancel := context.WithCancel(corectx)
