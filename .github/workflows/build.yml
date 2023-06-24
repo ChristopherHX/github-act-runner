@@ -41,6 +41,7 @@ jobs:
         - {GOOS: linux,     GOARCH: 386                   }
         - {GOOS: linux,     GOARCH: amd64                 }
         - {GOOS: linux,     GOARCH: arm                   }
+        - {GOOS: linux,     GOARCH: arm,      GOARM: 5    }
         - {GOOS: linux,     GOARCH: arm64                 }
         - {GOOS: linux,     GOARCH: ppc64                 }
         - {GOOS: linux,     GOARCH: ppc64le               }
@@ -97,33 +98,34 @@ jobs:
         TARGET: ${{ matrix.TARGET }}
     - name: Build
       run: |
-        go build -ldflags "-X main.version=${{ github.event.inputs.version || format('{0}-dev-{1}', env.RUNNER_DEV_VERSION, github.sha) }}" -o github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
+        go build -ldflags "-X main.version=${{ github.event.inputs.version || format('{0}-dev-{1}', env.RUNNER_DEV_VERSION, github.sha) }}" -o github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}${{matrix.suffix}}
         mkdir output
-        cp github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}} output/github-act-runner${{matrix.suffix}}
+        cp github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}${{matrix.suffix}} output/github-act-runner${{matrix.suffix}}
       env:
         GOOS: ${{matrix.GOOS}}
         GOARCH: ${{matrix.GOARCH}}
+        GOARM: ${{matrix.GOARM}}
     - name: Package tar
       if: ${{ github.event.inputs.skip-packaging != 'true' && matrix.GOOS != 'windows' }}
       run: |
         cp compat/*.sh output/
         cd output
-        tar czf ../binary-${{matrix.GOOS}}-${{matrix.GOARCH}}.tar.gz ./*
+        tar czf ../binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.tar.gz ./*
     - name: Package zip
       if: ${{ github.event.inputs.skip-packaging != 'true' && matrix.GOOS == 'windows' }}
       run: |
         cp compat/*.cmd output/
         cd output
-        zip ../binary-${{matrix.GOOS}}-${{matrix.GOARCH}}.zip ./*
+        zip ../binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.zip ./*
     - uses: actions/upload-artifact@v3
       with:
-        name: binary-${{matrix.GOOS}}-${{matrix.GOARCH}}
-        path: github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.suffix}}
+        name: binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}
+        path: github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}${{matrix.suffix}}
     - uses: actions/upload-artifact@v3
       if: ${{ github.event.inputs.skip-packaging != 'true' }}
       with:
-        name: bundle-${{matrix.GOOS}}-${{matrix.GOARCH}}
-        path: 'binary-${{matrix.GOOS}}-${{matrix.GOARCH}}.*'
+        name: bundle-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}
+        path: 'binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.*'
 #######################################
 ########## publish to github ##########
 #######################################
@@ -168,7 +170,7 @@ jobs:
     name: build and deploy to deb repo
     if: ${{ github.event.inputs.skip-packaging != 'true' }}
     env:
-      DEPLOY_ARCHS: "amd64 i386 armhf arm64" # architectures from https://wiki.debian.org/SupportedArchitectures
+      DEPLOY_ARCHS: "amd64 i386 armel armhf arm64 ppc64 ppc64el mips mipsel mips64el riscv64 s390x" # architectures from https://wiki.debian.org/SupportedArchitectures
     steps:
     - name: git clone
       uses: actions/checkout@v3

@@ -14,20 +14,6 @@ runner_bin_dir=/usr/lib/${pkg_name}/
 runner_bin=${runner_bin_dir}runner
 runners_dir=~/.config/${pkg_name}/runners/
 
-systemctl_cmd="systemctl"
-journalctl_cmd="journalctl --quiet"
-if $is_root; then
-    echo "running as root"
-    journalctl_cmd="${journalctl_cmd} --unit"
-    systemd_units_dir=/etc/systemd/system/
-else
-    user="$(id --user --name)"
-    echo "running as user '$user'"
-    systemctl_cmd="${systemctl_cmd} --user"
-    journalctl_cmd="${journalctl_cmd} --user --user-unit"
-    systemd_units_dir=~/.config/systemd/user/
-fi
-
 function error {
     local message=$1
     local exit_code=$2
@@ -64,6 +50,7 @@ declare -A commands=( \
         [restart]="restart runner service" \
         [log]="show logs of the runner service" \
         [configure]="configure a runner instance in your cwd" \
+        [remove]="remove a runner instance in your cwd" \
         [run]="run a runner instance in your cwd" \
         [worker]="run a worker instance without configuration called by github-act-runner" \
     )
@@ -99,6 +86,33 @@ while [[ $# > 0 ]] ; do
 done
 
 [ ! -z "$command" ] || error "command is not given"
+
+# suppress "running as" logging for raw runner commands
+case $command in
+    configure)
+        ;;
+    remove)
+        ;;
+    run)
+        ;;
+    worker)
+        ;;
+    *)
+        systemctl_cmd="systemctl"
+        journalctl_cmd="journalctl --quiet"
+        if $is_root; then
+            echo "running as root"
+            journalctl_cmd="${journalctl_cmd} --unit"
+            systemd_units_dir=/etc/systemd/system/
+        else
+            user="$(id --user --name)"
+            echo "running as user '$user'"
+            systemctl_cmd="${systemctl_cmd} --user"
+            journalctl_cmd="${journalctl_cmd} --user --user-unit"
+            systemd_units_dir=~/.config/systemd/user/
+        fi
+        ;;
+esac
 
 function start_runner_service {
     local id=$1
@@ -631,6 +645,10 @@ function handle_log_command {
 
 function handle_configure_command {
     "${runner_bin}" configure "$@"
+}
+
+function handle_remove_command {
+    "${runner_bin}" remove "$@"
 }
 
 function handle_run_command {
