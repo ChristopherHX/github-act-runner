@@ -44,6 +44,7 @@ type TaskAgent struct {
 	AccessPoint       string `json:",omitempty"`
 	CreatedOn         string
 	Ephemeral         bool `json:",omitempty"`
+	DisableUpdate     bool `json:",omitempty"`
 }
 
 type TaskAgents struct {
