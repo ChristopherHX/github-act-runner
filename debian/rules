@@ -11,10 +11,18 @@ ifeq ($(filter $(this_arch),$(this_known_archs)),)
 endif
 
 # map debian arch to golang arch
-ifeq ($(this_arch),armhf)
+ifeq ($(this_arch),armel)
+	this_arch := arm5
+else ifeq ($(this_arch),armhf)
 	this_arch := arm
 else ifeq ($(this_arch),i386)
 	this_arch := 386
+else ifeq($(this_arch),mipsel)
+	this_arch := mipsle
+else ifeq($(this_arch),mips64el)
+	this_arch := mips64le
+else ifeq($(this_arch),ppc64el)
+	this_arch := ppc64le
 endif
 
 this_artifact_runner_file := artifacts/binary-linux-${this_arch}/github-act-runner-linux-${this_arch}
