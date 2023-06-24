@@ -50,7 +50,7 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 	c := config.GetHttpClient()
 	res := auth
 	if res == nil {
-		authres, err := config.Authenicate(c, survey)
+		authres, err := config.Authenticate(c, survey)
 		if err != nil {
 			return nil, err
 		}
