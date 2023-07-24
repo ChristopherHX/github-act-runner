@@ -1,0 +1,52 @@
+name: regression test
+on:
+  workflow_dispatch:
+  schedule:
+  - cron: 15 23 * * *
+jobs:
+  exec-runner:
+    if: vars.RUNNER_REGRESSION_TEST == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - name: Install Runner
+      run: |
+        sudo bash -c 'echo "deb https://gagis.hopto.org/repo/chrishx/deb all main" > /etc/apt/sources.list.d/github-act-runner.list'
+        sudo apt update
+        sudo apt install -y github-act-runner
+      shell: bash
+    - name: Execute Runner
+      run: |
+        github-act-runner run
+      env:
+        ACTIONS_RUNNER_INPUT_JITCONFIG: ${{ secrets.RUNNER_REGRESSION_TEST_TOKEN }}
+      shell: bash
+  regression-test:
+    if: vars.RUNNER_REGRESSION_TEST == 'true'
+    timeout-minutes: 10
+    runs-on: github-act-runner-regression-test
+    steps:
+    - name: Hello World
+      run: |
+        echo Hello World
+    - name: Checkout
+      uses: actions/checkout@v3
+    - run: |
+        sudo apt update
+        sudo apt install -y clang
+  finally:
+    needs:
+    - exec-runner
+    - regression-test
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/github-script@v6
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: ${{ vars.RUNNER_REGRESSION_TEST_ISSUE || '97' }},
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: 'Warning github-act-runner may stopped working!, please investigate'
+          })
