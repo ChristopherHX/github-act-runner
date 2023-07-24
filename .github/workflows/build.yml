@@ -77,7 +77,7 @@ jobs:
     - name: Setup Go
       uses: actions/setup-go@v3
       with:
-        go-version: "${{matrix.GOVERSION || '^1.16.0'}}"
+        go-version: "${{matrix.GOVERSION || vars.GOVERSION || '^1.16.0'}}"
     - name: Setup cgo ndk
       if: matrix.GOOS == 'android'
       run: |
