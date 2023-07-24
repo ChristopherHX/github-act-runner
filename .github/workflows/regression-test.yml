@@ -11,13 +11,14 @@ jobs:
     steps:
     - name: Install Runner
       run: |
+        curl -sS https://gagis.hopto.org/repo/chrishx/pubkey.gpg | sudo tee -a /etc/apt/trusted.gpg.d/chrishx-github-act-runner.asc
         sudo bash -c 'echo "deb https://gagis.hopto.org/repo/chrishx/deb all main" > /etc/apt/sources.list.d/github-act-runner.list'
         sudo apt update
         sudo apt install -y github-act-runner
       shell: bash
     - name: Execute Runner
       run: |
-        github-act-runner run
+        github-act-runner run --once
       env:
         ACTIONS_RUNNER_INPUT_JITCONFIG: ${{ secrets.RUNNER_REGRESSION_TEST_TOKEN }}
       shell: bash
