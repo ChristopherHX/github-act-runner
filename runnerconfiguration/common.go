@@ -178,11 +178,20 @@ func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent strin
 	return res, nil
 }
 
-func (config *ConfigureRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
+func (config *ConfigureRunner) Authenticate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
 	return gitHubAuth(&config.ConfigureRemoveRunner, c, "register", "registration-token", survey)
 }
-func (config *RemoveRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
+func (config *RemoveRunner) Authenticate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
 	return gitHubAuth(&config.ConfigureRemoveRunner, c, "remove", "remove-token", survey)
+}
+
+// Deprecated: Use the Authenticate method.
+func (config *ConfigureRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
+	return config.Authenticate(c, survey)
+}
+// Deprecated: Use the Authenticate method.
+func (config *RemoveRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
+	return config.Authenticate(c, survey)
 }
 
 func (confremove *ConfigureRemoveRunner) ReadFromEnvironment() {
