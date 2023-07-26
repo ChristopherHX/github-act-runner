@@ -165,6 +165,15 @@ func (config *RemoveRunner) Authenticate(c *http.Client, survey Survey) (*protoc
 	return gitHubAuth(&config.ConfigureRemoveRunner, c, "remove", "remove-token", survey)
 }
 
+// Deprecated: Use the Authenticate method.
+func (config *ConfigureRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
+	return config.Authenticate(c, survey)
+}
+// Deprecated: Use the Authenticate method.
+func (config *RemoveRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
+	return config.Authenticate(c, survey)
+}
+
 func (confremove *ConfigureRemoveRunner) ReadFromEnvironment() {
 	if len(confremove.Pat) == 0 {
 		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_PAT"); ok {
