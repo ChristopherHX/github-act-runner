@@ -109,7 +109,7 @@ func (run *RunRunner) Run() int {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	listenerctx, cancelListener := context.WithCancel(context.Background())
-	defer cancel()
+	defer cancelListener()
 	go func() {
 		sig := <-channel
 		if sig == syscall.SIGTERM {
