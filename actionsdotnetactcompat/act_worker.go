@@ -240,18 +240,19 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	}
 	rawGithubCtx, ok := rqt.ContextData["github"]
 	if !ok {
-		fmt.Println("missing github context in ContextData")
-		finishJob("Failed")
+		failInitJob("missing github context in ContextData")
 		return
 	}
 	githubCtx := rawGithubCtx.ToRawObject()
 	matrix, err := ConvertMatrixInstance(rqt.ContextData)
 	if err != nil {
 		failInitJob(err.Error())
+		return
 	}
 	env, err := ConvertEnvironment(rqt.EnvironmentVariables)
 	if err != nil {
 		failInitJob(err.Error())
+		return
 	}
 	env["ACTIONS_RUNTIME_URL"] = vssConnection.TenantURL
 	env["ACTIONS_RUNTIME_TOKEN"] = vssConnection.Token
@@ -267,10 +268,12 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	defaults, err := ConvertDefaults(rqt.Defaults)
 	if err != nil {
 		failInitJob(err.Error())
+		return
 	}
 	steps, err := ConvertSteps(rqt.Steps)
 	if err != nil {
 		failInitJob(err.Error())
+		return
 	}
 	actions_step_debug := false
 	if sd, ok := rqt.Variables["ACTIONS_STEP_DEBUG"]; ok && (sd.Value == "true" || sd.Value == "1") {
