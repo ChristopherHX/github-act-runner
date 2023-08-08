@@ -215,8 +215,8 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	}
 	failInitJob2 := func(title string, message string) {
 		e := jlogger.Append(protocol.CreateTimelineEntry(rqt.JobID, "__fatal", title))
-		e.Start()
-		jlogger.Log(message)
+		jlogger.MoveNext()
+		jlogger.Log("##[error]" + message)
 		e.Complete("Failed")
 		finishJob("Failed")
 	}

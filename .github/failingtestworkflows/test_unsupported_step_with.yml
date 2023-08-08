@@ -1,7 +1,7 @@
-name: test_unsupported_env_syntax
+name: test_unsupported_step_with
 on: push
 jobs:
-  test_unsupported_env_syntax:
+  test_unsupported_step_with:
     runs-on: self-hosted
     strategy:
       matrix:
