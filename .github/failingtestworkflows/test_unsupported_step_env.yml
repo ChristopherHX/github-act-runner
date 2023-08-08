@@ -1,0 +1,14 @@
+name: test_unsupported_step_env
+on: push
+jobs:
+  test_unsupported_step_env:
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        include:
+        - env:
+            KEY: VAL
+    steps:
+    - name: Test
+      run: exit 0
+      env: ${{ matrix.env }}

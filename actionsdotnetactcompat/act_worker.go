@@ -210,18 +210,8 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		jlogger.Finish()
 		wc.FinishJob(result, outputs)
 	}
-	finishJob := func(result string) {
-		finishJob2(result, &map[string]protocol.VariableValue{})
-	}
-	failInitJob2 := func(title string, message string) {
-		e := jlogger.Append(protocol.CreateTimelineEntry(rqt.JobID, "__fatal", title))
-		e.Start()
-		jlogger.Log(message)
-		e.Complete("Failed")
-		finishJob("Failed")
-	}
 	failInitJob := func(message string) {
-		failInitJob2("Failed to initialize Job", message)
+		wc.FailInitJob("Failed to initialize Job", message)
 	}
 	secrets := map[string]string{}
 	runnerConfig := &runner.Config{
@@ -240,18 +230,19 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	}
 	rawGithubCtx, ok := rqt.ContextData["github"]
 	if !ok {
-		fmt.Println("missing github context in ContextData")
-		finishJob("Failed")
+		failInitJob("missing github context in ContextData")
 		return
 	}
 	githubCtx := rawGithubCtx.ToRawObject()
 	matrix, err := ConvertMatrixInstance(rqt.ContextData)
 	if err != nil {
 		failInitJob(err.Error())
+		return
 	}
 	env, err := ConvertEnvironment(rqt.EnvironmentVariables)
 	if err != nil {
 		failInitJob(err.Error())
+		return
 	}
 	env["ACTIONS_RUNTIME_URL"] = vssConnection.TenantURL
 	env["ACTIONS_RUNTIME_TOKEN"] = vssConnection.Token
@@ -267,10 +258,12 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	defaults, err := ConvertDefaults(rqt.Defaults)
 	if err != nil {
 		failInitJob(err.Error())
+		return
 	}
 	steps, err := ConvertSteps(rqt.Steps)
 	if err != nil {
 		failInitJob(err.Error())
+		return
 	}
 	actions_step_debug := false
 	if sd, ok := rqt.Variables["ACTIONS_STEP_DEBUG"]; ok && (sd.Value == "true" || sd.Value == "1") {
