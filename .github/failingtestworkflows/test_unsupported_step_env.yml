@@ -6,7 +6,7 @@ jobs:
     strategy:
       matrix:
         include:
-          env:
+        - env:
             KEY: VAL
     steps:
     - name: Test

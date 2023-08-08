@@ -6,7 +6,7 @@ jobs:
     strategy:
       matrix:
         include:
-          with:
+        - with:
             script: |
               console.log("Hello World")
     steps:
