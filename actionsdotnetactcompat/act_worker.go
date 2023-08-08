@@ -213,15 +213,8 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	finishJob := func(result string) {
 		finishJob2(result, &map[string]protocol.VariableValue{})
 	}
-	failInitJob2 := func(title string, message string) {
-		e := jlogger.Append(protocol.CreateTimelineEntry(rqt.JobID, "__fatal", title))
-		jlogger.MoveNext()
-		jlogger.Log("##[error]" + message)
-		e.Complete("Failed")
-		finishJob("Failed")
-	}
 	failInitJob := func(message string) {
-		failInitJob2("Failed to initialize Job", message)
+		wc.FailInitJob("Failed to initialize Job", message)
 	}
 	secrets := map[string]string{}
 	runnerConfig := &runner.Config{
