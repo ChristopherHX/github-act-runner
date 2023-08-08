@@ -210,9 +210,6 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		jlogger.Finish()
 		wc.FinishJob(result, outputs)
 	}
-	finishJob := func(result string) {
-		finishJob2(result, &map[string]protocol.VariableValue{})
-	}
 	failInitJob := func(message string) {
 		wc.FailInitJob("Failed to initialize Job", message)
 	}
