@@ -1,0 +1,57 @@
+name: loglevel
+on: push
+jobs:
+  loglevel-test:
+    runs-on: self-hosted
+    steps:
+    - run: |
+        echo "::group::Test Group"
+        stopMarker=$(uuidgen)
+        echo "::stop-commands::$stopMarker"
+        echo "::error::Test Error"
+        echo "::error::Test Error with%0ALine 2%25 of 100%0Athird error line"
+        echo "::error::Test Error"
+        echo "::error::Test Error with%0ALine 2%25 of 100%0Athird error line"
+        echo "::debug::Test Debug"
+        echo "::debug::Test Debug with%0ALine 2%25 of 100%0Athird debug line"
+        echo "::debug::Test Debug"
+        echo "::debug::Test Debug with%0ALine 2%25 of 100%0Athird debug line"
+        echo "::warning::Test Warning"
+        echo "::warning::Test Warning with%0ALine 2%25 of 100%0Athird warning line"
+        echo "::warning::Test Warning"
+        echo "::warning::Test Warning with%0ALine 2%25 of 100%0Athird warning line"
+        echo "::$stopMarker::"
+        echo "::endgroup::"
+
+        stopMarker=$(uuidgen)
+        echo "::stop-commands::$stopMarker"
+        echo "::group::Test Group"
+        echo "::error::Test Error"
+        echo "::error::Test Error with%0ALine 2%25 of 100%0Athird error line"
+        echo "::error::Test Error"
+        echo "::error::Test Error with%0ALine 2%25 of 100%0Athird error line"
+        echo "::debug::Test Debug"
+        echo "::debug::Test Debug with%0ALine 2%25 of 100%0Athird debug line"
+        echo "::debug::Test Debug"
+        echo "::debug::Test Debug with%0ALine 2%25 of 100%0Athird debug line"
+        echo "::warning::Test Warning"
+        echo "::warning::Test Warning with%0ALine 2%25 of 100%0Athird warning line"
+        echo "::warning::Test Warning"
+        echo "::warning::Test Warning with%0ALine 2%25 of 100%0Athird warning line"
+        echo "::endgroup::"
+        echo "::$stopMarker::"
+
+        echo "::group::Test Group"
+        echo "::error::Test Error"
+        echo "::error::Test Error with%0ALine 2%25 of 100%0Athird error line"
+        echo "::error::Test Error"
+        echo "::error::Test Error with%0ALine 2%25 of 100%0Athird error line"
+        echo "::debug::Test Debug"
+        echo "::debug::Test Debug with%0ALine 2%25 of 100%0Athird debug line"
+        echo "::debug::Test Debug"
+        echo "::debug::Test Debug with%0ALine 2%25 of 100%0Athird debug line"
+        echo "::warning::Test Warning"
+        echo "::warning::Test Warning with%0ALine 2%25 of 100%0Athird warning line"
+        echo "::warning::Test Warning"
+        echo "::warning::Test Warning with%0ALine 2%25 of 100%0Athird warning line"
+        echo "::endgroup::"
