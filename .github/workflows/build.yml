@@ -240,7 +240,7 @@ jobs:
         ./runner/config.sh --unattended --url http://localhost:5000/runner/test --token WhichToken
         ./runner/run.sh&
         # Check for leaks during run (#41)
-        sudo prlimit --pid $! --nofile=64:64
+        sudo prlimit --pid $! --nofile=256:256
         sleep 2
         # Show test commands
         set -x
