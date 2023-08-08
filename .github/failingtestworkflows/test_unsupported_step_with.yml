@@ -1,0 +1,15 @@
+name: test_unsupported_env_syntax
+on: push
+jobs:
+  test_unsupported_env_syntax:
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        include:
+          with:
+            script: |
+              console.log("Hello World")
+    steps:
+    - name: Test
+      uses: actions/github-script@v6
+      with: ${{ matrix.with }}

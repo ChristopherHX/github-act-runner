@@ -247,6 +247,9 @@ jobs:
         ./actions-runner/Runner.Client --server http://localhost:5000 -W ./.github/testworkflows --log-output-dir ./logs
         ./actions-runner/Runner.Client --server http://localhost:5000 -W ./.github/failingtestworkflows/test_container_fail_step.yml --log-output-dir ./logs && exit 1 || [[ "$?" = "1" ]]
         ./actions-runner/Runner.Client --server http://localhost:5000 -W ./.github/failingtestworkflows/test_host_fail_step.yml --log-output-dir ./logs && exit 1 || [[ "$?" = "1" ]]
+        ./actions-runner/Runner.Client --server http://localhost:5000 -W ./.github/failingtestworkflows/test_unsupported_job_env.yml --log-output-dir ./logs && exit 1 || [[ "$?" = "1" ]]
+        ./actions-runner/Runner.Client --server http://localhost:5000 -W ./.github/failingtestworkflows/test_unsupported_step_env.yml --log-output-dir ./logs && exit 1 || [[ "$?" = "1" ]]
+        ./actions-runner/Runner.Client --server http://localhost:5000 -W ./.github/failingtestworkflows/test_unsupported_step_with.yml --log-output-dir ./logs && exit 1 || [[ "$?" = "1" ]]
         ./actions-runner/Runner.Client workflow_dispatch --server http://localhost:5000 -W ./.github/testworkflows/test-full-contextdata/workflow.yml --log-output-dir ./logs --var WORKSPACE=$PWD -s GITHUB_TOKEN=somevalue
         # Run the cache action with debug logs
         ./actions-runner/Runner.Client --server http://localhost:5000 -W ./.github/testworkflows/cache-action.yml --log-output-dir ./logs -s ACTIONS_STEP_DEBUG=true
