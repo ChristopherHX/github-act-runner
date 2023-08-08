@@ -1,7 +1,7 @@
-name: loglevel
+name: grouping
 on: push
 jobs:
-  loglevel-test:
+  grouping-test:
     runs-on: self-hosted
     steps:
     - run: |
