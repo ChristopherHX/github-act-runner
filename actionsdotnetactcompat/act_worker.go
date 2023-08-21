@@ -94,13 +94,13 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		}
 		stepID = prefix + stepIDArray[0]
 	}
-	cur := f.logger.Current()
-	if !f.main && hasStepID {
+	
+	if cur := f.logger.Current(); cur != nil && !f.main && hasStepID {
 		f.main = true
 		flushInternal(cur, &model.StepResult{Conclusion: model.StepStatusSuccess})
 	}
 	stepName, hasStepName := entry.Data["step"]
-	if hasStepName && hasStepID && f.logger.Current().RefName != stepID {
+	if cur := f.logger.Current(); hasStepName && hasStepID && cur != nil && cur.RefName != stepID {
 		if stage == "Post" {
 			f.Flush()
 		} else if f.result != nil {
@@ -113,7 +113,9 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 			te := protocol.CreateTimelineEntry(f.logger.TimelineRecords.Value[0].ID, stepID, stage.(string)+" "+stepName.(string))
 			te.Order = f.logger.TimelineRecords.Value[f.logger.CurrentRecord-1].Order + 1
 			f.logger.Insert(te)
-			f.logger.Current().Start()
+			if cur := f.logger.Current(); cur != nil {
+				cur.Start()
+			}
 			f.logger.Update()
 		} else {
 			for {
@@ -129,22 +131,6 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 			f.logger.Update()
 		}
 	}
-	//js, _ := json.Marshal(entry.Data)
-	//entry.Message = (string)(js) + "|" + entry.Message
-
-	// if f.rc != nil && f.rc.Parent == nil && (f.logger.Current() == nil || f.logger.Current().RefName != f.rc.CurrentStep) {
-	// 	if res, ok := f.rc.StepResults[f.logger.Current().RefName]; ok && f.logger.Current() != nil {
-	// 		f.flushInternal(res)
-	// 		for {
-	// 			next := f.logger.MoveNext()
-	// 			if next == nil || next.RefName == f.rc.CurrentStep {
-	// 				break
-	// 			}
-	// 			f.logger.Current().Complete("Skipped")
-	// 		}
-	// 		f.logger.Current().Start()
-	// 	}
-	// }
 	if f.rqt.MaskHints != nil {
 		for _, v := range f.rqt.MaskHints {
 			if strings.ToLower(v.Type) == "regex" {
