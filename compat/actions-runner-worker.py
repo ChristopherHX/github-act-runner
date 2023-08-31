@@ -33,7 +33,8 @@ if worker.endswith(".dll"):
 
 code = subprocess.call(interpreter + [worker, "spawnclient", format(rdr), format(wdw)], pass_fds=(rdr, wdw))
 print(code)
-if code >= 100 and code < 105:
+# https://github.com/actions/runner/blob/af6ed41bcb47019cce2a7035bad76c97ac97b92a/src/Runner.Common/Util/TaskResultUtil.cs#L13-L14
+if code >= 100 and code <= 105:
     sys.exit(0)
 else:
     sys.exit(1)
