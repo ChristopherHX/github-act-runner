@@ -433,6 +433,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 		var runServiceUrl string
 		{
 			if strings.EqualFold(message.MessageType, "RunnerJobRequest") {
+				plogger.Printf("Warning: TaskAgentMessage.MessageType is %v, which is not properly tested due to missing access to test servers of the new protocol before rollout. Please report any failures to https://github.com/ChristopherHX/github-act-runner/issues.\n", message.MessageType)
 				rjrr := &RunnerJobRequestRef{}
 				json.Unmarshal(src, rjrr)
 				for retries := 0; retries < 5; retries++ {

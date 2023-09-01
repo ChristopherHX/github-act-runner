@@ -70,9 +70,6 @@ func (vssConnection *VssConnection) HttpClient() *http.Client {
 				if len(via) >= 10 {
 					return fmt.Errorf("stopped after 10 redirects")
 				}
-				if len(via) >= 1 && req.Host != via[0].Host {
-					req.Header.Del("Authorization")
-				}
 				return nil
 			},
 		}
