@@ -290,7 +290,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	runnerConfig.ForceRebuild = true
 	// allow downloading actions like older actions/runner using credentials of the redirect url
 	downloadActionHttpClient := *vssConnection.HttpClient()
-	downloadActionHttpClient.CheckRedirect: func(req *http.Request, via []*http.Request) error {
+	downloadActionHttpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 {
 			return fmt.Errorf("stopped after 10 redirects")
 		}
@@ -298,7 +298,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 			req.Header.Del("Authorization")
 		}
 		return nil
-	},
+	}
 	runnerConfig.DownloadAction = func(ngcei git.NewGitCloneExecutorInput) common.Executor {
 		return func(ctx context.Context) error {
 			actionList := &protocol.ActionReferenceList{}
