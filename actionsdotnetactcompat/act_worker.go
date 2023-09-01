@@ -240,6 +240,9 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		env["ACTIONS_ID_TOKEN_REQUEST_URL"] = idTokenUrl
 		env["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] = vssConnection.Token
 	}
+	if resultsServiceUrl, ok := vssConnectionData["ResultsServiceUrl"]; ok && len(resultsServiceUrl) > 0 {
+		env["ACTIONS_RESULTS_URL"] = resultsServiceUrl
+	}
 
 	defaults, err := ConvertDefaults(rqt.Defaults)
 	if err != nil {
