@@ -291,6 +291,17 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	runnerConfig.AutoRemove = true     // Needed to cleanup always cleanup container
 	runnerConfig.ForcePull = true
 	runnerConfig.ForceRebuild = true
+	// allow downloading actions like older actions/runner using credentials of the redirect url
+	downloadActionHttpClient := *vssConnection.HttpClient()
+	downloadActionHttpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
+		if len(via) >= 1 && req.Host != via[0].Host {
+			req.Header.Del("Authorization")
+		}
+		return nil
+	}
 	runnerConfig.DownloadAction = func(ngcei git.NewGitCloneExecutorInput) common.Executor {
 		return func(ctx context.Context) error {
 			actionList := &protocol.ActionReferenceList{}
@@ -313,7 +324,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 				if v.Authentication != nil && v.Authentication.Token != "" {
 					token = v.Authentication.Token
 				}
-				err := downloadAndExtractAction(ctx, ngcei.Dir, actionurl[0], actionurl[1], v.ResolvedSha, v.TarballUrl, token, vssConnection.Client)
+				err := downloadAndExtractAction(ctx, ngcei.Dir, actionurl[0], actionurl[1], v.ResolvedSha, v.TarballUrl, token, &downloadActionHttpClient)
 				if err != nil {
 					return err
 				}
@@ -351,7 +362,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 						if v.Authentication != nil && v.Authentication.Token != "" {
 							token = v.Authentication.Token
 						}
-						err := downloadAndExtractAction(ctx, ngcei.Dir, actionurl[0], actionurl[1], v.ResolvedSha, v.TarUrl, token, vssConnection.Client)
+						err := downloadAndExtractAction(ctx, ngcei.Dir, actionurl[0], actionurl[1], v.ResolvedSha, v.TarUrl, token, &downloadActionHttpClient)
 						if err != nil {
 							return err
 						}
