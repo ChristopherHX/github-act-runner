@@ -154,9 +154,11 @@ func (wc *DefaultWorkerContext) Init() {
 		TimelineRecords: &protocol.TimelineRecordWrapper{},
 	}
 
-	if hasResultsEndpoint && strings.EqualFold(jobreq.MessageType, "RunnerJobRequest") {
+	if hasResultsEndpoint {
 		wc.JobLogger.IsResults = true
-		jobVssConnection.TenantURL = resultsEndpoint.Value
+		rcon := *jobVssConnection
+		rcon.TenantURL = resultsEndpoint.Value
+		wc.JobLogger.ResultsConnection = &rcon
 		wc.JobLogger.Logger = &logger.BufferedLiveLogger{
 			LiveLogger: &logger.WebsocketLiveloggerWithFallback{
 				JobRequest:    jobreq,

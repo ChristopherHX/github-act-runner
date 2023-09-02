@@ -71,7 +71,7 @@ func (logger *WebsocketLivelogger) Connect() error {
 		HTTPClient: logger.Connection.HttpClient(),
 		HTTPHeader: http.Header{
 			"Authorization": []string{"Bearer " + logger.Connection.Token},
-			"User-Agent": []string{"github-act-runner/1.0.0"},
+			"User-Agent":    []string{"github-act-runner/1.0.0"},
 		},
 	})
 	return err
@@ -239,23 +239,24 @@ func (logger *BufferedLiveLogger) SendLog(wrapper *protocol.TimelineRecordFeedLi
 }
 
 type JobLogger struct {
-	JobRequest      *protocol.AgentJobRequestMessage
-	Connection      *protocol.VssConnection
-	TimelineRecords *protocol.TimelineRecordWrapper
-	CurrentRecord   int64
-	CurrentLine     int64
-	JobBuffer       bytes.Buffer
-	CurrentBuffer   bytes.Buffer
-	linefeedregex   *regexp.Regexp
-	Logger          LiveLogger
-	lineBuffer      []byte
-	IsResults       bool
-	ChangeId        int64
-	CurrentJobLine  int64
-	FirstBlock      bool
-	FirstJobBlock   bool
-	linesync        sync.Mutex
-	loggersync      sync.Mutex
+	JobRequest        *protocol.AgentJobRequestMessage
+	Connection        *protocol.VssConnection
+	TimelineRecords   *protocol.TimelineRecordWrapper
+	CurrentRecord     int64
+	CurrentLine       int64
+	JobBuffer         bytes.Buffer
+	CurrentBuffer     bytes.Buffer
+	linefeedregex     *regexp.Regexp
+	Logger            LiveLogger
+	lineBuffer        []byte
+	IsResults         bool
+	ResultsConnection *protocol.VssConnection
+	ChangeId          int64
+	CurrentJobLine    int64
+	FirstBlock        bool
+	FirstJobBlock     bool
+	linesync          sync.Mutex
+	loggersync        sync.Mutex
 }
 
 func (logger *JobLogger) Write(p []byte) (n int, err error) {
@@ -308,14 +309,15 @@ func (logger *JobLogger) uploadBlock(cur *protocol.TimelineRecord, finalBlock bo
 	if finalBlock && logger.CurrentBuffer.Len() > 0 || logger.IsResults && (finalBlock || logger.CurrentBuffer.Len() > 2*1024*1024) {
 		if logger.IsResults {
 			rs := &results.ResultsService{
-				Connection: logger.Connection,
+				Connection: logger.ResultsConnection,
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 			rs.UploadResultsStepLogAsync(ctx, logger.JobRequest.Plan.PlanID, logger.JobRequest.JobID, cur.ID, &logger.CurrentBuffer, int64(logger.CurrentBuffer.Len()), logger.FirstBlock, finalBlock, logger.CurrentLine)
 			logger.FirstBlock = false
 			logger.CurrentBuffer.Reset()
-		} else if finalBlock {
+		}
+		if finalBlock {
 			if logid, err := logger.Connection.UploadLogFile(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.CurrentBuffer.String()); err == nil {
 				cur.Log = &protocol.TaskLogReference{ID: logid}
 			}
@@ -333,14 +335,15 @@ func (logger *JobLogger) uploadJobBlob(finalBlock bool) {
 	if (finalBlock && logger.JobBuffer.Len() > 0 || logger.IsResults && (finalBlock || logger.JobBuffer.Len() > 2*1024*1024)) && len(logger.TimelineRecords.Value) > 0 {
 		if logger.IsResults {
 			rs := &results.ResultsService{
-				Connection: logger.Connection,
+				Connection: logger.ResultsConnection,
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 			rs.UploadResultsJobLogAsync(ctx, logger.JobRequest.Plan.PlanID, logger.JobRequest.JobID, &logger.JobBuffer, int64(logger.JobBuffer.Len()), logger.FirstJobBlock, finalBlock, logger.CurrentJobLine)
 			logger.FirstJobBlock = false
 			logger.JobBuffer.Reset()
-		} else if finalBlock {
+		}
+		if finalBlock {
 			if logid, err := logger.Connection.UploadLogFile(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.JobBuffer.String()); err == nil {
 				logger.TimelineRecords.Value[0].Log = &protocol.TaskLogReference{ID: logid}
 				_ = logger.update()
@@ -367,11 +370,11 @@ func (logger *JobLogger) update() error {
 			updatereq.Steps[i] = results.ConvertTimelineRecordToStep(*rec)
 		}
 		rs := &results.ResultsService{
-			Connection: logger.Connection,
+			Connection: logger.ResultsConnection,
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		return rs.UpdateWorkflowStepsAsync(ctx, updatereq)
+		_ = rs.UpdateWorkflowStepsAsync(ctx, updatereq)
 	}
 	return logger.Connection.UpdateTimeLine(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.TimelineRecords)
 }
