@@ -360,8 +360,8 @@ func (logger *JobLogger) update() error {
 		logger.ChangeId++
 		updatereq := &results.StepsUpdateRequest{}
 		updatereq.ChangeOrder = logger.ChangeId
-		updatereq.WorkflowJobRunBackendID = logger.JobRequest.Plan.PlanID
-		updatereq.WorkflowRunBackendID = logger.TimelineRecords.Value[0].ID
+		updatereq.WorkflowRunBackendID = logger.JobRequest.Plan.PlanID
+		updatereq.WorkflowJobRunBackendID = logger.TimelineRecords.Value[0].ID
 		updatereq.Steps = make([]results.Step, len(logger.TimelineRecords.Value)-1)
 		for i, rec := range logger.TimelineRecords.Value[1:] {
 			updatereq.Steps[i] = results.ConvertTimelineRecordToStep(*rec)

@@ -79,7 +79,7 @@ func (rs *ResultsService) UploadResultsStepSummaryAsync(ctx context.Context, pla
 	req := &GetSignedStepSummaryURLRequest{
 		WorkflowRunBackendId:    planId,
 		WorkflowJobRunBackendId: jobId,
-		StepBackendId:           jobId,
+		StepBackendId:           stepId,
 	}
 	uploadUrlResponse := &GetSignedStepSummaryURLResponse{}
 	url, err := rs.Connection.BuildURL(GetStepSummarySignedBlobURL, nil, nil)
@@ -120,7 +120,7 @@ func (rs *ResultsService) UploadResultsStepLogAsync(ctx context.Context, planId 
 	req := &GetSignedStepLogsURLRequest{
 		WorkflowRunBackendId:    planId,
 		WorkflowJobRunBackendId: jobId,
-		StepBackendId:           jobId,
+		StepBackendId:           stepId,
 	}
 	uploadUrlResponse := &GetSignedStepLogsURLResponse{}
 	url, err := rs.Connection.BuildURL(GetStepLogsSignedBlobURL, nil, nil)
@@ -133,7 +133,7 @@ func (rs *ResultsService) UploadResultsStepLogAsync(ctx context.Context, planId 
 	if uploadUrlResponse.LogsUrl == "" {
 		return fmt.Errorf("failed to get step log upload url")
 	}
-	if !firstBlock {
+	if firstBlock {
 		err := rs.CreateAppendFileAsync(ctx, uploadUrlResponse.LogsUrl, uploadUrlResponse.BlobStorageType)
 		if err != nil {
 			return err
@@ -179,7 +179,7 @@ func (rs *ResultsService) UploadResultsJobLogAsync(ctx context.Context, planId s
 	if uploadUrlResponse.LogsUrl == "" {
 		return fmt.Errorf("failed to get step log upload url")
 	}
-	if !firstBlock {
+	if firstBlock {
 		err := rs.CreateAppendFileAsync(ctx, uploadUrlResponse.LogsUrl, uploadUrlResponse.BlobStorageType)
 		if err != nil {
 			return err
