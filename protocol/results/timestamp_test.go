@@ -54,6 +54,6 @@ func TestConvertTimestamp(t *testing.T) {
 	}
 
 	for _, i := range table {
-		assert.Equal(t, i.Output, ConvertTimestamp(i.Input))
+		assert.Equal(t, i.Output, ConvertTimestamp(&i.Input))
 	}
 }
