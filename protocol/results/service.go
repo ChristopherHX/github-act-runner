@@ -79,7 +79,7 @@ func (rs *ResultsService) UploadResultsStepSummaryAsync(ctx context.Context, pla
 	req := &GetSignedStepSummaryURLRequest{
 		WorkflowRunBackendId:    planId,
 		WorkflowJobRunBackendId: jobId,
-		StepBackendId:           jobId,
+		StepBackendId:           stepId,
 	}
 	uploadUrlResponse := &GetSignedStepSummaryURLResponse{}
 	url, err := rs.Connection.BuildURL(GetStepSummarySignedBlobURL, nil, nil)
@@ -120,7 +120,7 @@ func (rs *ResultsService) UploadResultsStepLogAsync(ctx context.Context, planId 
 	req := &GetSignedStepLogsURLRequest{
 		WorkflowRunBackendId:    planId,
 		WorkflowJobRunBackendId: jobId,
-		StepBackendId:           jobId,
+		StepBackendId:           stepId,
 	}
 	uploadUrlResponse := &GetSignedStepLogsURLResponse{}
 	url, err := rs.Connection.BuildURL(GetStepLogsSignedBlobURL, nil, nil)
