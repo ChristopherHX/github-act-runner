@@ -34,6 +34,7 @@ type DotnetAgent struct {
 	PoolName      string `json:"PoolName,omitempty"`
 	ServerUrl     string `json:"ServerUrl"`
 	WorkFolder    string `json:"WorkFolder"`
+	GitHubUrl 	  string `json:"GitHubUrl"`
 }
 
 type DotnetCredentials struct {
@@ -154,6 +155,7 @@ func ToRunnerInstance(fileAccess ConfigFileAccess) (*runnerconfiguration.RunnerI
 			DisableUpdate: disableUpdate,
 		},
 		WorkFolder: agent.WorkFolder,
+		RegistrationURL: agent.GitHubUrl,
 	}, nil
 }
 
@@ -166,6 +168,7 @@ func FromRunnerInstance(instance *runnerconfiguration.RunnerInstance, fileAccess
 		PoolId:        fmt.Sprint(instance.PoolID),
 		ServerUrl:     instance.Auth.TenantURL,
 		WorkFolder:    instance.WorkFolder,
+		GitHubUrl:     instance.RegistrationURL,
 	}
 	if agent.WorkFolder == "" {
 		agent.WorkFolder = "_work"
