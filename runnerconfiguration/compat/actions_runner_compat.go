@@ -34,7 +34,7 @@ type DotnetAgent struct {
 	PoolName      string `json:"PoolName,omitempty"`
 	ServerUrl     string `json:"ServerUrl"`
 	WorkFolder    string `json:"WorkFolder"`
-	GitHubUrl 	  string `json:"GitHubUrl"`
+	GitHubUrl     string `json:"GitHubUrl"`
 }
 
 type DotnetCredentials struct {
