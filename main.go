@@ -20,6 +20,7 @@ import (
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/ChristopherHX/github-act-runner/runnerconfiguration"
 	runnerCompat "github.com/ChristopherHX/github-act-runner/runnerconfiguration/compat"
+	"github.com/kardianos/service"
 	"github.com/nektos/act/pkg/container"
 
 	"github.com/spf13/cobra"
@@ -127,6 +128,10 @@ func (run *RunRunner) Run() int {
 			}
 		}
 	}()
+	return run.RunWithContext(listenerctx, ctx)
+}
+
+func (run *RunRunner) RunWithContext(listenerctx context.Context, ctx context.Context) int {
 	var settings *runnerconfiguration.RunnerSettings
 	var err error
 	if run.JITConfig != "" {
@@ -169,6 +174,36 @@ func (i *interactive) GetSelectInput(prompt string, options []string, def string
 }
 func (i *interactive) GetMultiSelectInput(prompt string, options []string) []string {
 	return GetMultiSelectInput(prompt, options)
+}
+
+type RunRunnerSvc struct {
+	stop func()
+}
+
+func (svc *RunRunnerSvc) Start(s service.Service) error {
+	runner := &RunRunner{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	listenerctx, cancelListener := context.WithCancel(context.Background())
+	svc.stop = func() {
+		cancelListener()
+		cancel()
+	}
+	go func() {
+		defer cancelListener()
+		defer cancel()
+		os.WriteFile("github-act-runner-error-status.txt", []byte("started called"), 0777)
+		code := runner.RunWithContext(listenerctx, ctx)
+		os.WriteFile("github-act-runner-error-status.txt", []byte("stopped with code "+fmt.Sprint(code)), 0777)
+		// s.Stop()
+	}()
+	return nil
+}
+
+func (svc *RunRunnerSvc) Stop(s service.Service) error {
+	os.WriteFile("github-act-runner-error-status.txt", []byte("stop called"), 0777)
+	svc.stop()
+	return nil
 }
 
 func main() {
@@ -351,11 +386,93 @@ func main() {
 			<-ccontext.Done()
 		},
 	}
+	var cmdSvc = &cobra.Command{
+		Use: "svc",
+	}
+	wd, _ := os.Getwd()
+	svcConfig := &service.Config{
+		Name:        "github-act-runner",
+		DisplayName: "GitHub Act Runner",
+		Description: "Cross platform GitHub Actions Runner.",
+		Arguments:   []string{"svc", "run", "--working-directory", wd},
+	}
+	svcRun := &cobra.Command{
+		Use: "run",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			err := os.Chdir(wd)
+			if err != nil {
+				return err
+			}
+			os.Stdout, err = os.OpenFile("github-act-runner-log.txt", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0777)
+			if err != nil {
+				return err
+			}
+			defer os.Stdout.Close()
+			os.Stderr, err = os.OpenFile("github-act-runner-log-error.txt", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0777)
+			if err != nil {
+				return err
+			}
+			defer os.Stderr.Close()
+
+			svc, err := service.New(&RunRunnerSvc{}, svcConfig)
+
+			if err != nil {
+				return err
+			}
+			return svc.Run()
+		},
+	}
+	svcRun.Flags().StringVar(&wd, "working-directory", wd, "path to the working directory of the runner config")
+	svcInstall := &cobra.Command{
+		Use: "install",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := service.New(&RunRunnerSvc{}, svcConfig)
+
+			if err != nil {
+				return err
+			}
+			return svc.Install()
+		},
+	}
+	svcUninstall := &cobra.Command{
+		Use: "uninstall",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := service.New(&RunRunnerSvc{}, svcConfig)
+
+			if err != nil {
+				return err
+			}
+			return svc.Uninstall()
+		},
+	}
+	svcStart := &cobra.Command{
+		Use: "start",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := service.New(&RunRunnerSvc{}, svcConfig)
+
+			if err != nil {
+				return err
+			}
+			return svc.Start()
+		},
+	}
+	svcStop := &cobra.Command{
+		Use: "stop",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := service.New(&RunRunnerSvc{}, svcConfig)
+
+			if err != nil {
+				return err
+			}
+			return svc.Stop()
+		},
+	}
+	cmdSvc.AddCommand(svcInstall, svcStart, svcStop, svcRun, svcUninstall)
 
 	var rootCmd = &cobra.Command{
 		Use:     "github-act-runner",
 		Version: version,
 	}
-	rootCmd.AddCommand(cmdConfigure, cmdRun, cmdRemove, cmdWorker)
+	rootCmd.AddCommand(cmdConfigure, cmdRun, cmdRemove, cmdWorker, cmdSvc)
 	rootCmd.Execute()
 }
