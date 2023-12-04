@@ -403,16 +403,16 @@ func main() {
 			if err != nil {
 				return err
 			}
-			os.Stdout, err = os.OpenFile("github-act-runner-log.txt", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0777)
-			if err != nil {
-				return err
+			stdOut, err := os.OpenFile("github-act-runner-log.txt", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0777)
+			if err == nil {
+				os.Stdout = stdOut
+				defer os.Stdout.Close()
 			}
-			defer os.Stdout.Close()
-			os.Stderr, err = os.OpenFile("github-act-runner-log-error.txt", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0777)
-			if err != nil {
-				return err
+			stdErr, err := os.OpenFile("github-act-runner-log-error.txt", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0777)
+			if err == nil {
+				os.Stderr = stdErr
+				defer os.Stderr.Close()
 			}
-			defer os.Stderr.Close()
 
 			svc, err := service.New(&RunRunnerSvc{}, svcConfig)
 
