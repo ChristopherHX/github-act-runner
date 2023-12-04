@@ -178,6 +178,7 @@ func (i *interactive) GetMultiSelectInput(prompt string, options []string) []str
 
 type RunRunnerSvc struct {
 	stop func()
+	wait chan error
 }
 
 func (svc *RunRunnerSvc) Start(s service.Service) error {
@@ -187,22 +188,28 @@ func (svc *RunRunnerSvc) Start(s service.Service) error {
 	listenerctx, cancelListener := context.WithCancel(context.Background())
 	svc.stop = func() {
 		cancelListener()
-		cancel()
 	}
+	svc.wait = make(chan error)
 	go func() {
 		defer cancelListener()
 		defer cancel()
-		os.WriteFile("github-act-runner-error-status.txt", []byte("started called"), 0777)
+		defer close(svc.wait)
 		code := runner.RunWithContext(listenerctx, ctx)
-		os.WriteFile("github-act-runner-error-status.txt", []byte("stopped with code "+fmt.Sprint(code)), 0777)
-		// s.Stop()
+		if code != 0 {
+			svc.wait <- fmt.Errorf("runner failed with exit code %v", code)
+		} else {
+			svc.wait <- nil
+		}
+		s.Stop()
 	}()
 	return nil
 }
 
 func (svc *RunRunnerSvc) Stop(s service.Service) error {
-	os.WriteFile("github-act-runner-error-status.txt", []byte("stop called"), 0777)
 	svc.stop()
+	if err, ok := <-svc.wait; ok && err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -395,6 +402,18 @@ func main() {
 		DisplayName: "GitHub Act Runner",
 		Description: "Cross platform GitHub Actions Runner.",
 		Arguments:   []string{"svc", "run", "--working-directory", wd},
+	}
+	if runtime.GOOS == "darwin" {
+		if path, ok := os.LookupEnv("PATH"); ok {
+			svcConfig.EnvVars = map[string]string{
+				"PATH": path,
+			}
+		}
+		svcConfig.Option = service.KeyValue{
+			"KeepAlive":   true,
+			"RunAtLoad":   true,
+			"UserService": os.Getuid() != 0,
+		}
 	}
 	svcRun := &cobra.Command{
 		Use: "run",
