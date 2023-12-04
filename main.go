@@ -20,6 +20,7 @@ import (
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/ChristopherHX/github-act-runner/runnerconfiguration"
 	runnerCompat "github.com/ChristopherHX/github-act-runner/runnerconfiguration/compat"
+	"github.com/kardianos/service"
 	"github.com/nektos/act/pkg/container"
 
 	"github.com/spf13/cobra"
@@ -127,6 +128,10 @@ func (run *RunRunner) Run() int {
 			}
 		}
 	}()
+	return run.RunWithContext(listenerctx, ctx)
+}
+
+func (run *RunRunner) RunWithContext(listenerctx context.Context, ctx context.Context) int {
 	var settings *runnerconfiguration.RunnerSettings
 	var err error
 	if run.JITConfig != "" {
@@ -169,6 +174,43 @@ func (i *interactive) GetSelectInput(prompt string, options []string, def string
 }
 func (i *interactive) GetMultiSelectInput(prompt string, options []string) []string {
 	return GetMultiSelectInput(prompt, options)
+}
+
+type RunRunnerSvc struct {
+	stop func()
+	wait chan error
+}
+
+func (svc *RunRunnerSvc) Start(s service.Service) error {
+	runner := &RunRunner{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	listenerctx, cancelListener := context.WithCancel(context.Background())
+	svc.stop = func() {
+		cancelListener()
+	}
+	svc.wait = make(chan error)
+	go func() {
+		defer cancelListener()
+		defer cancel()
+		defer close(svc.wait)
+		code := runner.RunWithContext(listenerctx, ctx)
+		if code != 0 {
+			svc.wait <- fmt.Errorf("runner failed with exit code %v", code)
+		} else {
+			svc.wait <- nil
+		}
+		s.Stop()
+	}()
+	return nil
+}
+
+func (svc *RunRunnerSvc) Stop(s service.Service) error {
+	svc.stop()
+	if err, ok := <-svc.wait; ok && err != nil {
+		return err
+	}
+	return nil
 }
 
 func main() {
@@ -351,11 +393,105 @@ func main() {
 			<-ccontext.Done()
 		},
 	}
+	var cmdSvc = &cobra.Command{
+		Use: "svc",
+	}
+	wd, _ := os.Getwd()
+	svcConfig := &service.Config{
+		Name:        "github-act-runner",
+		DisplayName: "GitHub Act Runner",
+		Description: "Cross platform GitHub Actions Runner.",
+		Arguments:   []string{"svc", "run", "--working-directory", wd},
+	}
+	if runtime.GOOS == "darwin" {
+		if path, ok := os.LookupEnv("PATH"); ok {
+			svcConfig.EnvVars = map[string]string{
+				"PATH": path,
+			}
+		}
+		svcConfig.Option = service.KeyValue{
+			"KeepAlive":   true,
+			"RunAtLoad":   true,
+			"UserService": os.Getuid() != 0,
+		}
+	}
+	svcRun := &cobra.Command{
+		Use: "run",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			err := os.Chdir(wd)
+			if err != nil {
+				return err
+			}
+			stdOut, err := os.OpenFile("github-act-runner-log.txt", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0777)
+			if err == nil {
+				os.Stdout = stdOut
+				defer os.Stdout.Close()
+			}
+			stdErr, err := os.OpenFile("github-act-runner-log-error.txt", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0777)
+			if err == nil {
+				os.Stderr = stdErr
+				defer os.Stderr.Close()
+			}
+
+			svc, err := service.New(&RunRunnerSvc{}, svcConfig)
+
+			if err != nil {
+				return err
+			}
+			return svc.Run()
+		},
+	}
+	svcRun.Flags().StringVar(&wd, "working-directory", wd, "path to the working directory of the runner config")
+	svcInstall := &cobra.Command{
+		Use: "install",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := service.New(&RunRunnerSvc{}, svcConfig)
+
+			if err != nil {
+				return err
+			}
+			return svc.Install()
+		},
+	}
+	svcUninstall := &cobra.Command{
+		Use: "uninstall",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := service.New(&RunRunnerSvc{}, svcConfig)
+
+			if err != nil {
+				return err
+			}
+			return svc.Uninstall()
+		},
+	}
+	svcStart := &cobra.Command{
+		Use: "start",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := service.New(&RunRunnerSvc{}, svcConfig)
+
+			if err != nil {
+				return err
+			}
+			return svc.Start()
+		},
+	}
+	svcStop := &cobra.Command{
+		Use: "stop",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := service.New(&RunRunnerSvc{}, svcConfig)
+
+			if err != nil {
+				return err
+			}
+			return svc.Stop()
+		},
+	}
+	cmdSvc.AddCommand(svcInstall, svcStart, svcStop, svcRun, svcUninstall)
 
 	var rootCmd = &cobra.Command{
 		Use:     "github-act-runner",
 		Version: version,
 	}
-	rootCmd.AddCommand(cmdConfigure, cmdRun, cmdRemove, cmdWorker)
+	rootCmd.AddCommand(cmdConfigure, cmdRun, cmdRemove, cmdWorker, cmdSvc)
 	rootCmd.Execute()
 }
