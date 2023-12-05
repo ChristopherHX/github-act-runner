@@ -20,6 +20,7 @@ import (
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/ChristopherHX/github-act-runner/runnerconfiguration"
 	runnerCompat "github.com/ChristopherHX/github-act-runner/runnerconfiguration/compat"
+	"github.com/joho/godotenv"
 	"github.com/kardianos/service"
 	"github.com/nektos/act/pkg/container"
 
@@ -394,29 +395,17 @@ func main() {
 		},
 	}
 	var cmdSvc = &cobra.Command{
-		Use: "svc",
+		Use:   "svc",
+		Short: "Manage the runner as a system service",
 	}
+
+	envFile := ".env"
+	cmdSvc.PersistentFlags().StringVar(&envFile, "env-file", envFile, "godotenv file with environment variables for the service")
+
 	wd, _ := os.Getwd()
-	svcConfig := &service.Config{
-		Name:        "github-act-runner",
-		DisplayName: "GitHub Act Runner",
-		Description: "Cross platform GitHub Actions Runner.",
-		Arguments:   []string{"svc", "run", "--working-directory", wd},
-	}
-	if runtime.GOOS == "darwin" {
-		if path, ok := os.LookupEnv("PATH"); ok {
-			svcConfig.EnvVars = map[string]string{
-				"PATH": path,
-			}
-		}
-		svcConfig.Option = service.KeyValue{
-			"KeepAlive":   true,
-			"RunAtLoad":   true,
-			"UserService": os.Getuid() != 0,
-		}
-	}
 	svcRun := &cobra.Command{
-		Use: "run",
+		Use:   "run",
+		Short: "Used as service entrypoint",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			err := os.Chdir(wd)
 			if err != nil {
@@ -433,7 +422,12 @@ func main() {
 				defer os.Stderr.Close()
 			}
 
-			svc, err := service.New(&RunRunnerSvc{}, svcConfig)
+			err = godotenv.Overload(envFile)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to load godotenv file '%s': %s\n", envFile, err.Error())
+			}
+
+			svc, err := service.New(&RunRunnerSvc{}, getSvcConfig(wd, envFile))
 
 			if err != nil {
 				return err
@@ -443,20 +437,27 @@ func main() {
 	}
 	svcRun.Flags().StringVar(&wd, "working-directory", wd, "path to the working directory of the runner config")
 	svcInstall := &cobra.Command{
-		Use: "install",
+		Use:   "install",
+		Short: "Install the service may require admin privileges",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := service.New(&RunRunnerSvc{}, svcConfig)
+			svc, err := service.New(&RunRunnerSvc{}, getSvcConfig(wd, envFile))
 
 			if err != nil {
 				return err
 			}
-			return svc.Install()
+			err = svc.Install()
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Success\nConsider adding required env variables for your jobs like HOME or PATH to your '%s' godotenv file\nSee https://pkg.go.dev/github.com/joho/godotenv for the syntax\n", envFile)
+			return nil
 		},
 	}
 	svcUninstall := &cobra.Command{
-		Use: "uninstall",
+		Use:   "uninstall",
+		Short: "Uninstall the service may require admin privileges",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := service.New(&RunRunnerSvc{}, svcConfig)
+			svc, err := service.New(&RunRunnerSvc{}, getSvcConfig(wd, envFile))
 
 			if err != nil {
 				return err
@@ -465,9 +466,10 @@ func main() {
 		},
 	}
 	svcStart := &cobra.Command{
-		Use: "start",
+		Use:   "start",
+		Short: "Start the service may require admin privileges",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := service.New(&RunRunnerSvc{}, svcConfig)
+			svc, err := service.New(&RunRunnerSvc{}, getSvcConfig(wd, envFile))
 
 			if err != nil {
 				return err
@@ -476,9 +478,10 @@ func main() {
 		},
 	}
 	svcStop := &cobra.Command{
-		Use: "stop",
+		Use:   "stop",
+		Short: "Stop the service may require admin privileges",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := service.New(&RunRunnerSvc{}, svcConfig)
+			svc, err := service.New(&RunRunnerSvc{}, getSvcConfig(wd, envFile))
 
 			if err != nil {
 				return err
@@ -494,4 +497,21 @@ func main() {
 	}
 	rootCmd.AddCommand(cmdConfigure, cmdRun, cmdRemove, cmdWorker, cmdSvc)
 	rootCmd.Execute()
+}
+
+func getSvcConfig(wd string, envFile string) *service.Config {
+	svcConfig := &service.Config{
+		Name:        "github-act-runner",
+		DisplayName: "GitHub Act Runner",
+		Description: "Cross platform GitHub Actions Runner.",
+		Arguments:   []string{"svc", "run", "--working-directory", wd, "--env-file", envFile},
+	}
+	if runtime.GOOS == "darwin" {
+		svcConfig.Option = service.KeyValue{
+			"KeepAlive":   true,
+			"RunAtLoad":   true,
+			"UserService": os.Getuid() != 0,
+		}
+	}
+	return svcConfig
 }
