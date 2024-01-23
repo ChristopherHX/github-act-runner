@@ -156,7 +156,9 @@ func (wc *DefaultWorkerContext) Init() {
 
 	if hasResultsEndpoint && strings.EqualFold(jobreq.MessageType, "RunnerJobRequest") {
 		wc.JobLogger.IsResults = true
-		jobVssConnection.TenantURL = resultsEndpoint.Value
+		con := *jobVssConnection
+		con.TenantURL = resultsEndpoint.Value
+		wc.JobLogger.ResultsConnection = &con
 		wc.JobLogger.Logger = &logger.BufferedLiveLogger{
 			LiveLogger: &logger.WebsocketLiveloggerWithFallback{
 				JobRequest:    jobreq,
@@ -166,6 +168,11 @@ func (wc *DefaultWorkerContext) Init() {
 			},
 		}
 	} else {
+		if hasResultsEndpoint {
+			con := *jobVssConnection
+			con.TenantURL = resultsEndpoint.Value
+			wc.JobLogger.ResultsConnection = &con
+		}
 		wc.JobLogger.Logger = &logger.BufferedLiveLogger{
 			LiveLogger: &logger.WebsocketLiveloggerWithFallback{
 				JobRequest:    jobreq,
