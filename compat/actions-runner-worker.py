@@ -20,7 +20,6 @@ def redirectio():
         messageLength = int.from_bytes(os.read(stdin, 4), "big", signed=False)
         message = os.read(stdin, messageLength)
         encoded = codecs.decode(message, "utf-8").encode("utf_16")[2:]        
-        print(encoded)
         os.write(rdw, len(encoded).to_bytes(4, sys.byteorder, signed=False))
         os.write(rdw, encoded)
 
