@@ -26,6 +26,7 @@ import (
 	"github.com/nektos/act/pkg/container"
 	"github.com/nektos/act/pkg/model"
 	"github.com/nektos/act/pkg/runner"
+	"github.com/rhysd/actionlint"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
@@ -37,6 +38,7 @@ type ghaFormatter struct {
 	linefeedregex *regexp.Regexp
 	main          bool
 	result        *model.StepResult
+	ctx           context.Context
 }
 
 func flushInternal(rec *protocol.TimelineRecord, res *model.StepResult) {
@@ -65,8 +67,16 @@ func (f *ghaFormatter) Flush() {
 		if next == nil {
 			break
 		}
+		f.EvaluateStep(f.ctx, next)
 		next.Complete("Skipped")
 	}
+}
+
+func (f *ghaFormatter) EvaluateStep(ctx context.Context, rec *protocol.TimelineRecord) {
+	if rec == nil || f.rc == nil || f.rc.ExprEval == nil || ctx == nil {
+		return
+	}
+	rec.Name = f.rc.ExprEval.Interpolate(ctx, rec.Name)
 }
 
 func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
@@ -94,7 +104,7 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		}
 		stepID = prefix + stepIDArray[0]
 	}
-	
+
 	if cur := f.logger.Current(); cur != nil && !f.main && hasStepID {
 		f.main = true
 		flushInternal(cur, &model.StepResult{Conclusion: model.StepStatusSuccess})
@@ -120,6 +130,7 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		} else {
 			for {
 				next := f.logger.MoveNext()
+				f.EvaluateStep(f.ctx, next)
 				if next == nil || next.RefName == stepID {
 					break
 				}
@@ -186,6 +197,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	formatter := &ghaFormatter{
 		rqt:    rqt,
 		logger: jlogger,
+		ctx:    jobExecCtx,
 	}
 	logger.SetFormatter(formatter)
 	logger.Println("Initialize translating the job request to nektos/act")
@@ -481,9 +493,24 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 
 	rc.StepResults = make(map[string]*model.StepResult)
 
+	eval := rc.NewExpressionEvaluator(jobExecCtx)
 	for i := 0; i < len(steps); i++ {
 		rec := protocol.CreateTimelineEntry(rqt.JobID, steps[i].ID, steps[i].String())
 		rec.ID = rqt.Steps[i].ID // This allows the actions_runner adapter to work in gitea
+		parser := actionlint.NewExprParser()
+		exprNode, err := parser.Parse(actionlint.NewExprLexer(strings.TrimPrefix(rec.Name, "${{")))
+		canEvaluateNow := err == nil
+		actionlint.VisitExprNode(exprNode, func(node, _ actionlint.ExprNode, entering bool) {
+			if variableNode, ok := node.(*actionlint.VariableNode); entering && ok {
+				switch strings.ToLower(variableNode.Name) {
+				case "env", "steps", "job":
+					canEvaluateNow = false
+				}
+			}
+		})
+		if canEvaluateNow {
+			rec.Name = eval.Interpolate(jobExecCtx, rec.Name)
+		}
 		jlogger.Append(rec).Order = int32(i + len(steps) + 1)
 	}
 
@@ -511,6 +538,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 			}
 		}()
 		ctxError = context.WithValue(ctxError, common.JobCancelCtxVal, jobExecCtx)
+		formatter.ctx = ctxError
 		err = rc.Executor()(ctxError)
 		if err == nil {
 			err = common.JobError(ctxError)
