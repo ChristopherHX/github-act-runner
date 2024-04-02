@@ -60,7 +60,8 @@ jobs:
         - {GOOS: openbsd,   GOARCH: amd64,                }
         - {GOOS: openbsd,   GOARCH: arm,                  }
         - {GOOS: openbsd,   GOARCH: arm64,                }
-        - {GOOS: openbsd,   GOARCH: mips64                }
+        # TODO Remove after 0.7.x
+        - {GOOS: openbsd,   GOARCH: mips64, GOVERSION: '1.20.5'}
         - {GOOS: plan9,     GOARCH: 386                   }
         - {GOOS: plan9,     GOARCH: amd64                 }
         - {GOOS: plan9,     GOARCH: arm                   }
@@ -191,13 +192,19 @@ jobs:
         sudo apt --quiet install --assume-yes dpkg-dev debhelper devscripts myci
     - name: add entry to debian/changelog
       run: dch --newversion="${{ github.event.inputs.version || format('{0}-dev-{1}', env.RUNNER_DEV_VERSION, github.sha) }}" "another release"
-    - name: create deb package
+    - name: create deb package script
       run: |
+        apt --quiet update
+        apt --quiet install --assume-yes dpkg-dev debhelper
         for arch in $DEPLOY_ARCHS; do
           dpkg-buildpackage --build=binary --no-sign --host-arch $arch
         done
         mkdir -p debs
         cp ../*.deb debs/
+      shell: cp {0} script.sh
+    - name: create deb package
+      run: |
+        docker run -v "$PWD:$PWD" -w "$PWD" --rm ubuntu:noble bash script.sh
     - uses: actions/upload-artifact@v3
       continue-on-error: true
       with:
