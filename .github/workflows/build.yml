@@ -216,7 +216,7 @@ jobs:
         HAVE_MYCI_REPO_SSH_KEY: ${{ toJSON(secrets.MYCI_REPO_SSH_KEY != '') }}
       run: |
         echo "${{ secrets.MYCI_REPO_SSH_KEY }}" > repo_key_rsa && chmod 600 repo_key_rsa
-        myci-deploy-apt-ssh.sh --key repo_key_rsa --server gagis.hopto.org --user chrishx --repo chrishx/deb --distro all --component main ../*.deb
+        myci-deploy-apt-ssh.sh --key repo_key_rsa --server gagis.hopto.org --user chrishx --repo chrishx/deb --distro all --component main debs/*.deb
   
   run-tests:
     needs: build
