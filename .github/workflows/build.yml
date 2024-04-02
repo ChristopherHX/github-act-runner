@@ -51,6 +51,7 @@ jobs:
         - {GOOS: linux,     GOARCH: mips64le              }
         - {GOOS: linux,     GOARCH: riscv64               }
         - {GOOS: linux,     GOARCH: s390x                 }
+        - {GOOS: linux,     GOARCH: loong64               }
         - {GOOS: netbsd,    GOARCH: 386                   }
         - {GOOS: netbsd,    GOARCH: amd64                 }
         - {GOOS: netbsd,    GOARCH: arm                   }
@@ -170,7 +171,7 @@ jobs:
     name: build and deploy to deb repo
     if: ${{ github.event.inputs.skip-packaging != 'true' }}
     env:
-      DEPLOY_ARCHS: "amd64 i386 armel armhf arm64 ppc64 ppc64el mips mipsel mips64el riscv64 s390x" # architectures from https://wiki.debian.org/SupportedArchitectures
+      DEPLOY_ARCHS: "amd64 i386 armel armhf arm64 ppc64 ppc64el mips mipsel mips64el riscv64 s390x loong64" # architectures from https://wiki.debian.org/SupportedArchitectures
     steps:
     - name: git clone
       uses: actions/checkout@v3
