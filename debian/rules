@@ -5,7 +5,7 @@
 this_arch := $(shell dpkg-architecture --query DEB_TARGET_ARCH)
 
 # check if arch is known
-this_known_archs := amd64 i386 armel armhf arm64 ppc64 ppc64el mips mipsel mips64el riscv64 s390x
+this_known_archs := amd64 i386 armel armhf arm64 ppc64 ppc64el mips mipsel mips64el riscv64 s390x loong64
 ifeq ($(filter $(this_arch),$(this_known_archs)),)
     $(error unknown debian architecture: $(this_arch))
 endif
