@@ -204,7 +204,7 @@ jobs:
       shell: cp {0} script.sh
     - name: create deb package
       run: |
-        docker run -v "$PWD:$PWD" -w "$PWD" --rm ubuntu:noble bash script.sh
+        docker run -v "$PWD:$PWD" -w "$PWD" -e "DEPLOY_ARCHS=$DEPLOY_ARCHS" --rm ubuntu:noble bash script.sh
     - uses: actions/upload-artifact@v3
       continue-on-error: true
       with:
