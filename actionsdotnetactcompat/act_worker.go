@@ -212,9 +212,8 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		wc.FailInitJob("Failed to initialize Job", message)
 	}
 	secrets := map[string]string{}
-	runnerConfig := &runner.Config{
-		Secrets: secrets,
-	}
+	runnerConfig := &runner.Config{}
+
 	if rqt.Variables != nil {
 		for k, v := range rqt.Variables {
 			if v.IsSecret && k != "system.github.token" {
@@ -285,7 +284,15 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		e, _ := json.Marshal(githubCtxMap["event"])
 		payload = string(e)
 	}
+	unix_host_prefix := "unix://"
+	// derive from DOCKER_HOST or use custom value from DOCKER_HOST_MOUNT_PATH
+	if docker_host_mount_path, ok := os.LookupEnv("DOCKER_HOST_MOUNT_PATH"); ok {
+		runnerConfig.ContainerDaemonSocket = docker_host_mount_path
+	} else if docker_host, ok := os.LookupEnv("DOCKER_HOST"); ok && strings.HasPrefix(strings.ToLower(docker_host), unix_host_prefix) {
+		runnerConfig.ContainerDaemonSocket = docker_host[len(unix_host_prefix):]
+	}
 	// Non customizable config
+	runnerConfig.Secrets = secrets
 	runnerConfig.Workdir = "./"
 	if runtime.GOOS == "windows" {
 		runnerConfig.Workdir = ".\\"
