@@ -179,6 +179,7 @@ function handle_new_command {
                 echo "  --labels        comma separated list of runner labels, e.g. 'label1,label1,label3'. Optional."
                 echo "  --token         github runner registration token."
                 echo "  --runnergroup   runner group name. Optional."
+                echo "  --podman        use podman instead of docker. Optional."
                 exit 0
                 ;;
             --url)
@@ -201,6 +202,9 @@ function handle_new_command {
                 shift
                 opts[labels]=$1
                 ;;
+            --podman)
+                opts[podman]=true
+                ;;
             *)
                 error "unknown option: $1"
                 ;;
@@ -212,11 +216,18 @@ function handle_new_command {
         [ ! -z "${opts[$opt]}" ] || error "missing option: --$opt"
     done
 
+    local podman=
+    if [ ! -z "${opts[podman]}" ]; then
+        podman=true
+    fi
+
     if ! $is_root; then
         # running as non-root user
         # check that the user is in 'docker' group"
-        if [ -z "$(groups | grep docker)" ]; then
-            error "user '$(id --user --name)' is not in 'docker' group, install docker and add the user to the group"
+        if [ -z "${podman}" ]; then
+            if [ -z "$(groups | grep docker)" ]; then
+                error "user '$(id --user --name)' is not in 'docker' group, install docker and add the user to the group"
+            fi
         fi
         local service_wanted_by="default.target"
 
@@ -260,6 +271,15 @@ function handle_new_command {
         runnergroup="--runnergroup ${opts[runnergroup]}"
     fi
 
+    local exec_start_cmd="${runner_bin} run"
+    local podman_service_deps=
+
+    if [ ! -z "${podman}" ]; then
+        podman_service_deps="After=podman.service
+Requires=podman.service"
+        exec_start_cmd="/bin/bash -c \"DOCKER_HOST=unix://\$XDG_RUNTIME_DIR/podman/podman.sock ${runner_bin} run\""
+    fi
+
     mkdir --parents $runner_dir
 
     # remove the new runner dir in case of ERROR
@@ -295,9 +315,10 @@ function handle_new_command {
 [Unit]
 Description=${pkg_name} '${runner_id}'
 After=network.target
+${podman_service_deps}
 
 [Service]
-ExecStart=${runner_bin} run
+ExecStart=${exec_start_cmd}
 WorkingDirectory=$runner_dir
 KillMode=process
 KillSignal=SIGINT
