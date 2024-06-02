@@ -64,7 +64,7 @@ func (config *RemoveRunner) Remove(settings *RunnerSettings, survey Survey, auth
 				res = nil
 			}
 			if res == nil {
-				authres, err := confremove.Authenicate(c, survey)
+				authres, err := confremove.Authenticate(c, survey)
 				if err != nil {
 					return err
 				}

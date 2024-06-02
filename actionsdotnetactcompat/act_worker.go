@@ -26,6 +26,7 @@ import (
 	"github.com/nektos/act/pkg/container"
 	"github.com/nektos/act/pkg/model"
 	"github.com/nektos/act/pkg/runner"
+	"github.com/rhysd/actionlint"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
@@ -37,6 +38,7 @@ type ghaFormatter struct {
 	linefeedregex *regexp.Regexp
 	main          bool
 	result        *model.StepResult
+	ctx           context.Context
 }
 
 func flushInternal(rec *protocol.TimelineRecord, res *model.StepResult) {
@@ -65,8 +67,16 @@ func (f *ghaFormatter) Flush() {
 		if next == nil {
 			break
 		}
+		f.EvaluateStep(f.ctx, next)
 		next.Complete("Skipped")
 	}
+}
+
+func (f *ghaFormatter) EvaluateStep(ctx context.Context, rec *protocol.TimelineRecord) {
+	if rec == nil || f.rc == nil || f.rc.ExprEval == nil || ctx == nil {
+		return
+	}
+	rec.Name = f.rc.ExprEval.Interpolate(ctx, rec.Name)
 }
 
 func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
@@ -94,13 +104,13 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		}
 		stepID = prefix + stepIDArray[0]
 	}
-	cur := f.logger.Current()
-	if !f.main && hasStepID {
+
+	if cur := f.logger.Current(); cur != nil && !f.main && hasStepID {
 		f.main = true
 		flushInternal(cur, &model.StepResult{Conclusion: model.StepStatusSuccess})
 	}
 	stepName, hasStepName := entry.Data["step"]
-	if hasStepName && hasStepID && f.logger.Current().RefName != stepID {
+	if cur := f.logger.Current(); hasStepName && hasStepID && cur != nil && cur.RefName != stepID {
 		if stage == "Post" {
 			f.Flush()
 		} else if f.result != nil {
@@ -113,11 +123,14 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 			te := protocol.CreateTimelineEntry(f.logger.TimelineRecords.Value[0].ID, stepID, stage.(string)+" "+stepName.(string))
 			te.Order = f.logger.TimelineRecords.Value[f.logger.CurrentRecord-1].Order + 1
 			f.logger.Insert(te)
-			f.logger.Current().Start()
+			if cur := f.logger.Current(); cur != nil {
+				cur.Start()
+			}
 			f.logger.Update()
 		} else {
 			for {
 				next := f.logger.MoveNext()
+				f.EvaluateStep(f.ctx, next)
 				if next == nil || next.RefName == stepID {
 					break
 				}
@@ -129,22 +142,6 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 			f.logger.Update()
 		}
 	}
-	//js, _ := json.Marshal(entry.Data)
-	//entry.Message = (string)(js) + "|" + entry.Message
-
-	// if f.rc != nil && f.rc.Parent == nil && (f.logger.Current() == nil || f.logger.Current().RefName != f.rc.CurrentStep) {
-	// 	if res, ok := f.rc.StepResults[f.logger.Current().RefName]; ok && f.logger.Current() != nil {
-	// 		f.flushInternal(res)
-	// 		for {
-	// 			next := f.logger.MoveNext()
-	// 			if next == nil || next.RefName == f.rc.CurrentStep {
-	// 				break
-	// 			}
-	// 			f.logger.Current().Complete("Skipped")
-	// 		}
-	// 		f.logger.Current().Start()
-	// 	}
-	// }
 	if f.rqt.MaskHints != nil {
 		for _, v := range f.rqt.MaskHints {
 			if strings.ToLower(v.Type) == "regex" {
@@ -200,6 +197,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	formatter := &ghaFormatter{
 		rqt:    rqt,
 		logger: jlogger,
+		ctx:    jobExecCtx,
 	}
 	logger.SetFormatter(formatter)
 	logger.Println("Initialize translating the job request to nektos/act")
@@ -210,18 +208,8 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		jlogger.Finish()
 		wc.FinishJob(result, outputs)
 	}
-	finishJob := func(result string) {
-		finishJob2(result, &map[string]protocol.VariableValue{})
-	}
-	failInitJob2 := func(title string, message string) {
-		e := jlogger.Append(protocol.CreateTimelineEntry(rqt.JobID, "__fatal", title))
-		e.Start()
-		jlogger.Log(message)
-		e.Complete("Failed")
-		finishJob("Failed")
-	}
 	failInitJob := func(message string) {
-		failInitJob2("Failed to initialize Job", message)
+		wc.FailInitJob("Failed to initialize Job", message)
 	}
 	secrets := map[string]string{}
 	runnerConfig := &runner.Config{
@@ -240,18 +228,19 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	}
 	rawGithubCtx, ok := rqt.ContextData["github"]
 	if !ok {
-		fmt.Println("missing github context in ContextData")
-		finishJob("Failed")
+		failInitJob("missing github context in ContextData")
 		return
 	}
 	githubCtx := rawGithubCtx.ToRawObject()
 	matrix, err := ConvertMatrixInstance(rqt.ContextData)
 	if err != nil {
 		failInitJob(err.Error())
+		return
 	}
 	env, err := ConvertEnvironment(rqt.EnvironmentVariables)
 	if err != nil {
 		failInitJob(err.Error())
+		return
 	}
 	env["ACTIONS_RUNTIME_URL"] = vssConnection.TenantURL
 	env["ACTIONS_RUNTIME_TOKEN"] = vssConnection.Token
@@ -263,14 +252,19 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		env["ACTIONS_ID_TOKEN_REQUEST_URL"] = idTokenUrl
 		env["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] = vssConnection.Token
 	}
+	if resultsServiceUrl, ok := vssConnectionData["ResultsServiceUrl"]; ok && len(resultsServiceUrl) > 0 {
+		env["ACTIONS_RESULTS_URL"] = resultsServiceUrl
+	}
 
 	defaults, err := ConvertDefaults(rqt.Defaults)
 	if err != nil {
 		failInitJob(err.Error())
+		return
 	}
 	steps, err := ConvertSteps(rqt.Steps)
 	if err != nil {
 		failInitJob(err.Error())
+		return
 	}
 	actions_step_debug := false
 	if sd, ok := rqt.Variables["ACTIONS_STEP_DEBUG"]; ok && (sd.Value == "true" || sd.Value == "1") {
@@ -309,6 +303,17 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	runnerConfig.AutoRemove = true     // Needed to cleanup always cleanup container
 	runnerConfig.ForcePull = true
 	runnerConfig.ForceRebuild = true
+	// allow downloading actions like older actions/runner using credentials of the redirect url
+	downloadActionHttpClient := *vssConnection.HttpClient()
+	downloadActionHttpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
+		if len(via) >= 1 && req.Host != via[0].Host {
+			req.Header.Del("Authorization")
+		}
+		return nil
+	}
 	runnerConfig.DownloadAction = func(ngcei git.NewGitCloneExecutorInput) common.Executor {
 		return func(ctx context.Context) error {
 			actionList := &protocol.ActionReferenceList{}
@@ -331,7 +336,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 				if v.Authentication != nil && v.Authentication.Token != "" {
 					token = v.Authentication.Token
 				}
-				err := downloadAndExtractAction(ctx, ngcei.Dir, actionurl[0], actionurl[1], v.ResolvedSha, v.TarballUrl, token, vssConnection.Client)
+				err := downloadAndExtractAction(ctx, ngcei.Dir, actionurl[0], actionurl[1], v.ResolvedSha, v.TarballUrl, token, &downloadActionHttpClient)
 				if err != nil {
 					return err
 				}
@@ -369,7 +374,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 						if v.Authentication != nil && v.Authentication.Token != "" {
 							token = v.Authentication.Token
 						}
-						err := downloadAndExtractAction(ctx, ngcei.Dir, actionurl[0], actionurl[1], v.ResolvedSha, v.TarUrl, token, vssConnection.Client)
+						err := downloadAndExtractAction(ctx, ngcei.Dir, actionurl[0], actionurl[1], v.ResolvedSha, v.TarUrl, token, &downloadActionHttpClient)
 						if err != nil {
 							return err
 						}
@@ -488,10 +493,25 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 
 	rc.StepResults = make(map[string]*model.StepResult)
 
+	eval := rc.NewExpressionEvaluator(jobExecCtx)
 	for i := 0; i < len(steps); i++ {
 		rec := protocol.CreateTimelineEntry(rqt.JobID, steps[i].ID, steps[i].String())
 		rec.ID = rqt.Steps[i].ID // This allows the actions_runner adapter to work in gitea
-		jlogger.Append(rec).Order = int32(i + len(steps))
+		parser := actionlint.NewExprParser()
+		exprNode, err := parser.Parse(actionlint.NewExprLexer(strings.TrimPrefix(rec.Name, "${{")))
+		canEvaluateNow := err == nil
+		actionlint.VisitExprNode(exprNode, func(node, _ actionlint.ExprNode, entering bool) {
+			if variableNode, ok := node.(*actionlint.VariableNode); entering && ok {
+				switch strings.ToLower(variableNode.Name) {
+				case "env", "steps", "job":
+					canEvaluateNow = false
+				}
+			}
+		})
+		if canEvaluateNow {
+			rec.Name = eval.Interpolate(jobExecCtx, rec.Name)
+		}
+		jlogger.Append(rec).Order = int32(i + len(steps) + 1)
 	}
 
 	logrus.SetLevel(logger.GetLevel())
@@ -518,6 +538,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 			}
 		}()
 		ctxError = context.WithValue(ctxError, common.JobCancelCtxVal, jobExecCtx)
+		formatter.ctx = ctxError
 		err = rc.Executor()(ctxError)
 		if err == nil {
 			err = common.JobError(ctxError)
@@ -551,6 +572,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 }
 
 func downloadAndExtractAction(ctx context.Context, target string, owner string, name string, resolvedSha string, tarURL string, token string, httpClient *http.Client) (reterr error) {
+	logger := common.Logger(ctx)
 	cachedTar := filepath.Join(target, "..", owner+"."+name+"."+resolvedSha+".tar")
 	defer func() {
 		if reterr != nil {
@@ -561,7 +583,13 @@ func downloadAndExtractAction(ctx context.Context, target string, owner string, 
 	if fr, err := os.Open(cachedTar); err == nil {
 		tarstream = fr
 		defer fr.Close()
+		if logger != nil {
+			logger.Infof("Found cache for action %v/%v (sha:%v) from %v", owner, name, resolvedSha, cachedTar)
+		}
 	} else {
+		if logger != nil {
+			logger.Infof("Downloading action %v/%v (sha:%v) from %v", owner, name, resolvedSha, tarURL)
+		}
 		req, err := http.NewRequestWithContext(ctx, "GET", tarURL, nil)
 		if err != nil {
 			return err
@@ -569,13 +597,20 @@ func downloadAndExtractAction(ctx context.Context, target string, owner string, 
 		if token != "" {
 			req.Header.Add("Authorization", "token "+token)
 		}
+		req.Header.Add("User-Agent", "github-act-runner/1.0.0")
+		req.Header.Add("Accept", "*/*")
 		rsp, err := httpClient.Do(req)
 		if err != nil {
 			return err
 		}
 		defer rsp.Body.Close()
+		if rsp.StatusCode != 200 {
+			buf := &bytes.Buffer{}
+			io.Copy(buf, rsp.Body)
+			return fmt.Errorf("Failed to download action from %v response %v", tarURL, buf.String())
+		}
 		if len(resolvedSha) == len("0000000000000000000000000000000000000000") {
-			fo, err := os.OpenFile(cachedTar, os.O_TRUNC|os.O_CREATE, 0777)
+			fo, err := os.Create(cachedTar)
 			if err != nil {
 				return err
 			}

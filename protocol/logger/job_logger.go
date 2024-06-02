@@ -3,17 +3,20 @@ package logger
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/ChristopherHX/github-act-runner/protocol/results"
-	"golang.org/x/net/websocket"
+	"nhooyr.io/websocket"
+	"nhooyr.io/websocket/wsjson"
 )
 
 type LiveLogger interface {
@@ -43,7 +46,7 @@ type WebsocketLivelogger struct {
 
 func (logger *WebsocketLivelogger) Close() error {
 	if logger.ws != nil {
-		err := logger.ws.Close()
+		err := logger.ws.Close(websocket.StatusGoingAway, "Bye!")
 		logger.ws = nil
 		return err
 	}
@@ -58,28 +61,27 @@ func (logger *WebsocketLivelogger) Connect() error {
 	if logger.Connection.Trace {
 		fmt.Printf("Try to connect to websocket %s\n", logger.FeedStreamUrl)
 	}
-	origin, err := url.Parse(logger.Connection.TenantURL)
-	if err != nil {
-		return err
-	}
 	re := regexp.MustCompile("(?i)^http(s?)://")
 	feedStreamUrl, err := url.Parse(re.ReplaceAllString(logger.FeedStreamUrl, "ws$1://"))
 	if err != nil {
 		return err
 	}
-	logger.ws, err = websocket.DialConfig(&websocket.Config{
-		Location: feedStreamUrl,
-		Origin:   origin,
-		Version:  13,
-		Header: http.Header{
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer cancel()
+	logger.ws, _, err = websocket.Dial(ctx, feedStreamUrl.String(), &websocket.DialOptions{
+		HTTPClient: logger.Connection.HttpClient(),
+		HTTPHeader: http.Header{
 			"Authorization": []string{"Bearer " + logger.Connection.Token},
+			"User-Agent":    []string{"github-act-runner/1.0.0"},
 		},
 	})
 	return err
 }
 
 func (logger *WebsocketLivelogger) SendLog(lines *protocol.TimelineRecordFeedLinesWrapper) error {
-	return websocket.JSON.Send(logger.ws, lines)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+	return wsjson.Write(ctx, logger.ws, lines)
 }
 
 type WebsocketLiveloggerWithFallback struct {
@@ -110,6 +112,8 @@ func (logger *WebsocketLiveloggerWithFallback) Initialize() {
 		if err == nil {
 			logger.currentLogger = wslogger
 			return
+		} else if logger.Connection.Trace {
+			fmt.Printf("Failed to connect to websocket %s, fallback to vsslogger\n", err.Error())
 		}
 	}
 	if !logger.ForceWebsock {
@@ -236,24 +240,31 @@ func (logger *BufferedLiveLogger) SendLog(wrapper *protocol.TimelineRecordFeedLi
 }
 
 type JobLogger struct {
-	JobRequest      *protocol.AgentJobRequestMessage
-	Connection      *protocol.VssConnection
-	TimelineRecords *protocol.TimelineRecordWrapper
-	CurrentRecord   int64
-	CurrentLine     int64
-	JobBuffer       bytes.Buffer
-	CurrentBuffer   bytes.Buffer
-	linefeedregex   *regexp.Regexp
-	Logger          LiveLogger
-	lineBuffer      []byte
-	IsResults       bool
-	ChangeId        int64
-	CurrentJobLine  int64
-	FirstBlock      bool
-	FirstJobBlock   bool
+	JobRequest           *protocol.AgentJobRequestMessage
+	Connection           *protocol.VssConnection
+	ResultsConnection    *protocol.VssConnection
+	TimelineRecords      *protocol.TimelineRecordWrapper
+	CurrentRecord        int64
+	CurrentLine          int64
+	JobBuffer            bytes.Buffer
+	CurrentBuffer        bytes.Buffer
+	ResultsJobBuffer     bytes.Buffer
+	ResultsCurrentBuffer bytes.Buffer
+	linefeedregex        *regexp.Regexp
+	Logger               LiveLogger
+	lineBuffer           []byte
+	IsResults            bool
+	ChangeId             int64
+	CurrentJobLine       int64
+	FirstBlock           bool
+	FirstJobBlock        bool
+	linesync             sync.Mutex
+	loggersync           sync.Mutex
 }
 
 func (logger *JobLogger) Write(p []byte) (n int, err error) {
+	logger.linesync.Lock()
+	defer logger.linesync.Unlock()
 	logger.lineBuffer = append(logger.lineBuffer, p...)
 	if i := bytes.LastIndexByte(logger.lineBuffer, byte('\n')); i != -1 {
 		logger.Log(string(logger.lineBuffer[:i]))
@@ -262,11 +273,17 @@ func (logger *JobLogger) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func (logger *JobLogger) Current() *protocol.TimelineRecord {
+func (logger *JobLogger) current() *protocol.TimelineRecord {
 	if logger.CurrentRecord < logger.TimelineRecords.Count {
 		return logger.TimelineRecords.Value[logger.CurrentRecord]
 	}
 	return nil
+}
+
+func (logger *JobLogger) Current() *protocol.TimelineRecord {
+	logger.loggersync.Lock()
+	defer logger.loggersync.Unlock()
+	return logger.current()
 }
 
 func (logger *JobLogger) MoveNext() *protocol.TimelineRecord {
@@ -274,86 +291,105 @@ func (logger *JobLogger) MoveNext() *protocol.TimelineRecord {
 }
 
 func (logger *JobLogger) MoveNextExt(startNextRecord bool) *protocol.TimelineRecord {
-	cur := logger.Current()
+	logger.loggersync.Lock()
+	defer logger.loggersync.Unlock()
+	cur := logger.current()
 	if cur == nil {
 		return nil
 	}
 	logger.uploadBlock(cur, true)
 	logger.CurrentRecord++
 	logger.CurrentBuffer.Reset()
-	if c := logger.Current(); c != nil && startNextRecord {
+	logger.ResultsCurrentBuffer.Reset()
+	logger.CurrentLine = 0
+	if c := logger.current(); c != nil && startNextRecord {
 		c.Start()
 		return c
 	}
-	_ = logger.Update()
+	_ = logger.update()
 	return nil
 }
 
 func (logger *JobLogger) uploadBlock(cur *protocol.TimelineRecord, finalBlock bool) {
-	if finalBlock && logger.CurrentBuffer.Len() > 0 || logger.IsResults && (finalBlock || logger.CurrentBuffer.Len() > 2*1024*1024) {
-		if logger.IsResults {
-			rs := &results.ResultsService{
-				Connection: logger.Connection,
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-			defer cancel()
-			rs.UploadResultsStepLogAsync(ctx, logger.JobRequest.Plan.PlanID, logger.JobRequest.JobID, cur.ID, &logger.CurrentBuffer, int64(logger.CurrentBuffer.Len()), logger.FirstBlock, finalBlock, logger.CurrentLine)
-			logger.FirstBlock = false
-			logger.CurrentBuffer.Reset()
-		} else if finalBlock {
-			if logid, err := logger.Connection.UploadLogFile(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.CurrentBuffer.String()); err == nil {
-				cur.Log = &protocol.TaskLogReference{ID: logid}
-			}
+	if !logger.IsResults && finalBlock && logger.CurrentBuffer.Len() > 0 {
+		if logid, err := logger.Connection.UploadLogFile(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.CurrentBuffer.String()); err == nil {
+			cur.Log = &protocol.TaskLogReference{ID: logid}
 		}
+	}
+	if logger.ResultsConnection != nil && (finalBlock || logger.ResultsCurrentBuffer.Len() > 2*1024*1024) {
+		rs := &results.ResultsService{
+			Connection: logger.ResultsConnection,
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		rs.UploadResultsStepLogAsync(ctx, logger.JobRequest.Plan.PlanID, logger.JobRequest.JobID, cur.ID, &logger.ResultsCurrentBuffer, int64(logger.ResultsCurrentBuffer.Len()), logger.FirstBlock, finalBlock, logger.CurrentLine)
+		logger.FirstBlock = false
+		logger.ResultsCurrentBuffer.Reset()
 	}
 }
 
 func (logger *JobLogger) Finish() {
+	logger.loggersync.Lock()
+	defer logger.loggersync.Unlock()
 	logger.uploadJobBlob(true)
 }
 
 func (logger *JobLogger) uploadJobBlob(finalBlock bool) {
-	if (finalBlock && logger.JobBuffer.Len() > 0 || logger.IsResults && (finalBlock || logger.JobBuffer.Len() > 2*1024*1024)) && len(logger.TimelineRecords.Value) > 0 {
-		if logger.IsResults {
+	if !logger.IsResults && finalBlock && logger.JobBuffer.Len() > 0 && len(logger.TimelineRecords.Value) > 0 {
+		if logid, err := logger.Connection.UploadLogFile(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.JobBuffer.String()); err == nil {
+			logger.TimelineRecords.Value[0].Log = &protocol.TaskLogReference{ID: logid}
+			_ = logger.update()
+		}
+	}
+	if logger.ResultsConnection != nil && (finalBlock || logger.ResultsJobBuffer.Len() > 2*1024*1024) {
+		if logger.ResultsConnection != nil {
 			rs := &results.ResultsService{
-				Connection: logger.Connection,
+				Connection: logger.ResultsConnection,
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
-			rs.UploadResultsJobLogAsync(ctx, logger.JobRequest.Plan.PlanID, logger.JobRequest.JobID, &logger.JobBuffer, int64(logger.JobBuffer.Len()), logger.FirstJobBlock, finalBlock, logger.CurrentJobLine)
+			rs.UploadResultsJobLogAsync(ctx, logger.JobRequest.Plan.PlanID, logger.JobRequest.JobID, &logger.ResultsJobBuffer, int64(logger.ResultsJobBuffer.Len()), logger.FirstJobBlock, finalBlock, logger.CurrentJobLine)
 			logger.FirstJobBlock = false
-			logger.JobBuffer.Reset()
-		} else if finalBlock {
-			if logid, err := logger.Connection.UploadLogFile(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.JobBuffer.String()); err == nil {
-				logger.TimelineRecords.Value[0].Log = &protocol.TaskLogReference{ID: logid}
-				_ = logger.Update()
-			}
+			logger.ResultsJobBuffer.Reset()
 		}
 	}
 }
 
 func (logger *JobLogger) Update() error {
-	if logger.IsResults {
+	logger.loggersync.Lock()
+	defer logger.loggersync.Unlock()
+	return logger.update()
+}
+
+func (logger *JobLogger) update() error {
+	var errResults, errVss error
+	if logger.ResultsConnection != nil {
 		logger.ChangeId++
 		updatereq := &results.StepsUpdateRequest{}
 		updatereq.ChangeOrder = logger.ChangeId
-		updatereq.WorkflowJobRunBackendID = logger.JobRequest.Plan.PlanID
-		updatereq.WorkflowRunBackendID = logger.TimelineRecords.Value[0].ID
+		updatereq.WorkflowRunBackendID = logger.JobRequest.Plan.PlanID
+		updatereq.WorkflowJobRunBackendID = logger.TimelineRecords.Value[0].ID
 		updatereq.Steps = make([]results.Step, len(logger.TimelineRecords.Value)-1)
 		for i, rec := range logger.TimelineRecords.Value[1:] {
 			updatereq.Steps[i] = results.ConvertTimelineRecordToStep(*rec)
 		}
 		rs := &results.ResultsService{
-			Connection: logger.Connection,
+			Connection: logger.ResultsConnection,
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		return rs.UpdateWorkflowStepsAsync(ctx, updatereq)
+		errResults = rs.UpdateWorkflowStepsAsync(ctx, updatereq)
 	}
-	return logger.Connection.UpdateTimeLine(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.TimelineRecords)
+
+	if !logger.IsResults {
+		errVss = logger.Connection.UpdateTimeLine(logger.JobRequest.Timeline.ID, logger.JobRequest, logger.TimelineRecords)
+	}
+	return errors.Join(errResults, errVss)
 }
 
 func (logger *JobLogger) Append(record protocol.TimelineRecord) *protocol.TimelineRecord {
+	logger.loggersync.Lock()
+	defer logger.loggersync.Unlock()
 	if l := len(logger.TimelineRecords.Value); l > 0 {
 		record.Order = logger.TimelineRecords.Value[l-1].Order + 1
 	}
@@ -363,6 +399,8 @@ func (logger *JobLogger) Append(record protocol.TimelineRecord) *protocol.Timeli
 }
 
 func (logger *JobLogger) Insert(record protocol.TimelineRecord) *protocol.TimelineRecord {
+	logger.loggersync.Lock()
+	defer logger.loggersync.Unlock()
 	x := append(make([]*protocol.TimelineRecord, 0), logger.TimelineRecords.Value[:logger.CurrentRecord]...)
 	y := append(x, &record)
 	z := append(y, logger.TimelineRecords.Value[logger.CurrentRecord:]...)
@@ -372,6 +410,8 @@ func (logger *JobLogger) Insert(record protocol.TimelineRecord) *protocol.Timeli
 }
 
 func (logger *JobLogger) Log(lines string) {
+	logger.loggersync.Lock()
+	defer logger.loggersync.Unlock()
 	if logger.linefeedregex == nil {
 		logger.linefeedregex = regexp.MustCompile(`(\r\n|\r|\n)`)
 	}
@@ -381,12 +421,22 @@ func (logger *JobLogger) Log(lines string) {
 		logger.FirstJobBlock = true
 	}
 	lines = logger.linefeedregex.ReplaceAllString(strings.TrimSuffix(lines, "\r\n"), "\n")
-	_, _ = logger.JobBuffer.WriteString(lines + "\n")
-	cur := logger.Current()
+	if !logger.IsResults {
+		_, _ = logger.JobBuffer.WriteString(lines + "\n")
+	}
+	if logger.ResultsConnection != nil {
+		_, _ = logger.ResultsJobBuffer.WriteString(lines + "\n")
+	}
+	cur := logger.current()
 	if cur == nil {
 		return
 	}
-	_, _ = logger.CurrentBuffer.WriteString(lines + "\n")
+	if !logger.IsResults {
+		_, _ = logger.CurrentBuffer.WriteString(lines + "\n")
+	}
+	if logger.ResultsConnection != nil {
+		_, _ = logger.ResultsCurrentBuffer.WriteString(lines + "\n")
+	}
 	cline := logger.CurrentLine
 	wrapper := &protocol.TimelineRecordFeedLinesWrapper{
 		StartLine: &cline,

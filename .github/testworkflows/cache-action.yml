@@ -1,0 +1,24 @@
+name: matrix
+on: push
+jobs:
+  create-cache:
+    runs-on: [self-hosted]
+    steps:
+    - run: echo "${{ hashfiles('test.txt') }}"
+    - run: echo "test" > test.txt
+    - run: echo "${{ hashfiles('test.txt') }}"
+    - run: echo "sdznfenmfe" > test.txt
+    - run: echo "${{ hashfiles('test.txt') }}"
+    - uses: actions/cache@v3
+      with:
+        key: test-${{ hashfiles('test.txt') }}
+        path: test.txt
+  check-cache:
+    runs-on: [self-hosted]
+    needs: create-cache
+    steps:
+    - uses: actions/cache/restore@v3
+      with:
+        key: test-90bee283b2ec9ea9041c504b22928b2ca973d1887e3bfd704c709c65e4fd032d
+        path: test.txt
+        fail-on-cache-miss: true

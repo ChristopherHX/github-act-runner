@@ -26,6 +26,9 @@ func ConvertSteps(jobSteps []protocol.ActionStep) ([]*model.Step, error) {
 		env := &yaml.Node{}
 		if step.Environment != nil {
 			env = step.Environment.ToYamlNode()
+			if env.Kind != yaml.MappingNode {
+				return nil, fmt.Errorf("step.env: not a map")
+			}
 		}
 
 		continueOnError := "false"

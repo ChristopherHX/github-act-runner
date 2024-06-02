@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -52,6 +54,8 @@ type ConfigureRunner struct {
 	Ephemeral       bool
 	RunnerGuard     string
 	Replace         bool
+	DisableUpdate   bool
+	WorkFolder      string
 }
 
 type RemoveRunner struct {
@@ -67,6 +71,22 @@ type RunnerInstance struct {
 	Key             string
 	PKey            *rsa.PrivateKey `json:"-"`
 	RunnerGuard     string
+	WorkFolder      string // Currently unused for actions/runner compat
+}
+
+func (instance *RunnerInstance) EnshurePKey() error {
+	if instance.PKey == nil {
+		key, err := base64.StdEncoding.DecodeString(instance.Key)
+		if err != nil {
+			return err
+		}
+		pkey, err := x509.ParsePKCS1PrivateKey(key)
+		if err != nil {
+			return err
+		}
+		instance.PKey = pkey
+	}
+	return nil
 }
 
 type RunnerSettings struct {
@@ -158,11 +178,20 @@ func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent strin
 	return res, nil
 }
 
-func (config *ConfigureRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
+func (config *ConfigureRunner) Authenticate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
 	return gitHubAuth(&config.ConfigureRemoveRunner, c, "register", "registration-token", survey)
 }
-func (config *RemoveRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
+func (config *RemoveRunner) Authenticate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
 	return gitHubAuth(&config.ConfigureRemoveRunner, c, "remove", "remove-token", survey)
+}
+
+// Deprecated: Use the Authenticate method.
+func (config *ConfigureRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
+	return config.Authenticate(c, survey)
+}
+// Deprecated: Use the Authenticate method.
+func (config *RemoveRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
+	return config.Authenticate(c, survey)
 }
 
 func (confremove *ConfigureRemoveRunner) ReadFromEnvironment() {

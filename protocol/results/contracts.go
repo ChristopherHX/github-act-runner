@@ -45,7 +45,7 @@ type GetSignedStepLogsURLRequest struct {
 type GetSignedStepLogsURLResponse struct {
 	LogsUrl         string `json:"logs_url,omitempty"`
 	BlobStorageType string `json:"blob_storage_type,omitempty"`
-	SoftSizeLimit   int64  `json:"soft_size_limit,omitempty"`
+	// SoftSizeLimit   int64  `json:"soft_size_limit,omitempty"` // a string in the backend?
 }
 
 type JobLogsMetadataCreate struct {
@@ -119,7 +119,7 @@ func ConvertTimestamp(s *string) string {
 	if s == nil || *s == "" {
 		return ""
 	}
-	if t, err := time.Parse(protocol.TimestampInputFormat, *s); err != nil {
+	if t, err := time.Parse(protocol.TimestampInputFormat, *s); err == nil {
 		return t.Format(TimestampOutputFormat)
 	}
 	return ""

@@ -32,6 +32,7 @@ func containsEphemeralConfiguration(settings *RunnerSettings) bool {
 func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey, auth *protocol.GitHubAuthResult) (*RunnerSettings, error) {
 	instance := &RunnerInstance{
 		RunnerGuard: config.RunnerGuard,
+		WorkFolder:  config.WorkFolder,
 	}
 	if config.Ephemeral && len(settings.Instances) > 0 || containsEphemeralConfiguration(settings) {
 		return nil, fmt.Errorf("ephemeral is not supported for multi runners, runner already configured.")
@@ -50,7 +51,7 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 	c := config.GetHttpClient()
 	res := auth
 	if res == nil {
-		authres, err := config.Authenicate(c, survey)
+		authres, err := config.Authenticate(c, survey)
 		if err != nil {
 			return nil, err
 		}
@@ -141,6 +142,7 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 	taskAgent.ProvisioningState = "Provisioned"
 	taskAgent.CreatedOn = time.Now().UTC().Format(protocol.TimestampOutputFormat)
 	taskAgent.Ephemeral = config.Ephemeral
+	taskAgent.DisableUpdate = config.DisableUpdate
 	{
 		err := vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "POST", map[string]string{
 			"poolId": fmt.Sprint(vssConnection.PoolID),
@@ -188,6 +190,11 @@ func (config *ConfigureRunner) ReadFromEnvironment() {
 	if !config.Ephemeral {
 		if v, ok := common.LookupEnvBool("ACTIONS_RUNNER_INPUT_EPHEMERAL"); ok {
 			config.Ephemeral = v
+		}
+	}
+	if !config.DisableUpdate {
+		if v, ok := common.LookupEnvBool("ACTIONS_RUNNER_INPUT_DISABLEUPDATE"); ok {
+			config.DisableUpdate = v
 		}
 	}
 	if len(config.Name) == 0 {

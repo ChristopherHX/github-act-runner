@@ -8,6 +8,7 @@ jobs:
         - ""
         - "ubuntu:latest"
     runs-on: [self-hosted]
+    container: ${{ matrix.container }}
     steps:
     - run: |
         mkdir -p test
