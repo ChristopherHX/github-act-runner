@@ -98,4 +98,4 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
-replace github.com/nektos/act => github.com/christopherHX/act v0.2.23-0.20240605190751-2be05381ef7e
+replace github.com/nektos/act => github.com/christopherHX/act v0.2.23-0.20240605193400-f3350e2acbd2

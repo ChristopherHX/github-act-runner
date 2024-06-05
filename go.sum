@@ -44,6 +44,8 @@ github.com/christopherHX/act v0.2.23-0.20240407190315-a058d2e69f2a h1:Thbmu4ANxa
 github.com/christopherHX/act v0.2.23-0.20240407190315-a058d2e69f2a/go.mod h1:jz9a0+0Yxu5MnORAsew2pfth3IVbhEgMfX8SurVyam8=
 github.com/christopherHX/act v0.2.23-0.20240605190751-2be05381ef7e h1:EZ5BrjcwTeqemWosNouWH/iq6n64WEuQ1gehLzJ+8qU=
 github.com/christopherHX/act v0.2.23-0.20240605190751-2be05381ef7e/go.mod h1:Thbj1Cg42+s2kpiOp9iGMB+I39uiUk0X5ea3KM0QbOg=
+github.com/christopherHX/act v0.2.23-0.20240605193400-f3350e2acbd2 h1:AAzKvwC7jb12soLYtHNRoqbtqx/L6qR2U/VjT+pebPw=
+github.com/christopherHX/act v0.2.23-0.20240605193400-f3350e2acbd2/go.mod h1:Thbj1Cg42+s2kpiOp9iGMB+I39uiUk0X5ea3KM0QbOg=
 github.com/cilium/ebpf v0.7.0/go.mod h1:/oI2+1shJiTGAMgl6/RgJr36Eo1jzrRcAWbcXO2usCA=
 github.com/cloudflare/circl v1.1.0 h1:bZgT/A+cikZnKIwn7xL2OBj012Bmvho/o6RpRvv3GKY=
 github.com/cloudflare/circl v1.1.0/go.mod h1:prBCrKB9DV4poKZY1l9zBXg2QJY7mvgRvtMxxK7fi4I=
