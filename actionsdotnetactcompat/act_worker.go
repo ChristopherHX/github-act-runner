@@ -23,7 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nektos/act/pkg/common"
 	"github.com/nektos/act/pkg/common/git"
-	"github.com/nektos/act/pkg/container"
+	"github.com/nektos/act/pkg/filecollector"
 	"github.com/nektos/act/pkg/model"
 	"github.com/nektos/act/pkg/runner"
 	"github.com/rhysd/actionlint"
@@ -546,7 +546,11 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		}()
 		ctxError = context.WithValue(ctxError, common.JobCancelCtxVal, jobExecCtx)
 		formatter.ctx = ctxError
-		err = rc.Executor()(ctxError)
+		var ex common.Executor
+		ex, err = rc.Executor()
+		if err == nil {
+			err = ex(ctxError)
+		}
 		if err == nil {
 			err = common.JobError(ctxError)
 		}
@@ -647,5 +651,5 @@ func extractTarGz(reader io.Reader, dir string) error {
 		return err
 	}
 	defer gzr.Close()
-	return container.ExtractTar(gzr, dir)
+	return filecollector.ExtractTar(gzr, dir)
 }

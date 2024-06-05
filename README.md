@@ -126,6 +126,11 @@ go run . run
 - now requires go 1.18 to compile
 - `protocol.JobLogger` moved to `"protocol/logger"` package
 
+# Breaking changes in 0.7.0
+- based on `nektos/act@b5ad3c4acd89cc8a7d1ce8bdb41c16d48b2cdf36`
+- removed openbsd/mips binaries, because this prevents updates to go and dependencies
+- ???
+
 # Known Limitations
 - ~~This runner ignores pre and post steps of javascript actions~~ Is now working in 0.6.0
 - ~~[actions/cache](https://github.com/actions/cache) is incompatible and won't be able to **save your cache**~~
