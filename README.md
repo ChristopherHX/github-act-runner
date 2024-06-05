@@ -67,7 +67,7 @@ For more info about managing runners.
 
 ## Usage from source
 
-You need at least go 1.18 to use this runner from source.
+You need at least go 1.21 to use this runner from source.
 
 ### Getting Source
 ```
@@ -129,7 +129,7 @@ go run . run
 # Breaking changes in 0.7.0
 - based on `nektos/act@b5ad3c4acd89cc8a7d1ce8bdb41c16d48b2cdf36`
 - removed openbsd/mips binaries, because this prevents updates to go and dependencies
-- ???
+- go 1.21 now required
 
 # Known Limitations
 - ~~This runner ignores pre and post steps of javascript actions~~ Is now working in 0.6.0
