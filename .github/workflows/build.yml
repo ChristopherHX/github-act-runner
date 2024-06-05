@@ -15,7 +15,7 @@ on:
         type: boolean
   
 env:
-  RUNNER_DEV_VERSION: "0.6.x"
+  RUNNER_DEV_VERSION: "0.7.x"
   RUNNER_SERVER_VERSION: "3.11.5"
 jobs:
   build:
@@ -60,8 +60,6 @@ jobs:
         - {GOOS: openbsd,   GOARCH: amd64,                }
         - {GOOS: openbsd,   GOARCH: arm,                  }
         - {GOOS: openbsd,   GOARCH: arm64,                }
-        # TODO Remove after 0.7.x
-        - {GOOS: openbsd,   GOARCH: mips64, GOVERSION: '1.20.5'}
         - {GOOS: plan9,     GOARCH: 386                   }
         - {GOOS: plan9,     GOARCH: amd64                 }
         - {GOOS: plan9,     GOARCH: arm                   }
