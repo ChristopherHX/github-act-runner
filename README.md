@@ -141,7 +141,7 @@ go run . run
 - ~~`add-mask` command not implemented~~ Is now working in 0.6.0
 - ~~Running steps after cancellation~~ Is now working in 0.6.0
 - ~~steps.timeout-minutes not implemented~~ Is now working in 0.6.0
-- Service Container are not implemented
+- ~~Service Container are not implemented~~ Is now working in 0.7.0
 - Step Summaries are not implemented (only file command is provided)
 - Annotations are not implemented
 - Problem Matcher are not implemented
