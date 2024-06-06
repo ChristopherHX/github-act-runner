@@ -2,6 +2,7 @@ name: service-container
 on: push
 jobs:
   service-container-test:
+    runs-on: self-hosted
     container: mysql:8
     services:
       maindb:
