@@ -266,7 +266,7 @@ jobs:
       timeout-minutes: 1
       run: |
         export JIT_TOKEN="$(./runner/github-act-runner configure --unattended --url http://localhost:5000/runner/test --token WhichToken --print-jitconfig)"
-        ./runner/github-act-runner remove --jitconfig "$JIT_TOKEN"
+        ./runner/github-act-runner remove --jitconfig "$JIT_TOKEN" --token WhichToken
         ./runner/github-act-runner run --jitconfig "$JIT_TOKEN" && exit 1 || [[ "$?" = "1" ]]
     - name: Archive Test Results
       if: ${{always()}}
