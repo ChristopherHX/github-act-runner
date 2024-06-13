@@ -248,7 +248,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 							deleteSession()
 							session2, err := vssConnection.CreateSession(joblisteningctx)
 							if err != nil {
-								if strings.Contains(err.Error(), "invalid_client") || strings.Contains(err.Error(), "invalid_grant") || strings.Contains(err.Error(), "TaskAgentNotFoundException") {
+								if strings.Contains(err.Error(), "invalid_client") || strings.Contains(err.Error(), "invalid_grant") || strings.Contains(err.Error(), "TaskAgentNotFoundException") || /* runner.server only */ strings.Contains(err.Error(), "Not Found") {
 									runnerenv.Printf("Fatal: It looks like this runner has been removed from GitHub, Failed to recreate Session for %v ( %v ): %v\n", instance.Agent.Name, instance.RegistrationURL, err.Error())
 									return 1
 								}
