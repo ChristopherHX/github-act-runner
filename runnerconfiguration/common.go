@@ -2,13 +2,13 @@ package runnerconfiguration
 
 import (
 	"bytes"
+	"context"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -96,9 +96,15 @@ type RunnerSettings struct {
 }
 
 func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent string, apiEndpoint string, survey Survey) (*protocol.GitHubAuthResult, error) {
+	if config.URL == "" {
+		config.URL = survey.GetInput("Which GitHub Url is assosiated with this runner (Normally this isn't missing):", "")
+	}
 	registerUrl, err := url.Parse(config.URL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid Url: %v\n", config.URL)
+		return nil, fmt.Errorf("invalid Url: %v", config.URL)
+	}
+	if registerUrl.Hostname() == "" {
+		return nil, fmt.Errorf("invalid Url missing Hostname: %v", config.URL)
 	}
 	apiscope := "/"
 	if strings.ToLower(registerUrl.Host) == "github.com" {
@@ -122,22 +128,15 @@ func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent strin
 			} else {
 				return nil, fmt.Errorf("unsupported registration url")
 			}
-			req, _ := http.NewRequest("POST", url.String(), nil)
-			req.SetBasicAuth("github", config.Pat)
-			req.Header.Add("Accept", "application/vnd.github.v3+json")
-			resp, err := c.Do(req)
-			if err != nil {
-				return nil, fmt.Errorf("failed to retrieve %v token via pat: %v\n", apiEndpoint, err.Error())
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				body, _ := ioutil.ReadAll(resp.Body)
-				return nil, fmt.Errorf("failed to retrieve %v via pat [%v]: %v\n", apiEndpoint, fmt.Sprint(resp.StatusCode), string(body))
+			client := &protocol.VssConnection{
+				AuthHeader: fmt.Sprintf("Basic %v", base64.StdEncoding.EncodeToString([]byte("GitHub:"+config.Pat))),
+				Trace:      config.Trace,
+				Client:     c,
 			}
 			tokenresp := &protocol.GitHubRunnerRegisterToken{}
-			dec := json.NewDecoder(resp.Body)
-			if err := dec.Decode(tokenresp); err != nil {
-				return nil, fmt.Errorf("failed to decode registration token via pat: " + err.Error())
+			err = client.RequestWithContext2(context.Background(), "POST", url.String(), "", nil, tokenresp)
+			if err != nil {
+				return nil, fmt.Errorf("failed to retrieve %v token via pat: %v", apiEndpoint, err.Error())
 			}
 			config.Token = tokenresp.Token
 		} else if !config.Unattended {
@@ -159,21 +158,16 @@ func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent strin
 	}
 	finalregisterUrl := registerUrl.String()
 
-	r, _ := http.NewRequest("POST", finalregisterUrl, buf)
-	r.Header["Authorization"] = []string{"RemoteAuth " + config.Token}
-	resp, err := c.Do(r)
-	if err != nil {
-		return nil, fmt.Errorf("failed to register Runner: %v\n", err)
+	client := &protocol.VssConnection{
+		AuthHeader: "RemoteAuth " + config.Token,
+		Trace:      config.Trace,
+		Client:     c,
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("failed to register Runner with status code: %v\n", resp.StatusCode)
-	}
-
 	res := &protocol.GitHubAuthResult{}
-	dec := json.NewDecoder(resp.Body)
-	if err := dec.Decode(res); err != nil {
-		return nil, fmt.Errorf("error decoding struct from JSON: %v\n", err)
+	err = client.RequestWithContext2(context.Background(), "POST", finalregisterUrl, "", buf, res)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to authenticate as Runner Admin: %v", err)
 	}
 	return res, nil
 }
@@ -189,6 +183,7 @@ func (config *RemoveRunner) Authenticate(c *http.Client, survey Survey) (*protoc
 func (config *ConfigureRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
 	return config.Authenticate(c, survey)
 }
+
 // Deprecated: Use the Authenticate method.
 func (config *RemoveRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
 	return config.Authenticate(c, survey)
