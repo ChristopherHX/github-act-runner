@@ -56,7 +56,9 @@ func (config *RemoveRunner) Remove(settings *RunnerSettings, survey Survey, auth
 	for i, instance := range instancesToRemove {
 		result := func() error {
 			confremove := *config
-			confremove.URL = instance.RegistrationURL
+			if instance.RegistrationURL != "" {
+				confremove.URL = instance.RegistrationURL
+			}
 			res := auth
 			if needsPat {
 				// Enshure that gitHubAuth always uses the Personal access token

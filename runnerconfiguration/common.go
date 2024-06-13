@@ -96,7 +96,7 @@ type RunnerSettings struct {
 }
 
 func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent string, apiEndpoint string, survey Survey) (*protocol.GitHubAuthResult, error) {
-	if config.URL == "" {
+	if config.URL == "" && !config.Unattended {
 		config.URL = survey.GetInput("Which GitHub Url is assosiated with this runner (Normally this isn't missing):", "")
 	}
 	registerUrl, err := url.Parse(config.URL)
