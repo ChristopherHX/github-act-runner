@@ -25,6 +25,7 @@ type VssConnection struct {
 	TenantURL      string
 	connectionData *ConnectionData
 	Token          string
+	AuthHeader     string
 	PoolID         int64
 	TaskAgent      *TaskAgent
 	Key            *rsa.PrivateKey
@@ -230,6 +231,8 @@ func (vssConnection *VssConnection) requestWithContextNoAuth(ctx context.Context
 	}
 	if len(vssConnection.Token) > 0 {
 		header["Authorization"] = []string{"bearer " + vssConnection.Token}
+	} else if len(vssConnection.AuthHeader) > 0 {
+		header["Authorization"] = []string{vssConnection.AuthHeader}
 	}
 	if vssConnection.Trace {
 		fmt.Printf("Http %v Request started %v\nHeaders:\n%v\nBody: `%v`\n", method, requesturl, getHeadersAsString(request.Header), getBodyAsString(buf))
@@ -264,7 +267,7 @@ func (vssConnection *VssConnection) requestWithContextNoAuth(ctx context.Context
 	if failed {
 		return response.StatusCode, fmt.Errorf("http failure: %v", traceMessage)
 	}
-	if response.StatusCode != 200 && responseBody != nil {
+	if response.StatusCode == 204 && responseBody != nil {
 		return response.StatusCode, io.EOF
 	}
 	return response.StatusCode, setResponseBody(responseReader, responseBody)

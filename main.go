@@ -306,7 +306,7 @@ func main() {
 			remove.ReadFromEnvironment()
 			var settings *runnerconfiguration.RunnerSettings
 			var err error
-			if local {
+			if !local {
 				if jitConfig != "" {
 					if settings, err = runnerCompat.ParseJitRunnerConfig(jitConfig); err != nil {
 						fmt.Printf("jitconfig is corrupted: %v, please reconfigure the runner\n", err.Error())
@@ -349,7 +349,7 @@ func main() {
 	cmdRemove.Flags().StringVar(&remove.Name, "name", "", "name of the runner to remove")
 	cmdRemove.Flags().BoolVar(&remove.Trace, "trace", false, "trace http communication with the github action service")
 	cmdRemove.Flags().BoolVar(&remove.Force, "force", false, "force remove the instance even if the service responds with an error")
-	cmdRemove.Flags().StringVarP(&jitConfig, "jitconfig", "", os.Getenv("ACTIONS_RUNNER_INPUT_JITCONFIG"), "read the runner configuration from the jitconfig")
+	cmdRemove.Flags().StringVarP(&jitConfig, "jitconfig", "", os.Getenv("ACTIONS_RUNNER_INPUT_JITCONFIG"), "read the runner configuration from the jitconfig, this doesn't replace token/pat")
 	cmdRemove.Flags().BoolVar(&local, "local", local, "only delete the configuration")
 
 	var cmdWorker = &cobra.Command{
