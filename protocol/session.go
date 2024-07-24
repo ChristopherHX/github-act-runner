@@ -6,11 +6,13 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
+	"strings"
 
 	// nolint:gosec
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash"
@@ -59,6 +61,46 @@ func (message *TaskAgentMessage) Decrypt(block cipher.Block) ([]byte, error) {
 		off = 3
 	}
 	return src[off:validlen], nil
+}
+
+type BrokerMigration struct {
+	BrokerBaseUrl string `json:"brokerBaseUrl"`
+}
+
+func (message *TaskAgentMessage) FetchBrokerIfNeeded(xctx context.Context, session *AgentMessageConnection) error {
+	if strings.EqualFold(message.MessageType, "BrokerMigration") {
+		vssConnection := session.VssConnection
+		rjrr := &BrokerMigration{}
+		raw, err := message.Decrypt(session.Block)
+		if err != nil {
+			return err
+		}
+		err = json.Unmarshal(raw, rjrr)
+		if err != nil {
+			return err
+		}
+		for retries := 0; retries < 5; retries++ {
+			copy := *vssConnection
+			vssConnection := &copy
+			vssConnection.Token = ""
+			vssConnection.TenantURL = rjrr.BrokerBaseUrl
+			furl, err := vssConnection.BuildURL("message", map[string]string{}, map[string]string{
+				"sessionId":     session.TaskAgentSession.SessionID,
+				"runnerVersion": "2.317.0",
+				"status":        "Online",
+			})
+			if err != nil {
+				return err
+			}
+			err = vssConnection.RequestWithContext2(xctx, "GET", furl, "", nil, &message)
+			if err == nil || errors.Is(err, io.EOF) {
+				return err
+			}
+			<-time.After(time.Second * 5 * time.Duration(retries+1))
+		}
+		return err
+	}
+	return nil
 }
 
 type TaskAgentSessionKey struct {
@@ -123,6 +165,9 @@ func (session *AgentMessageConnection) GetNextMessage(ctx context.Context) (*Tas
 			"runnerVersion": "2.317.0",
 		}, nil, message)
 		// TODO lastMessageId=
+		if err == nil {
+			err = message.FetchBrokerIfNeeded(ctx, session)
+		}
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil, err

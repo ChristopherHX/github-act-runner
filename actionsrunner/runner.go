@@ -332,8 +332,8 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 							}
 						}
 					}
-					if success {
-						if message != nil && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest") || strings.EqualFold(message.MessageType, "BrokerMigration")) {
+					if success && message.FetchBrokerIfNeeded(xctx, session) == nil {
+						if strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest") || strings.EqualFold(message.MessageType, "BrokerMigration") {
 							cancelJobListening()
 							for message != nil && !firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest") || strings.EqualFold(message.MessageType, "BrokerMigration")) {
 								if run.Once {
@@ -401,10 +401,6 @@ type RunnerJobRequestRef struct {
 	RunServiceUrl   string `json:"run_service_url"`
 }
 
-type BrokerMigration struct {
-	BrokerBaseUrl string `json:"brokerBaseUrl"`
-}
-
 type plainTextFormatter struct {
 }
 
@@ -438,29 +434,6 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 		jobreq := &protocol.AgentJobRequestMessage{}
 		var runServiceUrl string
 		{
-			if strings.EqualFold(message.MessageType, "BrokerMigration") {
-				rjrr := &BrokerMigration{}
-				json.Unmarshal(src, rjrr)
-				for retries := 0; retries < 5; retries++ {
-					var err error
-					copy := *vssConnection
-					vssConnection := &copy
-					vssConnection.Token = ""
-					vssConnection.TenantURL = rjrr.BrokerBaseUrl
-					furl, _ := vssConnection.BuildURL("message", map[string]string{}, map[string]string{
-						"sessionId":     session.TaskAgentSession.SessionID,
-						"runnerVersion": "2.317.0",
-						"status":        "Online",
-					})
-					err = vssConnection.RequestWithContext2(jobctx, "GET", furl, "", nil, &message)
-					if err == nil {
-						// json.Unmarshal(src, jobreq)
-						src, _ = message.Decrypt(session.Block)
-						break
-					}
-					<-time.After(time.Second * 5 * time.Duration(retries+1))
-				}
-			}
 			if strings.EqualFold(message.MessageType, "RunnerJobRequest") {
 				plogger.Printf("Warning: TaskAgentMessage.MessageType is %v, which has not been properly tested due to missing access to test servers of the new protocol before rollout. Please report any failures to https://github.com/ChristopherHX/github-act-runner/issues.\n", message.MessageType)
 				rjrr := &RunnerJobRequestRef{}
