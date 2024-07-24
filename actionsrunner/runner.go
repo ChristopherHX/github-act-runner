@@ -446,8 +446,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 					copy := *vssConnection
 					vssConnection := &copy
 					vssConnection.Token = ""
-					runServiceUrl = rjrr.BrokerBaseUrl
-					vssConnection.TenantURL = runServiceUrl
+					vssConnection.TenantURL = rjrr.BrokerBaseUrl
 					furl, _ := vssConnection.BuildURL("message", map[string]string{}, map[string]string{
 						"sessionId":     session.TaskAgentSession.SessionID,
 						"runnerVersion": "2.317.0",
