@@ -26,6 +26,9 @@ type TaskAgentMessage struct {
 }
 
 func (message *TaskAgentMessage) Decrypt(block cipher.Block) ([]byte, error) {
+	if message.IV == "" {
+		return []byte(message.Body), nil
+	}
 	iv, err := base64.StdEncoding.DecodeString(message.IV)
 	if err != nil {
 		return nil, err
@@ -116,7 +119,8 @@ func (session *AgentMessageConnection) GetNextMessage(ctx context.Context) (*Tas
 		err := session.VssConnection.RequestWithContext(ctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "GET", map[string]string{
 			"poolId": fmt.Sprint(session.VssConnection.PoolID),
 		}, map[string]string{
-			"sessionId": session.TaskAgentSession.SessionID,
+			"sessionId":     session.TaskAgentSession.SessionID,
+			"runnerVersion": "2.317.0",
 		}, nil, message)
 		// TODO lastMessageId=
 		if err != nil {

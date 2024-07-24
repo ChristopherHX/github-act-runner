@@ -283,7 +283,9 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 						err := vssConnection.RequestWithContext(xctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "GET", map[string]string{
 							"poolId": fmt.Sprint(instance.PoolID),
 						}, map[string]string{
-							"sessionId": session.TaskAgentSession.SessionID,
+							"sessionId":     session.TaskAgentSession.SessionID,
+							"runnerVersion": "2.317.0",
+							"status":        "Online",
 						}, nil, message)
 						//TODO lastMessageId=
 						if err != nil {
@@ -331,9 +333,9 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 						}
 					}
 					if success {
-						if message != nil && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
+						if message != nil && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest") || strings.EqualFold(message.MessageType, "BrokerMigration")) {
 							cancelJobListening()
-							for message != nil && !firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
+							for message != nil && !firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest") || strings.EqualFold(message.MessageType, "BrokerMigration")) {
 								if run.Once {
 									firstJobReceived = true
 								}
@@ -349,7 +351,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 									var err error
 									message, err = session.GetNextMessage(jobExecCtx)
 									if !errors.Is(err, context.Canceled) && message != nil {
-										if firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
+										if firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest") || strings.EqualFold(message.MessageType, "BrokerMigration")) {
 											runnerenv.Printf("Skip deleting the duplicated job request, we hope that the actions service reschedules your job to a different runner\n")
 										} else {
 											session.DeleteMessage(joblisteningctx, message)
@@ -399,6 +401,10 @@ type RunnerJobRequestRef struct {
 	RunServiceUrl   string `json:"run_service_url"`
 }
 
+type BrokerMigration struct {
+	BrokerBaseUrl string `json:"brokerBaseUrl"`
+}
+
 type plainTextFormatter struct {
 }
 
@@ -432,6 +438,30 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 		jobreq := &protocol.AgentJobRequestMessage{}
 		var runServiceUrl string
 		{
+			if strings.EqualFold(message.MessageType, "BrokerMigration") {
+				rjrr := &BrokerMigration{}
+				json.Unmarshal(src, rjrr)
+				for retries := 0; retries < 5; retries++ {
+					var err error
+					copy := *vssConnection
+					vssConnection := &copy
+					vssConnection.Token = ""
+					runServiceUrl = rjrr.BrokerBaseUrl
+					vssConnection.TenantURL = runServiceUrl
+					furl, _ := vssConnection.BuildURL("message", map[string]string{}, map[string]string{
+						"sessionId":     session.TaskAgentSession.SessionID,
+						"runnerVersion": "2.317.0",
+						"status":        "Online",
+					})
+					err = vssConnection.RequestWithContext2(jobctx, "GET", furl, "", nil, &message)
+					if err == nil {
+						// json.Unmarshal(src, jobreq)
+						src, _ = message.Decrypt(session.Block)
+						break
+					}
+					<-time.After(time.Second * 5 * time.Duration(retries+1))
+				}
+			}
 			if strings.EqualFold(message.MessageType, "RunnerJobRequest") {
 				plogger.Printf("Warning: TaskAgentMessage.MessageType is %v, which has not been properly tested due to missing access to test servers of the new protocol before rollout. Please report any failures to https://github.com/ChristopherHX/github-act-runner/issues.\n", message.MessageType)
 				rjrr := &RunnerJobRequestRef{}
