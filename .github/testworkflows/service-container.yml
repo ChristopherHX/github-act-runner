@@ -16,7 +16,6 @@ jobs:
         #  - 3306:3306
         options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
     steps:
-    - run: sleep 30
     - run: mysql -u dbuser -D dbname -pdbpass -h maindb -e "create table T(id INT NOT NULL AUTO_INCREMENT, val VARCHAR(255), PRIMARY KEY (id))"
     - run: mysql -u dbuser -D dbname -pdbpass -h maindb -e "insert into T(val) values ('test'),('h')"
     - run: mysql -u dbuser -D dbname -pdbpass -h maindb -e "select * from T"
