@@ -312,6 +312,7 @@ func (vssConnection *VssConnection) CreateSession(ctx context.Context) (*AgentMe
 		_ = con.Delete(ctx)
 		return nil, err
 	}
+	con.Status = "Online"
 	return con, nil
 }
 
@@ -323,6 +324,7 @@ func (vssConnection *VssConnection) LoadSession(ctx context.Context, session *Ta
 		_ = con.Delete(ctx)
 		return nil, err
 	}
+	con.Status = "Online"
 	return con, nil
 }
 

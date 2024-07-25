@@ -280,10 +280,13 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 								continue
 							}
 						}
+						session.Status = "Online"
 						err := vssConnection.RequestWithContext(xctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "GET", map[string]string{
 							"poolId": fmt.Sprint(instance.PoolID),
 						}, map[string]string{
-							"sessionId": session.TaskAgentSession.SessionID,
+							"sessionId":     session.TaskAgentSession.SessionID,
+							"runnerVersion": "3.0.0",
+							"status":        session.Status,
 						}, nil, message)
 						//TODO lastMessageId=
 						if err != nil {
@@ -330,8 +333,8 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 							}
 						}
 					}
-					if success {
-						if message != nil && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
+					if success && message.FetchBrokerIfNeeded(xctx, session) == nil {
+						if strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest") {
 							cancelJobListening()
 							for message != nil && !firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
 								if run.Once {
@@ -346,6 +349,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 								}()
 								runJob(runnerenv, &joblock, vssConnection, run, cancel, cancelJob, finishJob, jobExecCtx, jobctx, session, *message, instance)
 								{
+									session.Status = "Busy"
 									var err error
 									message, err = session.GetNextMessage(jobExecCtx)
 									if !errors.Is(err, context.Canceled) && message != nil {

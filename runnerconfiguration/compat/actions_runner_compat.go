@@ -153,8 +153,9 @@ func ToRunnerInstance(fileAccess ConfigFileAccess) (*runnerconfiguration.RunnerI
 				ClientID:         credentials.Data.ClientId,
 			},
 			DisableUpdate: disableUpdate,
+			Version:       "3.0.0",
 		},
-		WorkFolder: agent.WorkFolder,
+		WorkFolder:      agent.WorkFolder,
 		RegistrationURL: agent.GitHubUrl,
 	}, nil
 }
