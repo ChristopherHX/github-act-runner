@@ -86,7 +86,7 @@ func (message *TaskAgentMessage) FetchBrokerIfNeeded(xctx context.Context, sessi
 			furl, err := vssConnection.BuildURL("message", map[string]string{}, map[string]string{
 				"sessionId":     session.TaskAgentSession.SessionID,
 				"runnerVersion": "3.0.0",
-				"status":        "Online",
+				"status":        session.Status,
 			})
 			if err != nil {
 				return err
@@ -144,6 +144,7 @@ type AgentMessageConnection struct {
 	VssConnection    *VssConnection
 	TaskAgentSession *TaskAgentSession
 	Block            cipher.Block
+	Status           string
 }
 
 func (session *AgentMessageConnection) Delete(ctx context.Context) error {
