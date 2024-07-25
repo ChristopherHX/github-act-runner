@@ -162,7 +162,7 @@ func (run *RunRunner) RunWithContext(listenerctx context.Context, ctx context.Co
 	return 0
 }
 
-var version string = "0.6.x-dev"
+var version string = "0.8.x-dev"
 
 type interactive struct {
 }
