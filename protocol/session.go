@@ -82,21 +82,24 @@ func (message *TaskAgentMessage) FetchBrokerIfNeeded(xctx context.Context, sessi
 		for retries := 0; retries < 5; retries++ {
 			copy := *vssConnection
 			vssConnection := &copy
-			vssConnection.Token = ""
 			vssConnection.TenantURL = rjrr.BrokerBaseUrl
 			furl, err := vssConnection.BuildURL("message", map[string]string{}, map[string]string{
 				"sessionId":     session.TaskAgentSession.SessionID,
-				"runnerVersion": "2.317.0",
+				"runnerVersion": "3.0.0",
 				"status":        "Online",
 			})
 			if err != nil {
 				return err
 			}
 			err = vssConnection.RequestWithContext2(xctx, "GET", furl, "", nil, &message)
-			if err == nil || errors.Is(err, io.EOF) {
+			if err == nil || errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
 				return err
 			}
-			<-time.After(time.Second * 5 * time.Duration(retries+1))
+			select {
+			case <-xctx.Done():
+				return xctx.Err()
+			case <-time.After(time.Second * 5 * time.Duration(retries+1)):
+			}
 		}
 		return err
 	}
@@ -162,11 +165,12 @@ func (session *AgentMessageConnection) GetNextMessage(ctx context.Context) (*Tas
 			"poolId": fmt.Sprint(session.VssConnection.PoolID),
 		}, map[string]string{
 			"sessionId":     session.TaskAgentSession.SessionID,
-			"runnerVersion": "2.317.0",
+			"runnerVersion": "3.0.0",
 		}, nil, message)
 		// TODO lastMessageId=
 		if err == nil {
-			err = message.FetchBrokerIfNeeded(ctx, session)
+			err = session.DeleteMessage(ctx, message)
+			err = errors.Join(err, message.FetchBrokerIfNeeded(ctx, session))
 		}
 		if err != nil {
 			if errors.Is(err, context.Canceled) {

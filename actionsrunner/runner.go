@@ -284,7 +284,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 							"poolId": fmt.Sprint(instance.PoolID),
 						}, map[string]string{
 							"sessionId":     session.TaskAgentSession.SessionID,
-							"runnerVersion": "2.317.0",
+							"runnerVersion": "3.0.0",
 							"status":        "Online",
 						}, nil, message)
 						//TODO lastMessageId=
@@ -333,9 +333,9 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 						}
 					}
 					if success && message.FetchBrokerIfNeeded(xctx, session) == nil {
-						if strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest") || strings.EqualFold(message.MessageType, "BrokerMigration") {
+						if strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest") {
 							cancelJobListening()
-							for message != nil && !firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest") || strings.EqualFold(message.MessageType, "BrokerMigration")) {
+							for message != nil && !firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
 								if run.Once {
 									firstJobReceived = true
 								}
@@ -351,7 +351,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 									var err error
 									message, err = session.GetNextMessage(jobExecCtx)
 									if !errors.Is(err, context.Canceled) && message != nil {
-										if firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest") || strings.EqualFold(message.MessageType, "BrokerMigration")) {
+										if firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
 											runnerenv.Printf("Skip deleting the duplicated job request, we hope that the actions service reschedules your job to a different runner\n")
 										} else {
 											session.DeleteMessage(joblisteningctx, message)

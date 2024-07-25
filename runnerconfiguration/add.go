@@ -109,7 +109,7 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 	for ; expof < 3 && bs[expof] == 0; expof++ {
 	}
 	taskAgent.Authorization.PublicKey = protocol.TaskAgentPublicKey{Exponent: base64.StdEncoding.EncodeToString(bs[expof:]), Modulus: base64.StdEncoding.EncodeToString(key.N.Bytes())}
-	taskAgent.Version = "2.317.0" // version, will not use fips crypto if set to 0.0.0 *
+	taskAgent.Version = "3.0.0" // version, will not use fips crypto if set to 0.0.0 *
 	taskAgent.OSDescription = "github-act-runner " + runtime.GOOS + "/" + runtime.GOARCH
 	if config.Name != "" {
 		taskAgent.Name = config.Name
