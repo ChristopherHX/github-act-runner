@@ -1,13 +1,11 @@
 package runnerconfiguration
 
 import (
-	"bytes"
 	"context"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -148,14 +146,6 @@ func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent strin
 	}
 	registerUrl.Path = path.Join(apiscope, "actions/runner-registration")
 
-	buf := new(bytes.Buffer)
-	req := &protocol.RunnerAddRemove{}
-	req.URL = config.URL
-	req.RunnerEvent = runnerEvent
-	enc := json.NewEncoder(buf)
-	if err := enc.Encode(req); err != nil {
-		return nil, err
-	}
 	finalregisterUrl := registerUrl.String()
 
 	client := &protocol.VssConnection{
@@ -164,7 +154,10 @@ func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent strin
 		Client:     c,
 	}
 	res := &protocol.GitHubAuthResult{}
-	err = client.RequestWithContext2(context.Background(), "POST", finalregisterUrl, "", buf, res)
+	err = client.RequestWithContext2(context.Background(), "POST", finalregisterUrl, "", &protocol.RunnerAddRemove{
+		URL:         config.URL,
+		RunnerEvent: runnerEvent,
+	}, res)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to authenticate as Runner Admin: %v", err)
