@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"github.com/ChristopherHX/github-act-runner/actionsdotnetactcompat"
@@ -144,6 +145,13 @@ func (run *RunRunner) RunWithContext(listenerctx context.Context, ctx context.Co
 		fmt.Printf("settings.json is corrupted: %v, please reconfigure the runner\n", err.Error())
 		return 1
 	}
+	// Clean up our env to not share it with untrusted subprocesses
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "ACTIONS_RUNNER_INPUT_") {
+			k, _, _ := strings.Cut(kv, "=")
+			os.Unsetenv(k)
+		}
+	}
 	runner := &actionsrunner.RunRunner{
 		Once:     run.Once,
 		Trace:    run.Trace,
@@ -183,7 +191,22 @@ type RunRunnerSvc struct {
 }
 
 func (svc *RunRunnerSvc) Start(s service.Service) error {
-	runner := &RunRunner{}
+	runner := &RunRunner{
+		JITConfig: os.Getenv("ACTIONS_RUNNER_INPUT_JITCONFIG"),
+		Terminal:  true,
+	}
+	if workerArgs, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_WORKER_RUNNER"); ok {
+		runner.WorkerArgs = strings.Split(workerArgs, ",")
+	}
+	if once, ok := common.LookupEnvBool("ACTIONS_RUNNER_INPUT_ONCE"); ok {
+		runner.Once = once
+	}
+	if trace, ok := common.LookupEnvBool("ACTIONS_RUNNER_INPUT_TRACE"); ok {
+		runner.Trace = trace
+	}
+	if terminal, ok := common.LookupEnvBool("ACTIONS_RUNNER_INPUT_TERMINAL"); ok {
+		runner.Terminal = terminal
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	listenerctx, cancelListener := context.WithCancel(context.Background())
