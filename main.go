@@ -195,7 +195,7 @@ func (svc *RunRunnerSvc) Start(s service.Service) error {
 		JITConfig: os.Getenv("ACTIONS_RUNNER_INPUT_JITCONFIG"),
 		Terminal:  true,
 	}
-	if workerArgs, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_WORKER_RUNNER"); ok {
+	if workerArgs, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_WORKER_ARGS"); ok {
 		runner.WorkerArgs = strings.Split(workerArgs, ",")
 	}
 	if once, ok := common.LookupEnvBool("ACTIONS_RUNNER_INPUT_ONCE"); ok {
