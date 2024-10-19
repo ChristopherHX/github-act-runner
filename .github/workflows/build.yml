@@ -15,8 +15,8 @@ on:
         type: boolean
   
 env:
-  RUNNER_DEV_VERSION: "0.8.x"
-  RUNNER_SERVER_VERSION: "3.11.14"
+  RUNNER_DEV_VERSION: "0.9.x"
+  RUNNER_SERVER_VERSION: "3.11.16"
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -71,7 +71,7 @@ jobs:
     env:
       CGO_ENABLED: 0 # Only android should build with cgo
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: recursive
     - name: Setup Go
@@ -117,11 +117,11 @@ jobs:
         cp compat/*.cmd output/
         cd output
         zip ../binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.zip ./*
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}
         path: github-act-runner-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}${{matrix.suffix}}
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       if: ${{ github.event.inputs.skip-packaging != 'true' }}
       with:
         name: bundle-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}
@@ -136,7 +136,7 @@ jobs:
     if: ${{ github.event.inputs.skip-packaging != 'true' && github.event.inputs.version }}
     continue-on-error: true
     steps:
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4
       with:
         path: "artifacts"
     - uses: ncipollo/release-action@v1
@@ -173,9 +173,9 @@ jobs:
       DEPLOY_ARCHS: "amd64 i386 armel armhf arm64 ppc64 ppc64el mips mipsel mips64el riscv64 s390x loong64" # architectures from https://wiki.debian.org/SupportedArchitectures
     steps:
     - name: git clone
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with: {submodules: false}
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4
       with:
         path: "artifacts"
     - name: add cppfw repo to install myci scripts from
@@ -221,7 +221,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event.inputs.skip-packaging != 'true' }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Prepare actions-runner
       run: |
         # Create a folder
@@ -231,7 +231,7 @@ jobs:
         # Extract the installer
         tar xzf "runner.server-linux-x64.tar.gz"
     - name: Download Artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: bundle-linux-amd64
         path: runner
