@@ -31,7 +31,7 @@ jobs:
       run: |
         echo Hello World
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     - run: |
         sudo apt update
         sudo apt install -y clang
@@ -42,7 +42,7 @@ jobs:
     if: failure()
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/github-script@v6
+    - uses: actions/github-script@v7
       with:
         script: |
           github.rest.issues.createComment({
