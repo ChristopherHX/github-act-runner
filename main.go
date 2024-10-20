@@ -165,6 +165,8 @@ func (run *RunRunner) RunWithContext(listenerctx context.Context, ctx context.Co
 		},
 		ApplyConfig: func(config *nrunner.Config, jobreq *protocol.AgentJobRequestMessage) error {
 			println(jobreq.ContextData["github"].GetString("server_url"))
+			println(jobreq.ContextData["github"].GetString("api_url"))
+
 			return nil
 		},
 	}, listenerctx, ctx)

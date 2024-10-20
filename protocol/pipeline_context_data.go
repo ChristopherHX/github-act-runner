@@ -8,8 +8,8 @@ import (
 )
 
 type DictionaryContextDataPair struct {
-	Key   string              `json:"k"`
-	Value PipelineContextData `json:"v"`
+	Key   string               `json:"k"`
+	Value *PipelineContextData `json:"v"`
 }
 
 type PipelineContextData struct {
@@ -17,7 +17,7 @@ type PipelineContextData struct {
 	BoolValue       *bool                        `json:"b,omitempty"`
 	NumberValue     *float64                     `json:"n,omitempty"`
 	StringValue     *string                      `json:"s,omitempty"`
-	ArrayValue      *[]PipelineContextData       `json:"a,omitempty"`
+	ArrayValue      *[]*PipelineContextData      `json:"a,omitempty"`
 	DictionaryValue *[]DictionaryContextDataPair `json:"d,omitempty"`
 }
 
@@ -50,8 +50,8 @@ func (ctx *PipelineContextData) UnmarshalJSON(data []byte) error {
 	}
 }
 
-func (ctx PipelineContextData) ToRawObject() interface{} {
-	if ctx.Type == nil {
+func (ctx *PipelineContextData) ToRawObject() interface{} {
+	if ctx == nil || ctx.Type == nil {
 		return nil
 	}
 	switch *ctx.Type {
@@ -81,36 +81,36 @@ func (ctx PipelineContextData) ToRawObject() interface{} {
 	return nil
 }
 
-func ToPipelineContextDataWithError(data interface{}) (PipelineContextData, error) {
+func ToPipelineContextDataWithError(data interface{}) (*PipelineContextData, error) {
 	if b, ok := data.(bool); ok {
 		var typ int32 = 3
-		return PipelineContextData{
+		return &PipelineContextData{
 			Type:      &typ,
 			BoolValue: &b,
 		}, nil
 	} else if n, ok := data.(float64); ok {
 		var typ int32 = 4
-		return PipelineContextData{
+		return &PipelineContextData{
 			Type:        &typ,
 			NumberValue: &n,
 		}, nil
 	} else if s, ok := data.(string); ok {
 		var typ int32
-		return PipelineContextData{
+		return &PipelineContextData{
 			Type:        &typ,
 			StringValue: &s,
 		}, nil
 	} else if a, ok := data.([]interface{}); ok {
-		arr := []PipelineContextData{}
+		arr := []*PipelineContextData{}
 		for _, v := range a {
 			e, err := ToPipelineContextDataWithError(v)
 			if err != nil {
-				return PipelineContextData{}, err
+				return nil, err
 			}
 			arr = append(arr, e)
 		}
 		var typ int32 = 1
-		return PipelineContextData{
+		return &PipelineContextData{
 			Type:       &typ,
 			ArrayValue: &arr,
 		}, nil
@@ -119,23 +119,23 @@ func ToPipelineContextDataWithError(data interface{}) (PipelineContextData, erro
 		for k, v := range o {
 			e, err := ToPipelineContextDataWithError(v)
 			if err != nil {
-				return PipelineContextData{}, err
+				return nil, err
 			}
 			obj = append(obj, DictionaryContextDataPair{Key: k, Value: e})
 		}
 		var typ int32 = 2
-		return PipelineContextData{
+		return &PipelineContextData{
 			Type:            &typ,
 			DictionaryValue: &obj,
 		}, nil
 	}
 	if data == nil {
-		return PipelineContextData{}, nil
+		return nil, nil
 	}
-	return PipelineContextData{}, fmt.Errorf("unknown type")
+	return nil, fmt.Errorf("unknown type")
 }
 
-func ToPipelineContextData(data interface{}) PipelineContextData {
+func ToPipelineContextData(data interface{}) *PipelineContextData {
 	ret, err := ToPipelineContextDataWithError(data)
 	if err != nil {
 		panic(err)
