@@ -24,6 +24,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/kardianos/service"
 	"github.com/nektos/act/pkg/container"
+	nrunner "github.com/nektos/act/pkg/runner"
 
 	"github.com/spf13/cobra"
 )
@@ -161,6 +162,12 @@ func (run *RunRunner) RunWithContext(listenerctx context.Context, ctx context.Co
 	err = runner.Run(&actionsdotnetactcompat.ActRunner{
 		WorkerRunnerEnvironment: actionsrunner.WorkerRunnerEnvironment{
 			WorkerArgs: run.WorkerArgs,
+		},
+		ApplyConfig: func(config *nrunner.Config, jobreq *protocol.AgentJobRequestMessage) error {
+			println(jobreq.ContextData["github"].GetString("server_url"))
+			println(jobreq.ContextData["github"].GetString("api_url"))
+
+			return nil
 		},
 	}, listenerctx, ctx)
 	if err != nil {
@@ -407,7 +414,11 @@ func main() {
 							wc.Init()
 							wc.Logger().Append(protocol.CreateTimelineEntry(jobreq.JobID, "__setup", "Set up Job")).Start()
 							wc.Logger().MoveNext()
-							actionsdotnetactcompat.ExecWorker(jobreq, wc)
+							(&actionsdotnetactcompat.ActRunner{
+								WorkerRunnerEnvironment: actionsrunner.WorkerRunnerEnvironment{
+									WorkerArgs: run.WorkerArgs,
+								},
+							}).ExecWorker(&actionsrunner.RunRunner{}, wc, jobreq, src)
 						}()
 					default:
 						cancelExec()

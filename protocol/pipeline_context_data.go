@@ -3,11 +3,13 @@ package protocol
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 )
 
 type DictionaryContextDataPair struct {
-	Key   string              `json:"k"`
-	Value PipelineContextData `json:"v"`
+	Key   string               `json:"k"`
+	Value *PipelineContextData `json:"v"`
 }
 
 type PipelineContextData struct {
@@ -15,7 +17,7 @@ type PipelineContextData struct {
 	BoolValue       *bool                        `json:"b,omitempty"`
 	NumberValue     *float64                     `json:"n,omitempty"`
 	StringValue     *string                      `json:"s,omitempty"`
-	ArrayValue      *[]PipelineContextData       `json:"a,omitempty"`
+	ArrayValue      *[]*PipelineContextData      `json:"a,omitempty"`
 	DictionaryValue *[]DictionaryContextDataPair `json:"d,omitempty"`
 }
 
@@ -48,8 +50,8 @@ func (ctx *PipelineContextData) UnmarshalJSON(data []byte) error {
 	}
 }
 
-func (ctx PipelineContextData) ToRawObject() interface{} {
-	if ctx.Type == nil {
+func (ctx *PipelineContextData) ToRawObject() interface{} {
+	if ctx == nil || ctx.Type == nil {
 		return nil
 	}
 	switch *ctx.Type {
@@ -79,36 +81,36 @@ func (ctx PipelineContextData) ToRawObject() interface{} {
 	return nil
 }
 
-func ToPipelineContextDataWithError(data interface{}) (PipelineContextData, error) {
+func ToPipelineContextDataWithError(data interface{}) (*PipelineContextData, error) {
 	if b, ok := data.(bool); ok {
 		var typ int32 = 3
-		return PipelineContextData{
+		return &PipelineContextData{
 			Type:      &typ,
 			BoolValue: &b,
 		}, nil
 	} else if n, ok := data.(float64); ok {
 		var typ int32 = 4
-		return PipelineContextData{
+		return &PipelineContextData{
 			Type:        &typ,
 			NumberValue: &n,
 		}, nil
 	} else if s, ok := data.(string); ok {
 		var typ int32
-		return PipelineContextData{
+		return &PipelineContextData{
 			Type:        &typ,
 			StringValue: &s,
 		}, nil
 	} else if a, ok := data.([]interface{}); ok {
-		arr := []PipelineContextData{}
+		arr := []*PipelineContextData{}
 		for _, v := range a {
 			e, err := ToPipelineContextDataWithError(v)
 			if err != nil {
-				return PipelineContextData{}, err
+				return nil, err
 			}
 			arr = append(arr, e)
 		}
 		var typ int32 = 1
-		return PipelineContextData{
+		return &PipelineContextData{
 			Type:       &typ,
 			ArrayValue: &arr,
 		}, nil
@@ -117,26 +119,133 @@ func ToPipelineContextDataWithError(data interface{}) (PipelineContextData, erro
 		for k, v := range o {
 			e, err := ToPipelineContextDataWithError(v)
 			if err != nil {
-				return PipelineContextData{}, err
+				return nil, err
 			}
 			obj = append(obj, DictionaryContextDataPair{Key: k, Value: e})
 		}
 		var typ int32 = 2
-		return PipelineContextData{
+		return &PipelineContextData{
 			Type:            &typ,
 			DictionaryValue: &obj,
 		}, nil
 	}
 	if data == nil {
-		return PipelineContextData{}, nil
+		return nil, nil
 	}
-	return PipelineContextData{}, fmt.Errorf("unknown type")
+	return nil, fmt.Errorf("unknown type")
 }
 
-func ToPipelineContextData(data interface{}) PipelineContextData {
+func ToPipelineContextData(data interface{}) *PipelineContextData {
 	ret, err := ToPipelineContextDataWithError(data)
 	if err != nil {
 		panic(err)
 	}
 	return ret
+}
+
+func (ctx *PipelineContextData) GetAll(path ...string) []*PipelineContextData {
+	if ctx == nil || ctx.Type == nil {
+		return nil
+	}
+	res := []*PipelineContextData{}
+	if len(path) == 0 {
+		return append(res, ctx)
+	}
+	switch *ctx.Type {
+	case 1:
+		if ctx.ArrayValue != nil {
+			if path[0] == "*" {
+				for _, v := range *ctx.ArrayValue {
+					res = append(res, v.GetAll(path[1:]...)...)
+				}
+			} else {
+				i, _ := strconv.ParseInt(path[0], 10, 64)
+				res = append(res, (*ctx.ArrayValue)[i].GetAll(path[1:]...)...)
+			}
+		}
+	case 2:
+		if ctx.DictionaryValue != nil {
+			if path[0] == "*" {
+				for _, v := range *ctx.DictionaryValue {
+					res = append(res, v.Value.GetAll(path[1:]...)...)
+				}
+			} else {
+				for _, v := range *ctx.DictionaryValue {
+					if strings.EqualFold(v.Key, path[0]) {
+						res = append(res, v.Value.GetAll(path[1:]...)...)
+					}
+				}
+			}
+		}
+	default:
+		if len(path) > 0 {
+			return nil
+		}
+	}
+	return res
+}
+
+func (ctx *PipelineContextData) Get(path ...string) *PipelineContextData {
+	if ctx == nil || ctx.Type == nil {
+		return nil
+	}
+	if len(path) == 0 {
+		return ctx
+	}
+	switch *ctx.Type {
+	case 1:
+		if ctx.ArrayValue != nil {
+			if path[0] == "*" {
+				for _, v := range *ctx.ArrayValue {
+					return v.Get(path[1:]...)
+				}
+			} else {
+				i, _ := strconv.ParseInt(path[0], 10, 64)
+				return (*ctx.ArrayValue)[i].Get(path[1:]...)
+			}
+		}
+	case 2:
+		if ctx.DictionaryValue != nil {
+			if path[0] == "*" {
+				for _, v := range *ctx.DictionaryValue {
+					return v.Value.Get(path[1:]...)
+				}
+			} else {
+				for _, v := range *ctx.DictionaryValue {
+					if strings.EqualFold(v.Key, path[0]) {
+						return v.Value.Get(path[1:]...)
+					}
+				}
+			}
+		}
+	default:
+		if len(path) > 0 {
+			return nil
+		}
+	}
+	return nil
+}
+
+func (ctx PipelineContextData) GetString(path ...string) string {
+	v := ctx.Get(path...)
+	if v != nil && v.StringValue != nil {
+		return *v.StringValue
+	}
+	return ""
+}
+
+func (ctx PipelineContextData) GetNumber(path ...string) float64 {
+	v := ctx.Get(path...)
+	if v != nil && v.NumberValue != nil {
+		return *v.NumberValue
+	}
+	return 0
+}
+
+func (ctx PipelineContextData) GetBool(path ...string) bool {
+	v := ctx.Get(path...)
+	if v != nil && v.BoolValue != nil {
+		return *v.BoolValue
+	}
+	return false
 }
