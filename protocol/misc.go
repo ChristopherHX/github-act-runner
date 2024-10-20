@@ -95,7 +95,7 @@ type AgentJobRequestMessage struct {
 	RequestID            int64
 	LockedUntil          string
 	Resources            *JobResources
-	ContextData          map[string]PipelineContextData
+	ContextData          map[string]*PipelineContextData
 	Workspace            *WorkspaceOptions
 	MaskHints            []MaskHint `json:"mask"`
 	EnvironmentVariables []TemplateToken

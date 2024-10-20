@@ -6,7 +6,7 @@ import (
 	"github.com/ChristopherHX/github-act-runner/protocol"
 )
 
-func ConvertMatrixInstance(contextData map[string]protocol.PipelineContextData) (map[string]interface{}, error) {
+func ConvertMatrixInstance(contextData map[string]*protocol.PipelineContextData) (map[string]interface{}, error) {
 	matrix := make(map[string]interface{})
 	if rawMatrix, ok := contextData["matrix"]; ok {
 		rawobj := rawMatrix.ToRawObject()

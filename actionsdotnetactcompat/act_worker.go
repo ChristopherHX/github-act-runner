@@ -189,7 +189,12 @@ func (factory *JobLoggerFactory) WithJobLogger() *logrus.Logger {
 	return logger
 }
 
+// Deprecated: use ActRunner
 func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerContext) {
+	execWorker(&ActRunner{}, rqt, wc)
+}
+
+func execWorker(arunner *ActRunner, rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerContext) {
 	jlogger := wc.Logger()
 	jobExecCtx := wc.JobExecCtx()
 	logger := logrus.New()
@@ -310,6 +315,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	runnerConfig.AutoRemove = true     // Needed to cleanup always cleanup container
 	runnerConfig.ForcePull = true
 	runnerConfig.ForceRebuild = true
+	arunner.callApplyConfig(runnerConfig, rqt)
 	// allow downloading actions like older actions/runner using credentials of the redirect url
 	downloadActionHttpClient := *vssConnection.HttpClient()
 	downloadActionHttpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {

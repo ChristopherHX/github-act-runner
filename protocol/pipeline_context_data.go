@@ -3,6 +3,8 @@ package protocol
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 )
 
 type DictionaryContextDataPair struct {
@@ -139,4 +141,111 @@ func ToPipelineContextData(data interface{}) PipelineContextData {
 		panic(err)
 	}
 	return ret
+}
+
+func (ctx *PipelineContextData) GetAll(path ...string) []*PipelineContextData {
+	if ctx == nil || ctx.Type == nil {
+		return nil
+	}
+	res := []*PipelineContextData{}
+	if len(path) == 0 {
+		return append(res, ctx)
+	}
+	switch *ctx.Type {
+	case 1:
+		if ctx.ArrayValue != nil {
+			if path[0] == "*" {
+				for _, v := range *ctx.ArrayValue {
+					res = append(res, v.GetAll(path[1:]...)...)
+				}
+			} else {
+				i, _ := strconv.ParseInt(path[0], 10, 64)
+				res = append(res, (*ctx.ArrayValue)[i].GetAll(path[1:]...)...)
+			}
+		}
+	case 2:
+		if ctx.DictionaryValue != nil {
+			if path[0] == "*" {
+				for _, v := range *ctx.DictionaryValue {
+					res = append(res, v.Value.GetAll(path[1:]...)...)
+				}
+			} else {
+				for _, v := range *ctx.DictionaryValue {
+					if strings.EqualFold(v.Key, path[0]) {
+						res = append(res, v.Value.GetAll(path[1:]...)...)
+					}
+				}
+			}
+		}
+	default:
+		if len(path) > 0 {
+			return nil
+		}
+	}
+	return res
+}
+
+func (ctx *PipelineContextData) Get(path ...string) *PipelineContextData {
+	if ctx == nil || ctx.Type == nil {
+		return nil
+	}
+	if len(path) == 0 {
+		return ctx
+	}
+	switch *ctx.Type {
+	case 1:
+		if ctx.ArrayValue != nil {
+			if path[0] == "*" {
+				for _, v := range *ctx.ArrayValue {
+					return v.Get(path[1:]...)
+				}
+			} else {
+				i, _ := strconv.ParseInt(path[0], 10, 64)
+				return (*ctx.ArrayValue)[i].Get(path[1:]...)
+			}
+		}
+	case 2:
+		if ctx.DictionaryValue != nil {
+			if path[0] == "*" {
+				for _, v := range *ctx.DictionaryValue {
+					return v.Value.Get(path[1:]...)
+				}
+			} else {
+				for _, v := range *ctx.DictionaryValue {
+					if strings.EqualFold(v.Key, path[0]) {
+						return v.Value.Get(path[1:]...)
+					}
+				}
+			}
+		}
+	default:
+		if len(path) > 0 {
+			return nil
+		}
+	}
+	return nil
+}
+
+func (ctx PipelineContextData) GetString(path ...string) string {
+	v := ctx.Get(path...)
+	if v != nil && v.StringValue != nil {
+		return *v.StringValue
+	}
+	return ""
+}
+
+func (ctx PipelineContextData) GetNumber(path ...string) float64 {
+	v := ctx.Get(path...)
+	if v != nil && v.NumberValue != nil {
+		return *v.NumberValue
+	}
+	return 0
+}
+
+func (ctx PipelineContextData) GetBool(path ...string) bool {
+	v := ctx.Get(path...)
+	if v != nil && v.BoolValue != nil {
+		return *v.BoolValue
+	}
+	return false
 }
