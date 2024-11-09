@@ -1,0 +1,6 @@
+on: push
+jobs:
+  _:
+    runs-on: act
+    steps:
+    - run: echo Test
