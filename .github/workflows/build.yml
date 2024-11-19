@@ -122,6 +122,18 @@ jobs:
         cp compat/*.cmd output/
         cd output
         zip ../binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.zip ./*
+    - name: Create Signed Provenance
+      uses: actions/attest-build-provenance@v1
+      id: attest
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.skip-packaging != 'true' }}
+      with:
+        subject-path: 'binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.*'
+    - name: Copy Signed Provenance to well known filepath
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.skip-packaging != 'true' }}
+      run: |
+        cp "$BUNDLE_PATH" binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.sigstore.json
+      env:
+        BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}    
     - name: Create Package Checksums
       if: ${{ github.event.inputs.skip-packaging != 'true' }}
       run: |
@@ -134,12 +146,8 @@ jobs:
       if: ${{ github.event.inputs.skip-packaging != 'true' }}
       with:
         name: bundle-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}
-        path: 'binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.*'
-    - uses: actions/attest-build-provenance@v1
-      if: ${{ github.event.inputs.skip-packaging != 'true' }}
-      continue-on-error: ${{ fromJson(vars.UNSTABLE_PROVENANCE || 'false') }}
-      with:
-        subject-path: 'binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.*'
+        path: |
+          binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.*
 
 #######################################
 ########## publish to github ##########
@@ -156,7 +164,7 @@ jobs:
         path: "artifacts"
     - uses: ncipollo/release-action@v1
       with:
-        artifacts: "artifacts/**/*.zip,artifacts/**/*.tar.gz,artifacts/**/*.sha512"
+        artifacts: "artifacts/**/*.zip,artifacts/**/*.tar.gz,artifacts/**/*.sha512,artifacts/**/*.sigstore.json"
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: v${{ github.event.inputs.version }}
         commit: ${{ github.sha }}
@@ -194,7 +202,7 @@ jobs:
       with:
         path: "artifacts"
     - name: add cppfw repo to install myci scripts from
-      uses: myci-actions/add-deb-repo@master
+      uses: myci-actions/add-deb-repo@e2d8b32bd968fb27d9934670a4f27857194b607d
       with:
         repo: deb https://gagis.hopto.org/repo/cppfw/$(lsb_release --id --short | tr '[:upper:]' '[:lower:]') $(lsb_release --codename --short) main
         repo-name: cppfw
