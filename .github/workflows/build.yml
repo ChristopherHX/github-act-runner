@@ -123,7 +123,7 @@ jobs:
         cd output
         zip ../binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.zip ./*
     - name: Create Package Checksums
-      if: ${{ github.event.inputs.skip-packaging }}
+      if: ${{ github.event.inputs.skip-packaging != 'true' }}
       run: |
         sha512sum binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.* > binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.sha512
     - uses: actions/upload-artifact@v4
