@@ -22,7 +22,7 @@ Unlike the official [actions/runner](https://github.com/actions/runner), this wo
 (*1) Reachable docker daemon use `DOCKER_HOST` to specify a remote host.
 
 ### NodeJS via PATH
-(*2) For best compatibility with existing nodejs actions, please add nodejs in version 12 to your `PATH`, newer nodejs versions might lead to workflow failures.
+(*2) For best compatibility with existing nodejs actions, please add nodejs in version 20 to your `PATH`, newer nodejs versions might lead to workflow failures.
 
 ## Usage for github releases
 
