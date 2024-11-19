@@ -19,6 +19,10 @@ env:
   RUNNER_SERVER_VERSION: "3.11.16"
 jobs:
   build:
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
     runs-on: ubuntu-latest
     strategy:
       # 
@@ -75,9 +79,10 @@ jobs:
       with:
         submodules: recursive
     - name: Setup Go
-      uses: actions/setup-go@v3
+      uses: actions/setup-go@v5
       with:
-        go-version: "${{matrix.GOVERSION || vars.GOVERSION || '^1.16.0'}}"
+        go-version: "${{ matrix.GOVERSION || vars.GOVERSION || '^1.16.0' }}"
+        cache: false
     - name: Setup cgo ndk
       if: matrix.GOOS == 'android'
       run: |
@@ -117,6 +122,10 @@ jobs:
         cp compat/*.cmd output/
         cd output
         zip ../binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.zip ./*
+    - name: Create Package Checksums
+      if: ${{ github.event.inputs.skip-packaging }}
+      run: |
+        sha512sum binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.* > binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.sha512
     - uses: actions/upload-artifact@v4
       with:
         name: binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}
@@ -126,6 +135,12 @@ jobs:
       with:
         name: bundle-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}
         path: 'binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.*'
+    - uses: actions/attest-build-provenance@v1
+      if: ${{ github.event.inputs.skip-packaging != 'true' }}
+      continue-on-error: ${{ fromJson(vars.UNSTABLE_PROVENANCE || 'false') }}
+      with:
+        subject-path: 'binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.*'
+
 #######################################
 ########## publish to github ##########
 #######################################
@@ -141,7 +156,7 @@ jobs:
         path: "artifacts"
     - uses: ncipollo/release-action@v1
       with:
-        artifacts: "artifacts/**/*.zip,artifacts/**/*.tar.gz"
+        artifacts: "artifacts/**/*.zip,artifacts/**/*.tar.gz,artifacts/**/*.sha512"
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: v${{ github.event.inputs.version }}
         commit: ${{ github.sha }}
@@ -203,7 +218,7 @@ jobs:
     - name: create deb package
       run: |
         docker run -v "$PWD:$PWD" -w "$PWD" -e "DEPLOY_ARCHS=$DEPLOY_ARCHS" --rm ubuntu:noble bash script.sh
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       continue-on-error: true
       with:
         name: debs
@@ -274,7 +289,7 @@ jobs:
       working-directory: logs
     - name: Upload Test Results
       if: ${{always()}}
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: test-results-linux-amd64
         path: 'logs.tar.gz'
