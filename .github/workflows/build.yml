@@ -127,7 +127,7 @@ jobs:
       id: attest
       if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.skip-packaging != 'true' }}
       with:
-        subject-path: 'binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.*'
+        subject-path: binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.${{ matrix.GOOS == 'windows' && 'zip' || 'tar.gz' }}
     - name: Copy Signed Provenance to well known filepath
       if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.skip-packaging != 'true' }}
       run: |
@@ -137,7 +137,7 @@ jobs:
     - name: Create Package Checksums
       if: ${{ github.event.inputs.skip-packaging != 'true' }}
       run: |
-        sha512sum binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.* > binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.sha512
+        sha512sum binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.${{ matrix.GOOS == 'windows' && 'zip' || 'tar.gz' }} > binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.sha512
     - uses: actions/upload-artifact@v4
       with:
         name: binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}
