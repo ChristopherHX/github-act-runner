@@ -386,12 +386,12 @@ func main() {
 				defer cancelExec()
 				buf := make([]byte, 4)
 				for {
-					os.Stdin.Read(buf)
+					io.ReadFull(os.Stdin, buf)
 					messageType := binary.BigEndian.Uint32(buf)
-					os.Stdin.Read(buf)
+					io.ReadFull(os.Stdin, buf)
 					messageLength := binary.BigEndian.Uint32(buf)
 					src := make([]byte, messageLength)
-					os.Stdin.Read(src)
+					io.ReadFull(os.Stdin, src)
 					switch messageType {
 					case 1:
 						jobreq := &protocol.AgentJobRequestMessage{}
