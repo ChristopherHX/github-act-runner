@@ -254,6 +254,9 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	if resultsServiceUrl, ok := vssConnectionData["ResultsServiceUrl"]; ok && len(resultsServiceUrl) > 0 {
 		env["ACTIONS_RESULTS_URL"] = resultsServiceUrl
 	}
+	if uses_cache_service_v2, ok := rqt.Variables["actions_uses_cache_service_v2"]; ok && strings.EqualFold(uses_cache_service_v2, "True") {
+		env["ACTIONS_CACHE_SERVICE_V2"] = "True" // bool.TrueString
+	}
 
 	defaults, err := ConvertDefaults(rqt.Defaults)
 	if err != nil {
