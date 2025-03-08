@@ -13,13 +13,20 @@ type AcquireJobRequest struct {
 	JobMessageID string `json:"jobMessageId"`
 }
 
+type Telemetry struct {
+	Message string `json:"message,omitempty"`
+	Type    string `json:"type,omitempty"`
+}
+
 type CompleteJobRequest struct {
-	PlanID      string                            `json:"planId,omitempty"`
-	JobID       string                            `json:"jobId,omitempty"`
-	Conclusion  string                            `json:"conclusion"`
-	Outputs     map[string]protocol.VariableValue `json:"outputs,omitempty"`
-	StepResults []StepResult                      `json:"stepResults,omitempty"`
-	Annotations []Annotation                      `json:"annotations,omitempty"`
+	PlanID         string                            `json:"planId,omitempty"`
+	JobID          string                            `json:"jobId,omitempty"`
+	Conclusion     string                            `json:"conclusion"`
+	Outputs        map[string]protocol.VariableValue `json:"outputs,omitempty"`
+	StepResults    []StepResult                      `json:"stepResults,omitempty"`
+	Annotations    []Annotation                      `json:"annotations,omitempty"`
+	Telemetry      []Telemetry                       `json:"telemetry,omitempty"`
+	EnvironmentURL string                            `json:"environmentUrl,omitempty"`
 }
 
 type RenewJobRequest struct {
@@ -34,6 +41,7 @@ type StepResult struct {
 	ExternalID        string       `json:"external_id,omitempty"`
 	Number            int          `json:"number,omitempty"`
 	Name              string       `json:"name,omitempty"`
+	ActionName        string       `json:"action_name,omitempty"`
 	Status            string       `json:"status,omitempty"`
 	Conclusion        *string      `json:"conclusion,omitempty"`
 	StartedAt         string       `json:"started_at,omitempty"`
