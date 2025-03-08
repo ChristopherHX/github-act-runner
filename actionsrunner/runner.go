@@ -3,15 +3,12 @@ package actionsrunner
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"runtime"
 	"runtime/debug"
@@ -19,7 +16,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ChristopherHX/github-act-runner/common"
 	"github.com/ChristopherHX/github-act-runner/protocol"
+	runservice "github.com/ChristopherHX/github-act-runner/protocol/run"
 	"github.com/ChristopherHX/github-act-runner/runnerconfiguration"
 	"github.com/sirupsen/logrus"
 )
@@ -51,16 +50,8 @@ type RunnerEnvironment interface {
 func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Context, corectx context.Context) error {
 	settings := run.Settings
 	for i := 0; i < len(settings.Instances); i++ {
-		if settings.Instances[i].PKey == nil {
-			key, err := base64.StdEncoding.DecodeString(settings.Instances[i].Key)
-			if err != nil {
-				return err
-			}
-			pkey, err := x509.ParsePKCS1PrivateKey(key)
-			if err != nil {
-				return err
-			}
-			settings.Instances[i].PKey = pkey
+		if err := settings.Instances[i].EnshurePKey(); err != nil {
+			return err
 		}
 	}
 	ctx, cancel := context.WithCancel(corectx)
@@ -155,7 +146,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 				customTransport := http.DefaultTransport.(*http.Transport).Clone()
 				customTransport.MaxIdleConns = 1
 				customTransport.IdleConnTimeout = 100 * time.Second
-				if v, ok := os.LookupEnv("SKIP_TLS_CERT_VALIDATION"); ok && strings.EqualFold(v, "true") || strings.EqualFold(v, "Y") {
+				if v, ok := common.LookupEnvBool("SKIP_TLS_CERT_VALIDATION"); ok && v {
 					customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 				}
 				vssConnection := &protocol.VssConnection{
@@ -200,9 +191,9 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 				var _session *protocol.AgentMessageConnection = nil
 				for _, session := range sessions {
 					if session.Agent.Name == instance.Agent.Name && session.Agent.Authorization.PublicKey == instance.Agent.Authorization.PublicKey {
-						session, err := vssConnection.LoadSession(session)
+						session, err := vssConnection.LoadSession(joblisteningctx, session)
 						if deleteSessions {
-							session.Delete()
+							session.Delete(joblisteningctx)
 							for i, _session := range sessions {
 								if session.TaskAgentSession.SessionID == _session.SessionID {
 									sessions[i] = sessions[len(sessions)-1]
@@ -222,7 +213,9 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 				}
 				deleteSession := func() {
 					if session != nil {
-						if err := session.Delete(); err != nil {
+						timeout, cancelT := context.WithTimeout(context.Background(), time.Minute)
+						defer cancelT()
+						if err := session.Delete(timeout); err != nil {
 							runnerenv.Printf("WARNING: Failed to delete active session: %v\n", err)
 						} else {
 							mu.Lock()
@@ -253,10 +246,10 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 						}
 						if session == nil || time.Now().After(lastSuccess.Add(5*time.Minute)) {
 							deleteSession()
-							session2, err := vssConnection.CreateSession()
+							session2, err := vssConnection.CreateSession(joblisteningctx)
 							if err != nil {
-								if strings.Contains(err.Error(), "invalid_client") || strings.Contains(err.Error(), "TaskAgentNotFoundException") {
-									runnerenv.Printf("Fatal: It seems this runner was removed from GitHub, Failed to recreate Session for %v ( %v ): %v\n", instance.Agent.Name, instance.RegistrationURL, err.Error())
+								if strings.Contains(err.Error(), "invalid_client") || strings.Contains(err.Error(), "invalid_grant") || strings.Contains(err.Error(), "TaskAgentNotFoundException") || /* runner.server only */ strings.Contains(err.Error(), "Not Found") {
+									runnerenv.Printf("Fatal: It looks like this runner has been removed from GitHub, Failed to recreate Session for %v ( %v ): %v\n", instance.Agent.Name, instance.RegistrationURL, err.Error())
 									return 1
 								}
 								runnerenv.Printf("Failed to recreate Session for %v ( %v ), waiting 30 sec before retry: %v\n", instance.Agent.Name, instance.RegistrationURL, err.Error())
@@ -287,10 +280,13 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 								continue
 							}
 						}
+						session.Status = "Online"
 						err := vssConnection.RequestWithContext(xctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "GET", map[string]string{
 							"poolId": fmt.Sprint(instance.PoolID),
 						}, map[string]string{
-							"sessionId": session.TaskAgentSession.SessionID,
+							"sessionId":     session.TaskAgentSession.SessionID,
+							"runnerVersion": "3.0.0",
+							"status":        session.Status,
 						}, nil, message)
 						//TODO lastMessageId=
 						if err != nil {
@@ -337,8 +333,8 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 							}
 						}
 					}
-					if success {
-						if message != nil && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
+					if success && message.FetchBrokerIfNeeded(xctx, session) == nil {
+						if strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest") {
 							cancelJobListening()
 							for message != nil && !firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
 								if run.Once {
@@ -353,13 +349,14 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 								}()
 								runJob(runnerenv, &joblock, vssConnection, run, cancel, cancelJob, finishJob, jobExecCtx, jobctx, session, *message, instance)
 								{
+									session.Status = "Busy"
 									var err error
 									message, err = session.GetNextMessage(jobExecCtx)
 									if !errors.Is(err, context.Canceled) && message != nil {
 										if firstJobReceived && (strings.EqualFold(message.MessageType, "PipelineAgentJobRequest") || strings.EqualFold(message.MessageType, "RunnerJobRequest")) {
 											runnerenv.Printf("Skip deleting the duplicated job request, we hope that the actions service reschedules your job to a different runner\n")
 										} else {
-											session.DeleteMessage(message)
+											session.DeleteMessage(joblisteningctx, message)
 										}
 										if strings.EqualFold(message.MessageType, "JobCancellation") && cancelJob != nil {
 											message = nil
@@ -406,15 +403,11 @@ type RunnerJobRequestRef struct {
 	RunServiceUrl   string `json:"run_service_url"`
 }
 
-type RunnerServicePayload struct {
-	StreamID string `json:"streamID"`
-}
-
 type plainTextFormatter struct {
 }
 
 func (f *plainTextFormatter) Format(entry *logrus.Entry) ([]byte, error) {
-	return []byte(entry.Time.UTC().Format("2006-01-02T15:04:05.0000000Z ") + entry.Message + "\n"), nil
+	return []byte(entry.Time.UTC().Format(protocol.TimestampOutputFormat) + " " + entry.Message + "\n"), nil
 }
 
 func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *protocol.VssConnection, run *RunRunner, cancel context.CancelFunc, cancelJob context.CancelFunc, finishJob context.CancelFunc, jobExecCtx context.Context, jobctx context.Context, session *protocol.AgentMessageConnection, message protocol.TaskAgentMessage, instance *runnerconfiguration.RunnerInstance) {
@@ -444,12 +437,13 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 		var runServiceUrl string
 		{
 			if strings.EqualFold(message.MessageType, "RunnerJobRequest") {
+				plogger.Printf("Warning: TaskAgentMessage.MessageType is %v, which has not been properly tested due to missing access to test servers of the new protocol before rollout. Please report any failures to https://github.com/ChristopherHX/github-act-runner/issues.\n", message.MessageType)
 				rjrr := &RunnerJobRequestRef{}
 				json.Unmarshal(src, rjrr)
 				for retries := 0; retries < 5; retries++ {
 					var err error
 					if len(rjrr.RunServiceUrl) == 0 {
-						err = vssConnection.Request("25adab70-1379-4186-be8e-b643061ebe3a", "6.0-preview", "GET", map[string]string{
+						err = vssConnection.RequestWithContext(jobctx, "25adab70-1379-4186-be8e-b643061ebe3a", "6.0-preview", "GET", map[string]string{
 							"messageId": rjrr.RunnerRequestId,
 						}, map[string]string{}, nil, &src)
 					} else {
@@ -459,8 +453,9 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 						acquirejobUrl, _ := url.Parse(runServiceUrl)
 						acquirejobUrl.Path = path.Join(acquirejobUrl.Path, "acquirejob")
 						vssConnection.TenantURL = runServiceUrl
-						payload := &RunnerServicePayload{
-							StreamID: rjrr.RunnerRequestId,
+						payload := &runservice.AcquireJobRequest{
+							StreamID:     rjrr.RunnerRequestId,
+							JobMessageID: rjrr.RunnerRequestId,
 						}
 						err = vssConnection.RequestWithContext2(jobctx, "POST", acquirejobUrl.String(), "", payload, &src)
 					}
@@ -491,12 +486,27 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 		con := *vssConnection
 		go func() {
 			for {
-				err := con.Request("fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
-					"poolId":    fmt.Sprint(instance.PoolID),
-					"requestId": fmt.Sprint(jobreq.RequestID),
-				}, map[string]string{
-					"lockToken": "00000000-0000-0000-0000-000000000000",
-				}, &protocol.RenewAgent{RequestID: jobreq.RequestID}, nil)
+				var err error
+				if runServiceUrl != "" {
+					jobVssConnection, _, _ := jobreq.GetConnection("SystemVssConnection")
+					jobVssConnection.Trace = con.Trace
+					renewjobUrl, _ := url.Parse(runServiceUrl)
+					renewjobUrl.Path = path.Join(renewjobUrl.Path, "renewjob")
+					jobVssConnection.TenantURL = runServiceUrl
+					payload := &runservice.RenewJobRequest{
+						PlanID: jobreq.Plan.PlanID,
+						JobID:  jobreq.JobID,
+					}
+					resp := &runservice.RenewJobResponse{}
+					err = jobVssConnection.RequestWithContext2(jobctx, "POST", renewjobUrl.String(), "", payload, &resp)
+				} else {
+					err = con.RequestWithContext(jobctx, "fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
+						"poolId":    fmt.Sprint(instance.PoolID),
+						"requestId": fmt.Sprint(jobreq.RequestID),
+					}, map[string]string{
+						"lockToken": "00000000-0000-0000-0000-000000000000",
+					}, &protocol.RenewAgent{RequestID: jobreq.RequestID}, nil)
+				}
 				if err != nil {
 					if errors.Is(err, context.Canceled) {
 						return
@@ -528,7 +538,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 
 		defer func() {
 			if err := recover(); err != nil {
-				wc.FailInitJob("Worker paniced", "The worker paniced with message: "+fmt.Sprint(err)+"\n"+string(debug.Stack()))
+				wc.FailInitJob("Worker panicked", "The worker panicked with message: "+fmt.Sprint(err)+"\n"+string(debug.Stack()))
 			}
 			runnerenv.Remove("jobrun.json")
 		}()

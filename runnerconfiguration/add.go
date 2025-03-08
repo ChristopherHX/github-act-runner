@@ -1,6 +1,7 @@
 package runnerconfiguration
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ChristopherHX/github-act-runner/common"
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/google/uuid"
 )
@@ -31,6 +33,7 @@ func containsEphemeralConfiguration(settings *RunnerSettings) bool {
 func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey, auth *protocol.GitHubAuthResult) (*RunnerSettings, error) {
 	instance := &RunnerInstance{
 		RunnerGuard: config.RunnerGuard,
+		WorkFolder:  config.WorkFolder,
 	}
 	if config.Ephemeral && len(settings.Instances) > 0 || containsEphemeralConfiguration(settings) {
 		return nil, fmt.Errorf("ephemeral is not supported for multi runners, runner already configured.")
@@ -49,7 +52,7 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 	c := config.GetHttpClient()
 	res := auth
 	if res == nil {
-		authres, err := config.Authenicate(c, survey)
+		authres, err := config.Authenticate(c, survey)
 		if err != nil {
 			return nil, err
 		}
@@ -63,20 +66,17 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 		Token:     res.Token,
 		Trace:     config.Trace,
 	}
-	
-	getRunnerGroups := func() (*TaskAgentPools, error) {
+
+	getRunnerGroups := func() (*protocol.TaskAgentPools, error) {
 		return vssConnection.GetAgentPools()
 	}
 	if res.UseV2FLow {
 		apiBuilder, err := NewGithubApiUrlBuilder(config.URL)
 		if err != nil {
-			return nil, fmt.Errorf("invalid Url: %v\n", config.URL)
+			return nil, fmt.Errorf("invalid Url: %v", config.URL)
 		}
 		getRunnerGroups = func() (*protocol.TaskAgentPools, error) {
-			runnerGroupsURL, err := apiBuilder.AbsoluteApiUrl("actions/runner-groups")
-			if err != nil {
-				return nil, err
-			}
+			runnerGroupsURL := apiBuilder.AbsoluteApiUrl("actions/runner-groups")
 			runnerGroups := &protocol.RunnerGroupList{}
 			err = vssConnection.RequestWithContext2(context.Background(), "GET", runnerGroupsURL, "", nil, runnerGroups)
 			if err != nil {
@@ -161,8 +161,9 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 	}
 	taskAgent.MaxParallelism = 1
 	taskAgent.ProvisioningState = "Provisioned"
-	taskAgent.CreatedOn = time.Now().UTC().Format("2006-01-02T15:04:05")
+	taskAgent.CreatedOn = time.Now().UTC().Format(protocol.TimestampOutputFormat)
 	taskAgent.Ephemeral = config.Ephemeral
+	taskAgent.DisableUpdate = config.DisableUpdate
 	{
 		err := vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "POST", map[string]string{
 			"poolId": fmt.Sprint(vssConnection.PoolID),
@@ -208,8 +209,13 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 func (config *ConfigureRunner) ReadFromEnvironment() {
 	config.ConfigureRemoveRunner.ReadFromEnvironment()
 	if !config.Ephemeral {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_EPHEMERAL"); ok {
-			config.Ephemeral = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+		if v, ok := common.LookupEnvBool("ACTIONS_RUNNER_INPUT_EPHEMERAL"); ok {
+			config.Ephemeral = v
+		}
+	}
+	if !config.DisableUpdate {
+		if v, ok := common.LookupEnvBool("ACTIONS_RUNNER_INPUT_DISABLEUPDATE"); ok {
+			config.DisableUpdate = v
 		}
 	}
 	if len(config.Name) == 0 {
@@ -223,8 +229,8 @@ func (config *ConfigureRunner) ReadFromEnvironment() {
 		}
 	}
 	if !config.Replace {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_REPLACE"); ok {
-			config.Replace = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+		if v, ok := common.LookupEnvBool("ACTIONS_RUNNER_INPUT_REPLACE"); ok {
+			config.Replace = v
 		}
 	}
 }

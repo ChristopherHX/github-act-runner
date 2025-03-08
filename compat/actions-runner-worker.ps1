@@ -40,6 +40,13 @@ $inputjob = Start-ThreadJob -ScriptBlock {
 }
 echo "Wait for exit"
 Wait-Process -InputObject $proc
-echo "Has exited"
+$exitCode = $proc.ExitCode
+# https://github.com/actions/runner/blob/af6ed41bcb47019cce2a7035bad76c97ac97b92a/src/Runner.Common/Util/TaskResultUtil.cs#L13-L14
+if(($exitCode -ge 100) -and ($exitCode -le 105)) {
+    $conclusion = 0
+} else {
+    $conclusion = 1
+}
+echo "Has exited with code $exitCode and conclusion $conclusion"
 # This is needed to shutdown the input thread, it seem to stall if we just do nothing or exit
-[System.Environment]::Exit($proc.ExitCode)
+[System.Environment]::Exit($conclusion)

@@ -8,12 +8,12 @@ Unlike the official [actions/runner](https://github.com/actions/runner), this wo
 # Usage
 
 ## Dependencies
-|Actions Type|Host|[JobContainer](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idcontainer) (only Linux, Windows, macOS or Openbsd)|
+|Actions Type|Host|[JobContainer](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idcontainer) (only Linux, Windows, macOS)|
 ---|---|---
-|([composite](https://docs.github.com/en/actions/creating-actions/creating-a-composite-run-steps-action)) [run steps](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idstepsrun)|`bash` or [explicit shell](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#custom-shell) in your `PATH` (prior running the runner)|Docker ([*1](#docker-daemon-via-docker_host)), `bash` or [explicit shell](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#custom-shell) in your `PATH` (inside your container image)|
+|([composite](https://docs.github.com/en/actions/creating-actions/creating-a-composite-run-steps-action)) [run steps](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idstepsrun)|`bash` (preferred), `sh` or [explicit shell](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#custom-shell) in your `PATH` (prior running the runner). On windows are `pwsh` (preferred) and `powershell` the default shells instead of `bash` or `sh`|Docker ([*1](#docker-daemon-via-docker_host)), `sh` or [explicit shell](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#custom-shell) in your `PATH` (inside your container image)|
 |[nodejs actions](https://docs.github.com/en/actions/creating-actions/creating-a-javascript-action)|`node` ([*2](#nodejs-via-path)) in your `PATH` (prior running the runner)|Docker ([*1](#docker-daemon-via-docker_host)), `node` ([*2](#nodejs-via-path)) in your `PATH` (inside your container image)|
 |[docker actions](https://docs.github.com/en/actions/creating-actions/creating-a-docker-container-action)|Not available|Docker ([*1](#docker-daemon-via-docker_host))|
-|[service container](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idservices)|Not available|Not available|
+|[service container](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idservices)|Not available|Docker ([*1](#docker-daemon-via-docker_host)) v0.7.0|
 |composite actions with uses|v0.1.0|v0.1.0|
 |composite actions with if|v0.1.0|v0.1.0|
 |composite actions with continue-on-error|v0.1.0|v0.1.0|
@@ -22,7 +22,7 @@ Unlike the official [actions/runner](https://github.com/actions/runner), this wo
 (*1) Reachable docker daemon use `DOCKER_HOST` to specify a remote host.
 
 ### NodeJS via PATH
-(*2) For best compatibility with existing nodejs actions, please add nodejs in version 12 to your `PATH`, newer nodejs versions might lead to workflow failures.
+(*2) For best compatibility with existing nodejs actions, please add nodejs in version 20 to your `PATH`, newer nodejs versions might lead to workflow failures.
 
 ## Usage for github releases
 
@@ -67,7 +67,7 @@ For more info about managing runners.
 
 ## Usage from source
 
-You need at least go 1.16 to use this runner from source. Some targets fail to build with go 1.17.
+You need at least go 1.21 to use this runner from source.
 
 ### Getting Source
 ```
@@ -112,12 +112,44 @@ Replace `label1,label2` with a custom list of runner labels.
 go run . run
 ```
 
+# Breaking changes in 0.6.0
+
+- `runner.os` changed from `darwin` to `macOS`
+- `runner.arch` changed from `x86_64` to `x64`
+- `runner.arch` changed from `386` to `x86`
+- `runner.arch` changed from `aarch64` to `arm64`
+- `shell` parameter might behave differently
+- based on `nektos/act@65ef31f102ceb75623973921099454637bab55b0`
+- the docker client has been removed from openbsd builds
+- windows runners now prefers `pwsh` and `powershell` as default shell, while running directly on windows
+- all other systems now fallback to `sh` if bash is not found
+- now requires go 1.18 to compile
+- `protocol.JobLogger` moved to `"protocol/logger"` package
+
+# Breaking changes in 0.7.0
+- based on `nektos/act@f3350e2acbd2812cf3dd9bd8324387be05fce755`
+- removed openbsd/mips binaries, because this prevents updates to go and dependencies
+- go 1.21 now required
+
 # Known Limitations
-- This runner ignores pre and post steps of javascript actions
-- [actions/cache](https://github.com/actions/cache) is incompatible and won't be able to **save your cache**
-  - Using https://github.com/actions/toolkit/tree/main/packages/cache directly should allow you to save your cache
+- ~~This runner ignores pre and post steps of javascript actions~~ Is now working in 0.6.0
+- ~~[actions/cache](https://github.com/actions/cache) is incompatible and won't be able to **save your cache**~~
+  - ~~Using https://github.com/actions/toolkit/tree/main/packages/cache directly should allow you to save your cache~~
+  Is now working in 0.6.0, including hashfiles
 - ~~You won't be able to run steps after a failure without using `continue-on-error: true`~~ Implemented since v0.2.0 via nektos/act contribution ( https://github.com/nektos/act/commit/1891c72ab158508e36009d16b24913fa5836422b )
 - ~~The expression interpreter of this runner doesn't always behave like you would expect and you might see errors or other expressions which shouldn't work are working here ( based on javascript, not on actions/runner )~~ v0.2.0 uses rhysd/actionlint instead with much better compatibility https://github.com/nektos/act/pull/908
+- ~~`add-mask` command not implemented~~ Is now working in 0.6.0
+- ~~Running steps after cancellation~~ Is now working in 0.6.0
+- ~~steps.timeout-minutes not implemented~~ Is now working in 0.6.0
+- ~~Service Container are not implemented~~ Is now working in 0.7.0
+- Step Summaries are not implemented (only file command is provided)
+- Annotations are not implemented
+- Problem Matcher are not implemented
+- Expressions in `with` and `env` (also applies to workflow and job env blocks) keys / directly assign to a mapping expression are not implemented
+- Secret masking may leak more secrets than the one of actions/runner
+- Job Outputs are sent regardless if they would leak secret data to non secret storage
+- You need to provide the `node` program yourself in all containers / host configurations
+- You need to manually update the runner
 - Most issues of https://github.com/nektos/act/issues applies to this runner as well
 
 # How does it work?

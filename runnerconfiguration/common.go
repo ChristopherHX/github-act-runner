@@ -1,12 +1,12 @@
 package runnerconfiguration
 
 import (
-	"bytes"
+	"context"
 	"crypto/rsa"
 	"crypto/tls"
-	"encoding/json"
+	"crypto/x509"
+	"encoding/base64"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ChristopherHX/github-act-runner/common"
 	"github.com/ChristopherHX/github-act-runner/protocol"
 )
 
@@ -32,7 +33,7 @@ func (c *ConfigureRemoveRunner) GetHttpClient() *http.Client {
 		return c.Client
 	}
 	customTransport := http.DefaultTransport.(*http.Transport).Clone()
-	if v, ok := os.LookupEnv("SKIP_TLS_CERT_VALIDATION"); ok && strings.EqualFold(v, "true") || strings.EqualFold(v, "Y") {
+	if v, ok := common.LookupEnvBool("SKIP_TLS_CERT_VALIDATION"); ok && v {
 		customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 	c.Client = &http.Client{
@@ -51,6 +52,8 @@ type ConfigureRunner struct {
 	Ephemeral       bool
 	RunnerGuard     string
 	Replace         bool
+	DisableUpdate   bool
+	WorkFolder      string
 }
 
 type RemoveRunner struct {
@@ -66,6 +69,22 @@ type RunnerInstance struct {
 	Key             string
 	PKey            *rsa.PrivateKey `json:"-"`
 	RunnerGuard     string
+	WorkFolder      string // Currently unused for actions/runner compat
+}
+
+func (instance *RunnerInstance) EnshurePKey() error {
+	if instance.PKey == nil {
+		key, err := base64.StdEncoding.DecodeString(instance.Key)
+		if err != nil {
+			return err
+		}
+		pkey, err := x509.ParsePKCS1PrivateKey(key)
+		if err != nil {
+			return err
+		}
+		instance.PKey = pkey
+	}
+	return nil
 }
 
 type RunnerSettings struct {
@@ -75,7 +94,7 @@ type RunnerSettings struct {
 }
 
 type GithubApiUrlBuilder struct {
-	URL *url.URL
+	URL      *url.URL
 	ApiScope string
 }
 
@@ -85,7 +104,7 @@ func NewGithubApiUrlBuilder(URL string) (*GithubApiUrlBuilder, error) {
 		return nil, err
 	}
 	apiBuilder := &GithubApiUrlBuilder{
-		URL: baseUrl
+		URL: baseUrl,
 	}
 	if strings.EqualFold(apiBuilder.URL.Host, "github.com") || strings.HasSuffix(strings.ToLower(apiBuilder.URL.Host), ".ghe.com") {
 		apiBuilder.URL.Host = "api." + apiBuilder.URL.Host
@@ -95,23 +114,23 @@ func NewGithubApiUrlBuilder(URL string) (*GithubApiUrlBuilder, error) {
 	return apiBuilder, nil
 }
 
-func (apiBuilder *GithubApiUrlBuilder) AbsoluteApiUrl(path string) string {
+func (apiBuilder *GithubApiUrlBuilder) AbsoluteApiUrl(p string) string {
 	url := *apiBuilder.URL
-	url.Path = path.Join(apiBuilder.ApiScope, path)
+	url.Path = path.Join(apiBuilder.ApiScope, p)
 	return url.String()
 }
 
-func (apiBuilder *GithubApiUrlBuilder) ScopedApiUrl(path string) (string, error) {
-	paths := strings.Split(strings.TrimPrefix(URL.Path, "/"), "/")
+func (apiBuilder *GithubApiUrlBuilder) ScopedApiUrl(p string) (string, error) {
 	url := *apiBuilder.URL
+	paths := strings.Split(strings.TrimPrefix(url.Path, "/"), "/")
 	if len(paths) == 1 {
-		url.Path = path.Join(apiscope, "orgs", paths[0], path)
+		url.Path = path.Join(apiBuilder.ApiScope, "orgs", paths[0], p)
 	} else if len(paths) == 2 {
 		scope := "repos"
 		if strings.EqualFold(paths[0], "enterprises") {
 			scope = ""
 		}
-		url.Path = path.Join(apiscope, scope, paths[0], paths[1], path)
+		url.Path = path.Join(apiBuilder.ApiScope, scope, paths[0], paths[1], p)
 	} else {
 		return "", fmt.Errorf("unsupported registration url")
 	}
@@ -119,9 +138,12 @@ func (apiBuilder *GithubApiUrlBuilder) ScopedApiUrl(path string) (string, error)
 }
 
 func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent string, apiEndpoint string, survey Survey) (*protocol.GitHubAuthResult, error) {
+	if config.URL == "" && !config.Unattended {
+		config.URL = survey.GetInput("Which GitHub Url is assosiated with this runner (Normally this isn't missing):", "")
+	}
 	apiBuilder, err := NewGithubApiUrlBuilder(config.URL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid Url: %v\n", config.URL)
+		return nil, fmt.Errorf("invalid Url: %v", config.URL)
 	}
 	if len(config.Token) == 0 {
 		if len(config.Pat) > 0 {
@@ -129,22 +151,15 @@ func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent strin
 			if err != nil {
 				return nil, err
 			}
-			req, _ := http.NewRequest("POST", url, nil)
-			req.SetBasicAuth("github", config.Pat)
-			req.Header.Add("Accept", "application/vnd.github.v3+json")
-			resp, err := c.Do(req)
-			if err != nil {
-				return nil, fmt.Errorf("failed to retrieve %v token via pat: %v\n", apiEndpoint, err.Error())
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				body, _ := ioutil.ReadAll(resp.Body)
-				return nil, fmt.Errorf("failed to retrieve %v via pat [%v]: %v\n", apiEndpoint, fmt.Sprint(resp.StatusCode), string(body))
+			client := &protocol.VssConnection{
+				AuthHeader: fmt.Sprintf("Basic %v", base64.StdEncoding.EncodeToString([]byte("GitHub:"+config.Pat))),
+				Trace:      config.Trace,
+				Client:     c,
 			}
 			tokenresp := &protocol.GitHubRunnerRegisterToken{}
-			dec := json.NewDecoder(resp.Body)
-			if err := dec.Decode(tokenresp); err != nil {
-				return nil, fmt.Errorf("failed to decode registration token via pat: " + err.Error())
+			err = client.RequestWithContext2(context.Background(), "POST", url, "", nil, tokenresp)
+			if err != nil {
+				return nil, fmt.Errorf("failed to retrieve %v token via pat: %v", apiEndpoint, err.Error())
 			}
 			config.Token = tokenresp.Token
 		} else if !config.Unattended {
@@ -155,40 +170,40 @@ func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent strin
 		return nil, fmt.Errorf("no runner registration token provided")
 	}
 
-	buf := new(bytes.Buffer)
-	req := &protocol.RunnerAddRemove{}
-	req.URL = config.URL
-	req.RunnerEvent = runnerEvent
-	enc := json.NewEncoder(buf)
-	if err := enc.Encode(req); err != nil {
-		return nil, err
-	}
 	finalregisterUrl := apiBuilder.AbsoluteApiUrl("actions/runner-registration")
 
-	r, _ := http.NewRequest("POST", finalregisterUrl, buf)
-	r.Header["Authorization"] = []string{"RemoteAuth " + config.Token}
-	resp, err := c.Do(r)
-	if err != nil {
-		return nil, fmt.Errorf("failed to register Runner: %v\n", err)
+	client := &protocol.VssConnection{
+		AuthHeader: "RemoteAuth " + config.Token,
+		Trace:      config.Trace,
+		Client:     c,
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("failed to register Runner with status code: %v\n", resp.StatusCode)
-	}
-
 	res := &protocol.GitHubAuthResult{}
-	dec := json.NewDecoder(resp.Body)
-	if err := dec.Decode(res); err != nil {
-		return nil, fmt.Errorf("error decoding struct from JSON: %v\n", err)
+	err = client.RequestWithContext2(context.Background(), "POST", finalregisterUrl, "", &protocol.RunnerAddRemove{
+		URL:         config.URL,
+		RunnerEvent: runnerEvent,
+	}, res)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to authenticate as Runner Admin: %v", err)
 	}
 	return res, nil
 }
 
-func (config *ConfigureRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
+func (config *ConfigureRunner) Authenticate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
 	return gitHubAuth(&config.ConfigureRemoveRunner, c, "register", "registration-token", survey)
 }
-func (config *RemoveRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
+func (config *RemoveRunner) Authenticate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
 	return gitHubAuth(&config.ConfigureRemoveRunner, c, "remove", "remove-token", survey)
+}
+
+// Deprecated: Use the Authenticate method.
+func (config *ConfigureRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
+	return config.Authenticate(c, survey)
+}
+
+// Deprecated: Use the Authenticate method.
+func (config *RemoveRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
+	return config.Authenticate(c, survey)
 }
 
 func (confremove *ConfigureRemoveRunner) ReadFromEnvironment() {
@@ -203,8 +218,8 @@ func (confremove *ConfigureRemoveRunner) ReadFromEnvironment() {
 		}
 	}
 	if !confremove.Unattended {
-		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_UNATTENDED"); ok {
-			confremove.Unattended = strings.EqualFold(v, "true") || strings.EqualFold(v, "Y")
+		if v, ok := common.LookupEnvBool("ACTIONS_RUNNER_INPUT_UNATTENDED"); ok {
+			confremove.Unattended = v
 		}
 	}
 	if len(confremove.URL) == 0 {

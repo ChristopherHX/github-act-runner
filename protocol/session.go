@@ -6,11 +6,13 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
+	"strings"
 
 	// nolint:gosec
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash"
@@ -26,6 +28,9 @@ type TaskAgentMessage struct {
 }
 
 func (message *TaskAgentMessage) Decrypt(block cipher.Block) ([]byte, error) {
+	if message.IV == "" {
+		return []byte(message.Body), nil
+	}
 	iv, err := base64.StdEncoding.DecodeString(message.IV)
 	if err != nil {
 		return nil, err
@@ -56,6 +61,49 @@ func (message *TaskAgentMessage) Decrypt(block cipher.Block) ([]byte, error) {
 		off = 3
 	}
 	return src[off:validlen], nil
+}
+
+type BrokerMigration struct {
+	BrokerBaseUrl string `json:"brokerBaseUrl"`
+}
+
+func (message *TaskAgentMessage) FetchBrokerIfNeeded(xctx context.Context, session *AgentMessageConnection) error {
+	if strings.EqualFold(message.MessageType, "BrokerMigration") {
+		vssConnection := session.VssConnection
+		rjrr := &BrokerMigration{}
+		raw, err := message.Decrypt(session.Block)
+		if err != nil {
+			return err
+		}
+		err = json.Unmarshal(raw, rjrr)
+		if err != nil {
+			return err
+		}
+		for retries := 0; retries < 5; retries++ {
+			copy := *vssConnection
+			vssConnection := &copy
+			vssConnection.TenantURL = rjrr.BrokerBaseUrl
+			furl, err := vssConnection.BuildURL("message", map[string]string{}, map[string]string{
+				"sessionId":     session.TaskAgentSession.SessionID,
+				"runnerVersion": "3.0.0",
+				"status":        session.Status,
+			})
+			if err != nil {
+				return err
+			}
+			err = vssConnection.RequestWithContext2(xctx, "GET", furl, "", nil, &message)
+			if err == nil || errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+				return err
+			}
+			select {
+			case <-xctx.Done():
+				return xctx.Err()
+			case <-time.After(time.Second * 5 * time.Duration(retries+1)):
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 type TaskAgentSessionKey struct {
@@ -96,10 +144,11 @@ type AgentMessageConnection struct {
 	VssConnection    *VssConnection
 	TaskAgentSession *TaskAgentSession
 	Block            cipher.Block
+	Status           string
 }
 
-func (session *AgentMessageConnection) Delete() error {
-	return session.VssConnection.Request("134e239e-2df3-4794-a6f6-24f1f19ec8dc", "5.1-preview", "DELETE", map[string]string{
+func (session *AgentMessageConnection) Delete(ctx context.Context) error {
+	return session.VssConnection.RequestWithContext(ctx, "134e239e-2df3-4794-a6f6-24f1f19ec8dc", "5.1-preview", "DELETE", map[string]string{
 		"poolId":    fmt.Sprint(session.VssConnection.PoolID),
 		"sessionId": session.TaskAgentSession.SessionID,
 	}, map[string]string{}, session.TaskAgentSession, nil)
@@ -116,9 +165,14 @@ func (session *AgentMessageConnection) GetNextMessage(ctx context.Context) (*Tas
 		err := session.VssConnection.RequestWithContext(ctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "GET", map[string]string{
 			"poolId": fmt.Sprint(session.VssConnection.PoolID),
 		}, map[string]string{
-			"sessionId": session.TaskAgentSession.SessionID,
+			"sessionId":     session.TaskAgentSession.SessionID,
+			"runnerVersion": "3.0.0",
 		}, nil, message)
 		// TODO lastMessageId=
+		if err == nil {
+			err = session.DeleteMessage(ctx, message)
+			err = errors.Join(err, message.FetchBrokerIfNeeded(ctx, session))
+		}
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil, err
@@ -136,8 +190,8 @@ func (session *AgentMessageConnection) GetNextMessage(ctx context.Context) (*Tas
 	}
 }
 
-func (session *AgentMessageConnection) DeleteMessage(message *TaskAgentMessage) error {
-	return session.VssConnection.Request("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "DELETE", map[string]string{
+func (session *AgentMessageConnection) DeleteMessage(ctx context.Context, message *TaskAgentMessage) error {
+	return session.VssConnection.RequestWithContext(ctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "DELETE", map[string]string{
 		"poolId":    fmt.Sprint(session.VssConnection.PoolID),
 		"messageId": fmt.Sprint(message.MessageID),
 	}, map[string]string{

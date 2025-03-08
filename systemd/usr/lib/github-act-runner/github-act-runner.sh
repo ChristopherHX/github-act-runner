@@ -14,20 +14,6 @@ runner_bin_dir=/usr/lib/${pkg_name}/
 runner_bin=${runner_bin_dir}runner
 runners_dir=~/.config/${pkg_name}/runners/
 
-systemctl_cmd="systemctl"
-journalctl_cmd="journalctl --quiet"
-if $is_root; then
-    echo "running as root"
-    journalctl_cmd="${journalctl_cmd} --unit"
-    systemd_units_dir=/etc/systemd/system/
-else
-    user="$(id --user --name)"
-    echo "running as user '$user'"
-    systemctl_cmd="${systemctl_cmd} --user"
-    journalctl_cmd="${journalctl_cmd} --user --user-unit"
-    systemd_units_dir=~/.config/systemd/user/
-fi
-
 function error {
     local message=$1
     local exit_code=$2
@@ -63,6 +49,10 @@ declare -A commands=( \
         [start]="start runner service" \
         [restart]="restart runner service" \
         [log]="show logs of the runner service" \
+        [configure]="configure a runner instance in your cwd" \
+        [remove]="remove a runner instance in your cwd" \
+        [run]="run a runner instance in your cwd" \
+        [worker]="run a worker instance without configuration called by github-act-runner" \
     )
 
 while [[ $# > 0 ]] ; do
@@ -96,6 +86,33 @@ while [[ $# > 0 ]] ; do
 done
 
 [ ! -z "$command" ] || error "command is not given"
+
+# suppress "running as" logging for raw runner commands
+case $command in
+    configure)
+        ;;
+    remove)
+        ;;
+    run)
+        ;;
+    worker)
+        ;;
+    *)
+        systemctl_cmd="systemctl"
+        journalctl_cmd="journalctl --quiet"
+        if $is_root; then
+            echo "running as root"
+            journalctl_cmd="${journalctl_cmd} --unit"
+            systemd_units_dir=/etc/systemd/system/
+        else
+            user="$(id --user --name)"
+            echo "running as user '$user'"
+            systemctl_cmd="${systemctl_cmd} --user"
+            journalctl_cmd="${journalctl_cmd} --user --user-unit"
+            systemd_units_dir=~/.config/systemd/user/
+        fi
+        ;;
+esac
 
 function start_runner_service {
     local id=$1
@@ -162,6 +179,7 @@ function handle_new_command {
                 echo "  --labels        comma separated list of runner labels, e.g. 'label1,label1,label3'. Optional."
                 echo "  --token         github runner registration token."
                 echo "  --runnergroup   runner group name. Optional."
+                echo "  --podman        use podman instead of docker. Optional."
                 exit 0
                 ;;
             --url)
@@ -184,6 +202,9 @@ function handle_new_command {
                 shift
                 opts[labels]=$1
                 ;;
+            --podman)
+                opts[podman]=true
+                ;;
             *)
                 error "unknown option: $1"
                 ;;
@@ -195,11 +216,18 @@ function handle_new_command {
         [ ! -z "${opts[$opt]}" ] || error "missing option: --$opt"
     done
 
+    local podman=
+    if [ ! -z "${opts[podman]}" ]; then
+        podman=true
+    fi
+
     if ! $is_root; then
         # running as non-root user
         # check that the user is in 'docker' group"
-        if [ -z "$(groups | grep docker)" ]; then
-            error "user '$(id --user --name)' is not in 'docker' group, install docker and add the user to the group"
+        if [ -z "${podman}" ]; then
+            if [ -z "$(groups | grep docker)" ]; then
+                error "user '$(id --user --name)' is not in 'docker' group, install docker and add the user to the group"
+            fi
         fi
         local service_wanted_by="default.target"
 
@@ -243,6 +271,15 @@ function handle_new_command {
         runnergroup="--runnergroup ${opts[runnergroup]}"
     fi
 
+    local exec_start_cmd="${runner_bin} run"
+    local podman_service_deps=
+
+    if [ ! -z "${podman}" ]; then
+        podman_service_deps="After=podman.service
+Requires=podman.service"
+        exec_start_cmd="/bin/bash -c \"DOCKER_HOST=unix://\$XDG_RUNTIME_DIR/podman/podman.sock ${runner_bin} run\""
+    fi
+
     mkdir --parents $runner_dir
 
     # remove the new runner dir in case of ERROR
@@ -278,9 +315,10 @@ function handle_new_command {
 [Unit]
 Description=${pkg_name} '${runner_id}'
 After=network.target
+${podman_service_deps}
 
 [Service]
-ExecStart=${runner_bin} run
+ExecStart=${exec_start_cmd}
 WorkingDirectory=$runner_dir
 KillMode=process
 KillSignal=SIGINT
@@ -626,4 +664,28 @@ function handle_log_command {
     fi
 }
 
-handle_${command}_command $@
+function handle_configure_command {
+    "${runner_bin}" configure "$@"
+}
+
+function handle_remove_command {
+    "${runner_bin}" remove "$@"
+}
+
+function handle_run_command {
+    trap 'kill -INT $PID' INT
+    trap 'kill -TERM $PID' TERM
+    "${runner_bin}" run "$@" &
+    PID="$!"
+    wait "$PID" # wait for SIGINT (exit after finishing the running job) / SIGTERM (cancels running job) or normal exit
+    wait "$PID" # wait for job or SIGINT (cancels running job)
+    wait "$PID" # wait for graceful exit
+    exitcode="$?"
+    exit "$exitcode"
+}
+
+function handle_worker_command {
+    "${runner_bin}" worker "$@"
+}
+
+handle_${command}_command "$@"

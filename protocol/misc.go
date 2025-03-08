@@ -19,13 +19,14 @@ type GitHubAuthResult struct {
 	TenantURL   string `json:"url"`
 	TokenSchema string `json:"token_schema"`
 	Token       string `json:"token"`
-	UseV2FLow   string `json:"use_v2_flow"`
+	UseV2FLow   bool   `json:"use_v2_flow"`
 }
 
 type TaskOrchestrationPlanReference struct {
 	ScopeIdentifier string
 	PlanID          string
 	PlanType        string
+	Version         int32
 }
 
 type JobAuthorization struct {
@@ -70,6 +71,7 @@ type ActionStepDefinitionReference struct {
 }
 
 type ActionStep struct {
+	ID               string
 	Type             string
 	Reference        ActionStepDefinitionReference
 	DisplayNameToken *TemplateToken
@@ -135,3 +137,6 @@ type VssOAuthTokenResponse struct {
 	ExpiresIn   int    `json:"expires_in"`
 	TokenType   string `json:"token_type"`
 }
+
+var TimestampInputFormat = "2006-01-02T15:04:05.9999999Z07:00"  // allow to omit fractional seconds
+var TimestampOutputFormat = "2006-01-02T15:04:05.0000000Z07:00" // dotnet "O"
