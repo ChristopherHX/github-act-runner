@@ -43,6 +43,14 @@ type StepResult struct {
 	Annotations       []Annotation `json:"annotations,omitempty"`
 }
 
+func toLowerStringP(p *string) *string {
+	if p == nil {
+		return nil
+	}
+	ret := strings.ToLower(*p)
+	return &ret
+}
+
 func TimeLineRecordToStepResult(rec protocol.TimelineRecord) StepResult {
 	annotations := make([]Annotation, len(rec.Issues))
 	for i, issue := range rec.Issues {
@@ -51,8 +59,8 @@ func TimeLineRecordToStepResult(rec protocol.TimelineRecord) StepResult {
 
 	return StepResult{
 		ExternalID:  rec.ID,
-		Conclusion:  rec.Result,
-		Status:      rec.State,
+		Conclusion:  toLowerStringP(rec.Result),
+		Status:      strings.ToLower(rec.State),
 		Number:      int(rec.Order),
 		Name:        rec.Name,
 		StartedAt:   rec.StartTime,

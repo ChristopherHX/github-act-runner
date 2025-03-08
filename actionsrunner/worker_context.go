@@ -33,7 +33,7 @@ func (wc *DefaultWorkerContext) FinishJob(result string, outputs *map[string]pro
 		payload := &run.CompleteJobRequest{
 			PlanID:     wc.Message().Plan.PlanID,
 			JobID:      wc.Message().JobID,
-			Conclusion: result,
+			Conclusion: strings.ToLower(result),
 			Outputs:    nil,
 		}
 		if outputs != nil {
