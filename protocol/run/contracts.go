@@ -75,6 +75,7 @@ func IssueToAnnotation(issue protocol.Issue) Annotation {
 	columnNumber := IssueGetAnnotationNumber(issue, "col", 0)
 	endColumnNumber := IssueGetAnnotationNumber(issue, "endColumn", columnNumber)
 	logLineNumber := IssueGetAnnotationNumber(issue, "logLineNumber", 0)
+	stepNumber := IssueGetAnnotationNumber(issue, "stepNumber", 0)
 	if path == "" && lineNumber == 0 && logLineNumber != 0 {
 		lineNumber = logLineNumber
 		endLineNumber = logLineNumber
@@ -87,6 +88,7 @@ func IssueToAnnotation(issue protocol.Issue) Annotation {
 		EndLine:     endLineNumber,
 		StartColumn: columnNumber,
 		EndColumn:   endColumnNumber,
+		StepNumber:  stepNumber,
 	}
 }
 

@@ -19,4 +19,5 @@ type Annotation struct {
 	EndLine               int64           `json:"endLine"`
 	StartColumn           int64           `json:"startColumn"`
 	EndColumn             int64           `json:"endColumn"`
+	StepNumber            int64           `json:"stepNumber"`
 }
