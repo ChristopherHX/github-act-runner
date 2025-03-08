@@ -31,10 +31,11 @@ type DefaultWorkerContext struct {
 func (wc *DefaultWorkerContext) FinishJob(result string, outputs *map[string]protocol.VariableValue) {
 	if strings.EqualFold(wc.Message().MessageType, "RunnerJobRequest") {
 		payload := &run.CompleteJobRequest{
-			PlanID:     wc.Message().Plan.PlanID,
-			JobID:      wc.Message().JobID,
-			Conclusion: strings.ToLower(result),
-			Outputs:    nil,
+			PlanID:         wc.Message().Plan.PlanID,
+			JobID:          wc.Message().JobID,
+			Conclusion:     strings.ToLower(result),
+			Outputs:        nil,
+			BillingOwnerId: wc.Message().BillingOwnerId,
 		}
 		if outputs != nil {
 			payload.Outputs = *outputs

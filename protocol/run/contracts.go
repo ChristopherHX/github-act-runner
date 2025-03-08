@@ -9,17 +9,19 @@ import (
 )
 
 type AcquireJobRequest struct {
-	StreamID     string `json:"streamId,omitempty"` // Deprecated: https://github.com/actions/runner/pull/2547
-	JobMessageID string `json:"jobMessageId"`
+	StreamID       string `json:"streamId,omitempty"` // Deprecated: https://github.com/actions/runner/pull/2547
+	JobMessageID   string `json:"jobMessageId"`
+	BillingOwnerId string `json:"billingOwnerId,omitempty"`
 }
 
 type CompleteJobRequest struct {
-	PlanID      string                            `json:"planId,omitempty"`
-	JobID       string                            `json:"jobId,omitempty"`
-	Conclusion  string                            `json:"conclusion"`
-	Outputs     map[string]protocol.VariableValue `json:"outputs,omitempty"`
-	StepResults []StepResult                      `json:"stepResults,omitempty"`
-	Annotations []Annotation                      `json:"annotations,omitempty"`
+	PlanID         string                            `json:"planId,omitempty"`
+	JobID          string                            `json:"jobId,omitempty"`
+	Conclusion     string                            `json:"conclusion"`
+	Outputs        map[string]protocol.VariableValue `json:"outputs,omitempty"`
+	StepResults    []StepResult                      `json:"stepResults,omitempty"`
+	Annotations    []Annotation                      `json:"annotations,omitempty"`
+	BillingOwnerId string                            `json:"billingOwnerId,omitempty"`
 }
 
 type RenewJobRequest struct {

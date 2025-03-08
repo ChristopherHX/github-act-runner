@@ -401,6 +401,7 @@ type RunnerJobRequestRef struct {
 	Id              string `json:"id"`
 	RunnerRequestId string `json:"runner_request_id"`
 	RunServiceUrl   string `json:"run_service_url"`
+	BillingOwnerId  string `json:"billing_owner_id,omitempty"`
 }
 
 type plainTextFormatter struct {
@@ -454,8 +455,9 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 						acquirejobUrl.Path = path.Join(acquirejobUrl.Path, "acquirejob")
 						vssConnection.TenantURL = runServiceUrl
 						payload := &runservice.AcquireJobRequest{
-							StreamID:     rjrr.RunnerRequestId,
-							JobMessageID: rjrr.RunnerRequestId,
+							StreamID:       rjrr.RunnerRequestId,
+							JobMessageID:   rjrr.RunnerRequestId,
+							BillingOwnerId: rjrr.BillingOwnerId,
 						}
 						err = vssConnection.RequestWithContext2(jobctx, "POST", acquirejobUrl.String(), "", payload, &src)
 					}
