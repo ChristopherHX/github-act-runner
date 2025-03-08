@@ -488,16 +488,17 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 			for {
 				var err error
 				if runServiceUrl != "" {
-					vssConnection = &con
+					jobVssConnection, _, _ := jobreq.GetConnection("SystemVssConnection")
+					jobVssConnection.Trace = con.Trace
 					renewjobUrl, _ := url.Parse(runServiceUrl)
 					renewjobUrl.Path = path.Join(renewjobUrl.Path, "renewjob")
-					vssConnection.TenantURL = runServiceUrl
+					jobVssConnection.TenantURL = runServiceUrl
 					payload := &runservice.RenewJobRequest{
 						PlanID: jobreq.Plan.PlanID,
 						JobID:  jobreq.JobID,
 					}
 					resp := &runservice.RenewJobResponse{}
-					err = vssConnection.RequestWithContext2(jobctx, "POST", renewjobUrl.String(), "", payload, &resp)
+					err = jobVssConnection.RequestWithContext2(jobctx, "POST", renewjobUrl.String(), "", payload, &resp)
 				} else {
 					err = con.RequestWithContext(jobctx, "fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
 						"poolId":    fmt.Sprint(instance.PoolID),

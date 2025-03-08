@@ -33,7 +33,7 @@ func (wc *DefaultWorkerContext) FinishJob(result string, outputs *map[string]pro
 		payload := &run.CompleteJobRequest{
 			PlanID:     wc.Message().Plan.PlanID,
 			JobID:      wc.Message().JobID,
-			Conclusion: result,
+			Conclusion: strings.ToLower(result),
 			Outputs:    nil,
 		}
 		if outputs != nil {
@@ -61,6 +61,7 @@ func (wc *DefaultWorkerContext) FinishJob(result string, outputs *map[string]pro
 		for i := 0; ; i++ {
 			if err := wc.VssConnection.RequestWithContext2(context.Background(), "POST", completejobUrl.String(), "", payload, nil); err != nil {
 				wc.RunnerLogger.Printf("Failed to finish Job '%v' with Status %v: %v\n", wc.Message().JobDisplayName, result, err.Error())
+				break
 			} else {
 				wc.RunnerLogger.Printf("Finished Job '%v' with Status %v\n", wc.Message().JobDisplayName, result)
 				break
