@@ -281,14 +281,8 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 							}
 						}
 						session.Status = "Online"
-						err := vssConnection.RequestWithContext(xctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "GET", map[string]string{
-							"poolId": fmt.Sprint(instance.PoolID),
-						}, map[string]string{
-							"sessionId":     session.TaskAgentSession.SessionID,
-							"runnerVersion": "3.0.0",
-							"status":        session.Status,
-						}, nil, message)
-						//TODO lastMessageId=
+						var err error
+						message, err = session.GetSingleMessage(xctx)
 						if err != nil {
 							if errors.Is(err, context.Canceled) {
 								return 0
@@ -321,12 +315,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Conte
 								return 1
 							}
 							success = true
-							err := vssConnection.Request("c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "DELETE", map[string]string{
-								"poolId":    fmt.Sprint(instance.PoolID),
-								"messageId": fmt.Sprint(message.MessageID),
-							}, map[string]string{
-								"sessionId": session.TaskAgentSession.SessionID,
-							}, nil, nil)
+							err := session.DeleteMessage(context.Background(), message)
 							if err != nil {
 								runnerenv.Printf("Failed to delete Message\n")
 								success = false
@@ -425,7 +414,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 			cancelJob()
 			finishJob()
 		}()
-		src, err := message.Decrypt(session.Block)
+		src, err := message.Decrypt(session)
 		if err != nil {
 			plogger.Printf("Failed to decode TaskAgentMessage: %v\n", err)
 			return

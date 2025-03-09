@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
+	"net/url"
 	"strings"
 
 	// nolint:gosec
@@ -27,7 +28,7 @@ type TaskAgentMessage struct {
 	Body        string
 }
 
-func (message *TaskAgentMessage) Decrypt(block cipher.Block) ([]byte, error) {
+func (message *TaskAgentMessage) Decrypt(session *AgentMessageConnection) ([]byte, error) {
 	if message.IV == "" {
 		return []byte(message.Body), nil
 	}
@@ -39,9 +40,17 @@ func (message *TaskAgentMessage) Decrypt(block cipher.Block) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	cbcdec := cipher.NewCBCDecrypter(block, iv)
+	if session.Block == nil {
+		// Parse Key
+		var err error
+		session.Block, err = session.TaskAgentSession.GetSessionKey(session.VssConnection.Key)
+		if err != nil {
+			return nil, err
+		}
+	}
+	cbcdec := cipher.NewCBCDecrypter(session.Block, iv)
 	cbcdec.CryptBlocks(src, src)
-	maxlen := block.BlockSize()
+	maxlen := session.Block.BlockSize()
 	validlen := len(src)
 	if int(src[len(src)-1]) <= maxlen { // <= is needed if the message ends within a block boundary and maxlen=16 then we get 16 times char 16 appended, one whole extra block
 		ok := true
@@ -71,7 +80,7 @@ func (message *TaskAgentMessage) FetchBrokerIfNeeded(xctx context.Context, sessi
 	if strings.EqualFold(message.MessageType, "BrokerMigration") {
 		vssConnection := session.VssConnection
 		rjrr := &BrokerMigration{}
-		raw, err := message.Decrypt(session.Block)
+		raw, err := message.Decrypt(session)
 		if err != nil {
 			return err
 		}
@@ -112,11 +121,12 @@ type TaskAgentSessionKey struct {
 }
 
 type TaskAgentSession struct {
-	SessionID         string `json:",omitempty"`
-	EncryptionKey     TaskAgentSessionKey
-	OwnerName         string
-	Agent             TaskAgent
-	UseFipsEncryption bool
+	SessionID              string `json:",omitempty"`
+	EncryptionKey          TaskAgentSessionKey
+	OwnerName              string
+	Agent                  TaskAgent
+	UseFipsEncryption      bool
+	BrokerMigrationMessage *BrokerMigration `json:",omitempty"`
 }
 
 func (session *TaskAgentSession) GetSessionKey(key *rsa.PrivateKey) (cipher.Block, error) {
@@ -145,30 +155,49 @@ type AgentMessageConnection struct {
 	TaskAgentSession *TaskAgentSession
 	Block            cipher.Block
 	Status           string
+	ServerV2URL      string
 }
 
 func (session *AgentMessageConnection) Delete(ctx context.Context) error {
+	if session.ServerV2URL != "" {
+		return session.VssConnection.RequestWithContext2(ctx, "DELETE", session.ServerV2URL+"/session", "", nil, nil)
+	}
 	return session.VssConnection.RequestWithContext(ctx, "134e239e-2df3-4794-a6f6-24f1f19ec8dc", "5.1-preview", "DELETE", map[string]string{
 		"poolId":    fmt.Sprint(session.VssConnection.PoolID),
 		"sessionId": session.TaskAgentSession.SessionID,
 	}, map[string]string{}, session.TaskAgentSession, nil)
 }
 
-func (session *AgentMessageConnection) GetNextMessage(ctx context.Context) (*TaskAgentMessage, error) {
+func (session *AgentMessageConnection) GetSingleMessage(ctx context.Context) (*TaskAgentMessage, error) {
 	message := &TaskAgentMessage{}
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, context.Canceled
-		default:
-		}
-		err := session.VssConnection.RequestWithContext(ctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "GET", map[string]string{
+	var err error
+	if session.ServerV2URL != "" {
+		query := url.Values{}
+		query.Set("sessionId", session.TaskAgentSession.SessionID)
+		query.Set("runnerVersion", "3.0.0")
+		query.Set("status", session.Status)
+		query.Set("disableUpdate", fmt.Sprint(session.TaskAgentSession.Agent.DisableUpdate))
+		err = session.VssConnection.RequestWithContext2(ctx, "GET", session.ServerV2URL+"/message?"+query.Encode(), "", nil, message)
+	} else {
+		err = session.VssConnection.RequestWithContext(ctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "GET", map[string]string{
 			"poolId": fmt.Sprint(session.VssConnection.PoolID),
 		}, map[string]string{
 			"sessionId":     session.TaskAgentSession.SessionID,
 			"runnerVersion": "3.0.0",
 		}, nil, message)
 		// TODO lastMessageId=
+	}
+	return message, err
+}
+
+func (session *AgentMessageConnection) GetNextMessage(ctx context.Context) (*TaskAgentMessage, error) {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, context.Canceled
+		default:
+		}
+		message, err := session.GetSingleMessage(ctx)
 		if err == nil {
 			err = session.DeleteMessage(ctx, message)
 			err = errors.Join(err, message.FetchBrokerIfNeeded(ctx, session))
@@ -191,6 +220,10 @@ func (session *AgentMessageConnection) GetNextMessage(ctx context.Context) (*Tas
 }
 
 func (session *AgentMessageConnection) DeleteMessage(ctx context.Context, message *TaskAgentMessage) error {
+	if session.ServerV2URL == "" {
+		// V2 no support for deleting messages
+		return nil
+	}
 	return session.VssConnection.RequestWithContext(ctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "DELETE", map[string]string{
 		"poolId":    fmt.Sprint(session.VssConnection.PoolID),
 		"messageId": fmt.Sprint(message.MessageID),

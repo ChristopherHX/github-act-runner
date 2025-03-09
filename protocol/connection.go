@@ -294,36 +294,39 @@ func (vssConnection *VssConnection) GetAgentPools() (*TaskAgentPools, error) {
 	}
 	return _taskAgentPools, nil
 }
-func (vssConnection *VssConnection) CreateSession(ctx context.Context) (*AgentMessageConnection, error) {
+
+func (vssConnection *VssConnection) CreateSessionExt(ctx context.Context, serverV2URL string) (*AgentMessageConnection, error) {
 	session := &TaskAgentSession{}
 	session.Agent = *vssConnection.TaskAgent
 	session.UseFipsEncryption = false // Have to be set to false for "GitHub Enterprise Server 3.0.11", github.com reset it to false 24-07-2021
 	session.OwnerName = "RUNNER"
-	if err := vssConnection.RequestWithContext(ctx, "134e239e-2df3-4794-a6f6-24f1f19ec8dc", "5.1-preview", "POST", map[string]string{
-		"poolId": fmt.Sprint(vssConnection.PoolID),
-	}, map[string]string{}, session, session); err != nil {
-		return nil, err
+	if serverV2URL != "" {
+		err := vssConnection.RequestWithContext2(ctx, "POST", serverV2URL+"/session", "", session, session)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		if err := vssConnection.RequestWithContext(ctx, "134e239e-2df3-4794-a6f6-24f1f19ec8dc", "5.1-preview", "POST", map[string]string{
+			"poolId": fmt.Sprint(vssConnection.PoolID),
+		}, map[string]string{}, session, session); err != nil {
+			return nil, err
+		}
+		if session.BrokerMigrationMessage != nil {
+			return vssConnection.CreateSessionExt(ctx, session.BrokerMigrationMessage.BrokerBaseUrl)
+		}
 	}
 
 	con := &AgentMessageConnection{VssConnection: vssConnection, TaskAgentSession: session}
-	var err error
-	con.Block, err = con.TaskAgentSession.GetSessionKey(vssConnection.Key)
-	if err != nil {
-		_ = con.Delete(ctx)
-		return nil, err
-	}
 	con.Status = "Online"
 	return con, nil
 }
 
+func (vssConnection *VssConnection) CreateSession(ctx context.Context) (*AgentMessageConnection, error) {
+	return vssConnection.CreateSessionExt(ctx, vssConnection.TaskAgent.ServerV2URL)
+}
+
 func (vssConnection *VssConnection) LoadSession(ctx context.Context, session *TaskAgentSession) (*AgentMessageConnection, error) {
 	con := &AgentMessageConnection{VssConnection: vssConnection, TaskAgentSession: session}
-	var err error
-	con.Block, err = con.TaskAgentSession.GetSessionKey(vssConnection.Key)
-	if err != nil {
-		_ = con.Delete(ctx)
-		return nil, err
-	}
 	con.Status = "Online"
 	return con, nil
 }
