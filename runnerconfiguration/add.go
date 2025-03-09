@@ -190,7 +190,7 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 	taskAgent.DisableUpdate = config.DisableUpdate
 	{
 		var err error
-		if auth.UseV2FLow {
+		if res.UseV2FLow {
 			err = registerOrReplaceRunnerV2(taskAgent, config, vssConnection, apiBuilder, false)
 		} else {
 			err = vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "POST", map[string]string{
@@ -203,7 +203,7 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 			}
 			// Try replaceing runner if creation failed
 			taskAgents := &protocol.TaskAgents{}
-			if auth.UseV2FLow {
+			if res.UseV2FLow {
 				resv2 := &protocol.ListRunnersResponse{}
 				runnersURL, _ := apiBuilder.ScopedApiUrl("actions/runners")
 				err = vssConnection.RequestWithContext2(context.Background(), "GET", runnersURL, "", nil, resv2)
@@ -235,7 +235,7 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 			if invalid {
 				return nil, fmt.Errorf("failed to update taskAgent: Failed to find agent")
 			}
-			if auth.UseV2FLow {
+			if res.UseV2FLow {
 				err = registerOrReplaceRunnerV2(taskAgent, config, vssConnection, apiBuilder, true)
 			} else {
 				err = vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "PUT", map[string]string{
