@@ -96,6 +96,17 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 				return nil, err
 			}
 			poolList := &protocol.TaskAgentPools{}
+			poolList.Count = int64(len(runnerGroups.RunnerGroups))
+			for _, val := range runnerGroups.RunnerGroups {
+				poolList.Value = append(poolList.Value, protocol.TaskAgentPool{
+					TaskAgentPoolReference: protocol.TaskAgentPoolReference{
+						ID:         int64(val.Id),
+						Name:       val.Name,
+						IsHosted:   val.IsHosted,
+						IsInternal: val.IsDefault,
+					},
+				})
+			}
 			return poolList, nil
 		}
 	}
