@@ -184,6 +184,7 @@ func (session *AgentMessageConnection) GetSingleMessage(ctx context.Context) (*T
 		}, map[string]string{
 			"sessionId":     session.TaskAgentSession.SessionID,
 			"runnerVersion": "3.0.0",
+			"status":        session.Status,
 		}, nil, message)
 		// TODO lastMessageId=
 	}
