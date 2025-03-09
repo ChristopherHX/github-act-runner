@@ -221,7 +221,7 @@ func (session *AgentMessageConnection) GetNextMessage(ctx context.Context) (*Tas
 }
 
 func (session *AgentMessageConnection) DeleteMessage(ctx context.Context, message *TaskAgentMessage) error {
-	if session.ServerV2URL == "" {
+	if session.ServerV2URL != "" {
 		// V2 no support for deleting messages
 		return nil
 	}
