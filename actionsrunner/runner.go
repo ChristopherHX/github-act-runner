@@ -50,7 +50,7 @@ type RunnerEnvironment interface {
 func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx context.Context, corectx context.Context) error {
 	settings := run.Settings
 	for i := 0; i < len(settings.Instances); i++ {
-		if err := settings.Instances[i].EnshurePKey(); err != nil {
+		if err := settings.Instances[i].EnsurePKey(); err != nil {
 			return err
 		}
 	}

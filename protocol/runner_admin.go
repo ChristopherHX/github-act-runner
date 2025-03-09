@@ -2,10 +2,10 @@ package protocol
 
 type Runner struct {
 	Name          string `json:"name"`
-	Id            int32  `json:"id"`
+	Id            int64  `json:"id"`
 	Authorization struct {
-		AuthorizationUrl string `json:"authorization_url"`
-		ServerUrl        string `json:"server_url"`
+		AuthorizationURL string `json:"authorization_url"`
+		ServerURL        string `json:"server_url"`
 		ClientId         string `json:"client_id"`
 	} `json:"authorization"`
 }
@@ -23,6 +23,6 @@ type RunnerGroupList struct {
 }
 
 type ListRunnersResponse struct {
-    TotalCount int `json:"total_count"`
-    Runners []Runner `json:"runners"`
+	TotalCount int      `json:"total_count"`
+	Runners    []Runner `json:"runners"`
 }

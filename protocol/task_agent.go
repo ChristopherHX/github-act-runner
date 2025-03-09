@@ -35,7 +35,7 @@ type TaskAgent struct {
 	Authorization     TaskAgentAuthorization
 	Labels            []AgentLabel
 	MaxParallelism    int
-	ID                int
+	ID                int64
 	Name              string
 	Version           string
 	OSDescription     string
@@ -45,6 +45,8 @@ type TaskAgent struct {
 	CreatedOn         string
 	Ephemeral         bool `json:",omitempty"`
 	DisableUpdate     bool `json:",omitempty"`
+	// Just a convenient way to store the URL, not part of the spec
+	ServerV2URL string `json:",omitempty"`
 }
 
 type TaskAgents struct {

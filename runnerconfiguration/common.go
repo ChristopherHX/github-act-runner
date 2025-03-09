@@ -72,7 +72,7 @@ type RunnerInstance struct {
 	WorkFolder      string // Currently unused for actions/runner compat
 }
 
-func (instance *RunnerInstance) EnshurePKey() error {
+func (instance *RunnerInstance) EnsurePKey() error {
 	if instance.PKey == nil {
 		key, err := base64.StdEncoding.DecodeString(instance.Key)
 		if err != nil {
