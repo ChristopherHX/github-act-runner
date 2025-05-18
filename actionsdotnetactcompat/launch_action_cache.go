@@ -60,7 +60,7 @@ func (cache *LaunchActionCache) Fetch(ctx context.Context, cacheDir string, url 
 		}
 		resolvedSha := v.ResolvedSha
 		var shouldDelete bool
-		if len(resolvedSha) == len("0000000000000000000000000000000000000000") {
+		if len(resolvedSha) != len("0000000000000000000000000000000000000000") {
 			resolvedSha = uuid.NewString()
 			shouldDelete = true
 		}
