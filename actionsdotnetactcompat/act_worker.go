@@ -353,19 +353,22 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		EventJSON:   payload,
 		ContextData: map[string]interface{}{},
 	}
+	cacheBase := ActionCacheBase{
+		VssConnection: vssConnection,
+		Plan:          rqt.Plan,
+		GHToken:       runnerConfig.Token,
+		HttpClient:    &downloadActionHttpClient,
+		CacheDir:      rc.ActionCacheDir(),
+	}
 	if viaGit, hasViaGit := rcommon.LookupEnvBool("GITHUB_ACT_RUNNER_DOWNLOAD_ACTIONS_VIA_GIT"); hasViaGit && viaGit {
 		runnerConfig.ActionCache = nil
 	} else if strings.EqualFold(rqt.MessageType, "RunnerJobRequest") {
 		launchEndpoint, hasLaunchEndpoint := rqt.Variables["system.github.launch_endpoint"]
 		if hasLaunchEndpoint && launchEndpoint.Value != "" {
 			launchCache := &LaunchActionCache{
-				VssConnection:  vssConnection,
-				Plan:           rqt.Plan,
-				GHToken:        runnerConfig.Token,
-				HttpClient:     &downloadActionHttpClient,
-				LaunchEndpoint: launchEndpoint.Value,
-				JobID:          rqt.JobID,
-				CacheDir:       rc.ActionCacheDir(),
+				ActionCacheBase: cacheBase,
+				LaunchEndpoint:  launchEndpoint.Value,
+				JobID:           rqt.JobID,
 			}
 			runnerConfig.ActionCache = launchCache
 			defer func() {
@@ -378,11 +381,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		}
 	} else {
 		vssCache := &VssActionCache{
-			VssConnection: vssConnection,
-			Plan:          rqt.Plan,
-			GHToken:       runnerConfig.Token,
-			HttpClient:    &downloadActionHttpClient,
-			CacheDir:      rc.ActionCacheDir(),
+			ActionCacheBase: cacheBase,
 		}
 		runnerConfig.ActionCache = vssCache
 		defer func() {
