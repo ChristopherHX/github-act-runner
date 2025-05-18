@@ -29,6 +29,8 @@ github.com/actions-oss/act-cli v0.3.3-0.20250426145830-bb13ab4f84d5 h1:9XZZydlEs
 github.com/actions-oss/act-cli v0.3.3-0.20250426145830-bb13ab4f84d5/go.mod h1:Hmp6Td0K/Zze3lkhhmWjuqN16zK+V6nIUZqe/Qrslw8=
 github.com/actions-oss/act-cli v0.3.3-0.20250518114433-b634fba677b0 h1:UgKOs5/dnxeWXTTQWJtYZXB/Sfq6rThdaqrxze0pcwY=
 github.com/actions-oss/act-cli v0.3.3-0.20250518114433-b634fba677b0/go.mod h1:NB6Xbfeq88yC4d+YLiUgxnvcn34c8QAZo4i94DFESGs=
+github.com/actions-oss/act-cli-actionlint v0.0.0-20250517100532-8f847f29ba36 h1:QnIPcWM4eVfqRUB3B6sLOwEJrMrTa64qrVqzxF5A21U=
+github.com/actions-oss/act-cli-actionlint v0.0.0-20250517100532-8f847f29ba36/go.mod h1:AE6I6vJEkNaIfWqC2GNE5spIJNhxf8NCtLEKU4NnUXg=
 github.com/adrg/xdg v0.5.3 h1:xRnxJXne7+oWDatRhR1JLnvuccuIeCoBu2rtuLqQB78=
 github.com/adrg/xdg v0.5.3/go.mod h1:nlTsY+NNiCBGCK2tpm09vRqfVzrc2fLmXGpBLF0zlTQ=
 github.com/andreaskoch/go-fswatch v1.0.0 h1:la8nP/HiaFCxP2IM6NZNUCoxgLWuyNFgH0RligBbnJU=

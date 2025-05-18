@@ -113,3 +113,4 @@ require (
 )
 
 replace github.com/go-git/go-billy/v5 => github.com/go-git/go-billy/v5 v5.4.0
+replace github.com/rhysd/actionlint => github.com/actions-oss/act-cli-actionlint v0.0.0-20250517100532-8f847f29ba36
