@@ -22,9 +22,9 @@ import (
 	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/ChristopherHX/github-act-runner/runnerconfiguration"
 	runnerCompat "github.com/ChristopherHX/github-act-runner/runnerconfiguration/compat"
+	"github.com/actions-oss/act-cli/pkg/container"
 	"github.com/joho/godotenv"
 	"github.com/kardianos/service"
-	"github.com/nektos/act/pkg/container"
 
 	"github.com/spf13/cobra"
 )

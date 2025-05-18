@@ -2,7 +2,6 @@ package actionsdotnetactcompat
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,14 +17,11 @@ import (
 	"github.com/ChristopherHX/github-act-runner/actionsrunner"
 	rcommon "github.com/ChristopherHX/github-act-runner/common"
 	"github.com/ChristopherHX/github-act-runner/protocol"
-	"github.com/ChristopherHX/github-act-runner/protocol/launch"
 	"github.com/ChristopherHX/github-act-runner/protocol/logger"
+	"github.com/actions-oss/act-cli/pkg/common"
+	"github.com/actions-oss/act-cli/pkg/model"
+	"github.com/actions-oss/act-cli/pkg/runner"
 	"github.com/google/uuid"
-	"github.com/nektos/act/pkg/common"
-	"github.com/nektos/act/pkg/common/git"
-	"github.com/nektos/act/pkg/filecollector"
-	"github.com/nektos/act/pkg/model"
-	"github.com/nektos/act/pkg/runner"
 	"github.com/rhysd/actionlint"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
@@ -309,9 +305,9 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	runnerConfig.LogOutput = true
 	runnerConfig.EventName = githubCtxMap["event_name"].(string)
 	runnerConfig.GitHubInstance = "github.com"
-	runnerConfig.GitHubServerUrl = githubCtxMap["server_url"].(string)
-	runnerConfig.GitHubApiServerUrl = githubCtxMap["api_url"].(string)
-	runnerConfig.GitHubGraphQlApiServerUrl = githubCtxMap["graphql_url"].(string)
+	runnerConfig.GitHubServerURL = githubCtxMap["server_url"].(string)
+	runnerConfig.GitHubAPIServerURL = githubCtxMap["api_url"].(string)
+	runnerConfig.GitHubGraphQlAPIServerURL = githubCtxMap["graphql_url"].(string)
 	runnerConfig.NoSkipCheckout = true // Needed to avoid copy the non exiting working dir
 	runnerConfig.AutoRemove = true     // Needed to cleanup always cleanup container
 	runnerConfig.ForcePull = true
@@ -327,78 +323,43 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		}
 		return nil
 	}
-	runnerConfig.DownloadAction = func(ngcei git.NewGitCloneExecutorInput) common.Executor {
-		return func(ctx context.Context) error {
-			actionList := &protocol.ActionReferenceList{}
-			actionurl := strings.Split(ngcei.URL, "/")
-			actionurl = actionurl[len(actionurl)-2:]
-			actionList.Actions = []protocol.ActionReference{
-				{NameWithOwner: strings.Join(actionurl, "/"), Ref: ngcei.Ref},
-			}
-			actionDownloadInfo := &protocol.ActionDownloadInfoCollection{}
-			err := vssConnection.RequestWithContext(ctx, "27d7f831-88c1-4719-8ca1-6a061dad90eb", "6.0-preview", "POST", map[string]string{
-				"scopeIdentifier": rqt.Plan.ScopeIdentifier,
-				"hubName":         rqt.Plan.PlanType,
-				"planId":          rqt.Plan.PlanID,
-			}, nil, actionList, actionDownloadInfo)
-			if err != nil {
-				return err
-			}
-			for _, v := range actionDownloadInfo.Actions {
-				token := runnerConfig.Token
-				if v.Authentication != nil && v.Authentication.Token != "" {
-					token = v.Authentication.Token
-				}
-				err := downloadAndExtractAction(ctx, ngcei.Dir, actionurl[0], actionurl[1], v.ResolvedSha, v.TarballUrl, token, &downloadActionHttpClient)
-				if err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-	}
-	if strings.EqualFold(rqt.MessageType, "RunnerJobRequest") {
-		runnerConfig.DownloadAction = nil
+	if viaGit, hasViaGit := rcommon.LookupEnvBool("GITHUB_ACT_RUNNER_DOWNLOAD_ACTIONS_VIA_GIT"); hasViaGit && viaGit {
+		runnerConfig.ActionCache = nil
+	} else if strings.EqualFold(rqt.MessageType, "RunnerJobRequest") {
 		launchEndpoint, hasLaunchEndpoint := rqt.Variables["system.github.launch_endpoint"]
 		if hasLaunchEndpoint && launchEndpoint.Value != "" {
-			runnerConfig.DownloadAction = func(ngcei git.NewGitCloneExecutorInput) common.Executor {
-				return func(ctx context.Context) error {
-					actionList := &launch.ActionReferenceRequestList{}
-					actionurl := strings.Split(ngcei.URL, "/")
-					actionurl = actionurl[len(actionurl)-2:]
-					actionList.Actions = []launch.ActionReferenceRequest{
-						{Action: strings.Join(actionurl, "/"), Version: ngcei.Ref},
+			launchCache := &LaunchActionCache{
+				VssConnection:  vssConnection,
+				Plan:           rqt.Plan,
+				GHToken:        runnerConfig.Token,
+				HttpClient:     &downloadActionHttpClient,
+				LaunchEndpoint: launchEndpoint.Value,
+				JobID:          rqt.JobID,
+			}
+			runnerConfig.ActionCache = launchCache
+			defer func() {
+				for _, v := range launchCache.delete {
+					if err := os.Remove(v); err != nil {
+						logger.Warnf("Unable to remove %v: %v", v, err)
 					}
-					actionDownloadInfo := &launch.ActionDownloadInfoResponseCollection{}
-					urlBuilder := protocol.VssConnection{TenantURL: launchEndpoint.Value}
-					url, err := urlBuilder.BuildURL("actions/build/{planId}/jobs/{jobId}/runnerresolve/actions", map[string]string{
-						"jobId":  rqt.JobID,
-						"planId": rqt.Plan.PlanID,
-					}, nil)
-					if err != nil {
-						return err
-					}
-					err = vssConnection.RequestWithContext2(ctx, "POST", url, "", actionList, actionDownloadInfo)
-					if err != nil {
-						return err
-					}
-					for _, v := range actionDownloadInfo.Actions {
-						token := runnerConfig.Token
-						if v.Authentication != nil && v.Authentication.Token != "" {
-							token = v.Authentication.Token
-						}
-						err := downloadAndExtractAction(ctx, ngcei.Dir, actionurl[0], actionurl[1], v.ResolvedSha, v.TarUrl, token, &downloadActionHttpClient)
-						if err != nil {
-							return err
-						}
-					}
-					return nil
+				}
+			}()
+		}
+	} else {
+		vssCache := &VssActionCache{
+			VssConnection: vssConnection,
+			Plan:          rqt.Plan,
+			GHToken:       runnerConfig.Token,
+			HttpClient:    &downloadActionHttpClient,
+		}
+		runnerConfig.ActionCache = vssCache
+		defer func() {
+			for _, v := range vssCache.delete {
+				if err := os.Remove(v); err != nil {
+					logger.Warnf("Unable to remove %v: %v", v, err)
 				}
 			}
-		}
-	}
-	if viaGit, hasViaGit := rcommon.LookupEnvBool("GITHUB_ACT_RUNNER_DOWNLOAD_ACTIONS_VIA_GIT"); hasViaGit && viaGit {
-		runnerConfig.DownloadAction = nil
+		}()
 	}
 	rc := &runner.RunContext{
 		Name:   uuid.New().String(),
@@ -490,9 +451,6 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		}
 	}
 	rc.ContextData["github"] = githubCtxMap
-	val, _ := json.Marshal(githubCtx)
-	sv := string(val)
-	rc.GHContextData = &sv
 
 	ee := rc.NewExpressionEvaluator(jobExecCtx)
 	rc.ExprEval = ee
@@ -588,28 +546,35 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	finishJob2(jobStatus, outputMap)
 }
 
-func downloadAndExtractAction(ctx context.Context, target string, owner string, name string, resolvedSha string, tarURL string, token string, httpClient *http.Client) (reterr error) {
+func fetchAction(ctx context.Context, target string, owner string, name string, resolvedSha string, tarURL string, token string, httpClient *http.Client) (targetFile string, reterr error) {
 	logger := common.Logger(ctx)
-	cachedTar := filepath.Join(target, "..", owner+"."+name+"."+resolvedSha+".tar")
+	cachedTarOld := filepath.Join(target, "..", owner+"."+name+"."+resolvedSha+".tar")
+	cachedTar := filepath.Join(target + ".tar.gz")
 	defer func() {
 		if reterr != nil {
 			os.Remove(cachedTar)
+			os.Remove(cachedTarOld)
 		}
 	}()
-	var tarstream io.Reader
 	if fr, err := os.Open(cachedTar); err == nil {
-		tarstream = fr
 		defer fr.Close()
 		if logger != nil {
 			logger.Infof("Found cache for action %v/%v (sha:%v) from %v", owner, name, resolvedSha, cachedTar)
 		}
+		return cachedTar, nil
+	} else if fr, err := os.Open(cachedTarOld); err == nil {
+		defer fr.Close()
+		if logger != nil {
+			logger.Infof("Found cache for action %v/%v (sha:%v) from %v", owner, name, resolvedSha, cachedTarOld)
+		}
+		return cachedTarOld, nil
 	} else {
 		if logger != nil {
 			logger.Infof("Downloading action %v/%v (sha:%v) from %v", owner, name, resolvedSha, tarURL)
 		}
 		req, err := http.NewRequestWithContext(ctx, "GET", tarURL, nil)
 		if err != nil {
-			return err
+			return "", err
 		}
 		if token != "" {
 			req.Header.Add("Authorization", "token "+token)
@@ -618,44 +583,26 @@ func downloadAndExtractAction(ctx context.Context, target string, owner string, 
 		req.Header.Add("Accept", "*/*")
 		rsp, err := httpClient.Do(req)
 		if err != nil {
-			return err
+			return "", err
 		}
 		defer rsp.Body.Close()
 		if rsp.StatusCode != 200 {
 			buf := &bytes.Buffer{}
 			io.Copy(buf, rsp.Body)
-			return fmt.Errorf("Failed to download action from %v response %v", tarURL, buf.String())
+			return "", fmt.Errorf("Failed to download action from %v response %v", tarURL, buf.String())
 		}
-		if len(resolvedSha) == len("0000000000000000000000000000000000000000") {
-			fo, err := os.Create(cachedTar)
-			if err != nil {
-				return err
-			}
-			defer fo.Close()
-			len, err := io.Copy(fo, rsp.Body)
-			if err != nil {
-				return err
-			}
-			if rsp.ContentLength >= 0 && len != rsp.ContentLength {
-				return fmt.Errorf("failed to download tar expected %v, but copied %v", rsp.ContentLength, len)
-			}
-			tarstream = fo
-			fo.Seek(0, 0)
-		} else {
-			tarstream = rsp.Body
+		fo, err := os.Create(cachedTar)
+		if err != nil {
+			return "", err
+		}
+		defer fo.Close()
+		len, err := io.Copy(fo, rsp.Body)
+		if err != nil {
+			return "", err
+		}
+		if rsp.ContentLength >= 0 && len != rsp.ContentLength {
+			return "", fmt.Errorf("failed to download tar expected %v, but copied %v", rsp.ContentLength, len)
 		}
 	}
-	if err := extractTarGz(tarstream, target); err != nil {
-		return err
-	}
-	return nil
-}
-
-func extractTarGz(reader io.Reader, dir string) error {
-	gzr, err := gzip.NewReader(reader)
-	if err != nil {
-		return err
-	}
-	defer gzr.Close()
-	return filecollector.ExtractTar(gzr, dir)
+	return cachedTar, nil
 }

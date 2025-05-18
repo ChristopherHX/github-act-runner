@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
-	"github.com/nektos/act/pkg/model"
+	"github.com/actions-oss/act-cli/pkg/model"
 )
 
 func ConvertServiceContainer(jobServiceContainers *protocol.TemplateToken) (map[string]*model.ContainerSpec, error) {
