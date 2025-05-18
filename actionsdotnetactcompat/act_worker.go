@@ -136,18 +136,19 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 			f.logger.Update()
 		}
 	}
+	msg := entry.Message
 	if f.rqt.MaskHints != nil {
 		for _, v := range f.rqt.MaskHints {
 			if strings.ToLower(v.Type) == "regex" {
 				r, _ := regexp.Compile(v.Value)
-				entry.Message = r.ReplaceAllString(entry.Message, "***")
+				msg = r.ReplaceAllString(msg, "***")
 			}
 		}
 	}
 	if f.rqt.Variables != nil {
 		for _, v := range f.rqt.Variables {
 			if v.IsSecret && len(v.Value) > 0 && !strings.EqualFold(v.Value, "true") && !strings.EqualFold(v.Value, "false") && !strings.EqualFold(v.Value, "0") && !strings.EqualFold(v.Value, "1") {
-				entry.Message = strings.ReplaceAll(entry.Message, v.Value, "***")
+				msg = strings.ReplaceAll(msg, v.Value, "***")
 			}
 		}
 	}
@@ -164,9 +165,26 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	} else if entry.Level == logrus.ErrorLevel {
 		prefix += "##[error]"
 	}
-	entry.Message = f.linefeedregex.ReplaceAllString(prefix+strings.Trim(entry.Message, "\r\n"), "\n"+prefix)
+	command, _ := entry.Data["command"].(string)
+	arg, _ := entry.Data["arg"].(string)
+	raw, _ := entry.Data["raw"].(string)
+	switch command {
+	case "group":
+		msg = "##[group]" + arg
+	case "endgroup":
+		msg = "##[endgroup]" + arg
+	case "debug":
+		msg = arg
+	case "warning":
+		msg = arg
+	case "error":
+		msg = arg
+	case "ignored":
+		msg = raw
+	}
+	msg = f.linefeedregex.ReplaceAllString(prefix+strings.Trim(msg, "\r\n"), "\n"+prefix)
 
-	b.WriteString(entry.Message)
+	b.WriteString(msg)
 	b.WriteByte('\n')
 	return b.Bytes(), nil
 }
