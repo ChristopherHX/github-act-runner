@@ -198,6 +198,10 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	logger.SetFormatter(formatter)
 	logger.Println("Initialize translating the job request to nektos/act")
 	vssConnection, vssConnectionData, _ := rqt.GetConnection("SystemVssConnection")
+	if jlogger.Connection != nil {
+		vssConnection.Client = jlogger.Connection.Client
+		vssConnection.Trace = jlogger.Connection.Trace
+	}
 	finishJob2 := func(result string, outputs *map[string]protocol.VariableValue) {
 		jlogger.TimelineRecords.Value[0].Complete(result)
 		jlogger.Logger.Close()
