@@ -327,44 +327,6 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		}
 		return nil
 	}
-	if viaGit, hasViaGit := rcommon.LookupEnvBool("GITHUB_ACT_RUNNER_DOWNLOAD_ACTIONS_VIA_GIT"); hasViaGit && viaGit {
-		runnerConfig.ActionCache = nil
-	} else if strings.EqualFold(rqt.MessageType, "RunnerJobRequest") {
-		launchEndpoint, hasLaunchEndpoint := rqt.Variables["system.github.launch_endpoint"]
-		if hasLaunchEndpoint && launchEndpoint.Value != "" {
-			launchCache := &LaunchActionCache{
-				VssConnection:  vssConnection,
-				Plan:           rqt.Plan,
-				GHToken:        runnerConfig.Token,
-				HttpClient:     &downloadActionHttpClient,
-				LaunchEndpoint: launchEndpoint.Value,
-				JobID:          rqt.JobID,
-			}
-			runnerConfig.ActionCache = launchCache
-			defer func() {
-				for _, v := range launchCache.delete {
-					if err := os.Remove(v); err != nil {
-						logger.Warnf("Unable to remove %v: %v", v, err)
-					}
-				}
-			}()
-		}
-	} else {
-		vssCache := &VssActionCache{
-			VssConnection: vssConnection,
-			Plan:          rqt.Plan,
-			GHToken:       runnerConfig.Token,
-			HttpClient:    &downloadActionHttpClient,
-		}
-		runnerConfig.ActionCache = vssCache
-		defer func() {
-			for _, v := range vssCache.delete {
-				if err := os.Remove(v); err != nil {
-					logger.Warnf("Unable to remove %v: %v", v, err)
-				}
-			}
-		}()
-	}
 	rc := &runner.RunContext{
 		Name:   uuid.New().String(),
 		Config: runnerConfig,
@@ -390,6 +352,46 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		Matrix:      matrix,
 		EventJSON:   payload,
 		ContextData: map[string]interface{}{},
+	}
+	if viaGit, hasViaGit := rcommon.LookupEnvBool("GITHUB_ACT_RUNNER_DOWNLOAD_ACTIONS_VIA_GIT"); hasViaGit && viaGit {
+		runnerConfig.ActionCache = nil
+	} else if strings.EqualFold(rqt.MessageType, "RunnerJobRequest") {
+		launchEndpoint, hasLaunchEndpoint := rqt.Variables["system.github.launch_endpoint"]
+		if hasLaunchEndpoint && launchEndpoint.Value != "" {
+			launchCache := &LaunchActionCache{
+				VssConnection:  vssConnection,
+				Plan:           rqt.Plan,
+				GHToken:        runnerConfig.Token,
+				HttpClient:     &downloadActionHttpClient,
+				LaunchEndpoint: launchEndpoint.Value,
+				JobID:          rqt.JobID,
+				CacheDir:       rc.ActionCacheDir(),
+			}
+			runnerConfig.ActionCache = launchCache
+			defer func() {
+				for _, v := range launchCache.delete {
+					if err := os.Remove(v); err != nil {
+						logger.Warnf("Unable to remove %v: %v", v, err)
+					}
+				}
+			}()
+		}
+	} else {
+		vssCache := &VssActionCache{
+			VssConnection: vssConnection,
+			Plan:          rqt.Plan,
+			GHToken:       runnerConfig.Token,
+			HttpClient:    &downloadActionHttpClient,
+			CacheDir:      rc.ActionCacheDir(),
+		}
+		runnerConfig.ActionCache = vssCache
+		defer func() {
+			for _, v := range vssCache.delete {
+				if err := os.Remove(v); err != nil {
+					logger.Warnf("Unable to remove %v: %v", v, err)
+				}
+			}
+		}()
 	}
 	for k, v := range rqt.ContextData {
 		rc.ContextData[k] = v.ToRawObject()
@@ -552,12 +554,10 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 
 func fetchAction(ctx context.Context, target string, owner string, name string, resolvedSha string, tarURL string, token string, httpClient *http.Client) (targetFile string, reterr error) {
 	logger := common.Logger(ctx)
-	cachedTarOld := filepath.Join(target, "..", owner+"."+name+"."+resolvedSha+".tar")
-	cachedTar := filepath.Join(target + ".tar.gz")
+	cachedTar := filepath.Join(target, owner+"."+name+"."+resolvedSha+".tar")
 	defer func() {
 		if reterr != nil {
 			os.Remove(cachedTar)
-			os.Remove(cachedTarOld)
 		}
 	}()
 	if fr, err := os.Open(cachedTar); err == nil {
@@ -566,12 +566,6 @@ func fetchAction(ctx context.Context, target string, owner string, name string, 
 			logger.Infof("Found cache for action %v/%v (sha:%v) from %v", owner, name, resolvedSha, cachedTar)
 		}
 		return cachedTar, nil
-	} else if fr, err := os.Open(cachedTarOld); err == nil {
-		defer fr.Close()
-		if logger != nil {
-			logger.Infof("Found cache for action %v/%v (sha:%v) from %v", owner, name, resolvedSha, cachedTarOld)
-		}
-		return cachedTarOld, nil
 	} else {
 		if logger != nil {
 			logger.Infof("Downloading action %v/%v (sha:%v) from %v", owner, name, resolvedSha, tarURL)

@@ -25,6 +25,7 @@ type LaunchActionCache struct {
 	delete         []string
 	LaunchEndpoint string
 	JobID          string
+	CacheDir       string
 }
 
 // Fetch implements runner.ActionCache.
@@ -61,7 +62,7 @@ func (cache *LaunchActionCache) Fetch(ctx context.Context, cacheDir string, url 
 			shouldDelete = true
 		}
 
-		targetFile, err := fetchAction(ctx, cacheDir, actionurl[0], actionurl[1], resolvedSha, v.TarUrl, token, cache.HttpClient)
+		targetFile, err := fetchAction(ctx, cache.CacheDir, actionurl[0], actionurl[1], resolvedSha, v.TarUrl, token, cache.HttpClient)
 		if err != nil {
 			return "", err
 		}

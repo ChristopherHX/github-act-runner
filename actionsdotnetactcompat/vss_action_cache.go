@@ -19,6 +19,7 @@ type VssActionCache struct {
 	Plan          *protocol.TaskOrchestrationPlanReference
 	GHToken       string
 	HttpClient    *http.Client
+	CacheDir      string
 
 	mapping map[string]string
 	delete  []string
@@ -53,7 +54,7 @@ func (cache *VssActionCache) Fetch(ctx context.Context, cacheDir string, url str
 			shouldDelete = true
 		}
 
-		targetFile, err := fetchAction(ctx, cacheDir, actionurl[0], actionurl[1], resolvedSha, v.TarballUrl, token, cache.HttpClient)
+		targetFile, err := fetchAction(ctx, cache.CacheDir, actionurl[0], actionurl[1], resolvedSha, v.TarballUrl, token, cache.HttpClient)
 		if err != nil {
 			return "", err
 		}
