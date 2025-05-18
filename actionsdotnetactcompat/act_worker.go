@@ -168,7 +168,7 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	command, _ := entry.Data["command"].(string)
 	arg, _ := entry.Data["arg"].(string)
 	raw, _ := entry.Data["raw"].(string)
-	switch command {
+	switch strings.ToLower(command) {
 	case "group":
 		msg = "##[group]" + arg
 	case "endgroup":
