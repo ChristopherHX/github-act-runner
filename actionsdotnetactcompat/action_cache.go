@@ -2,16 +2,20 @@ package actionsdotnetactcompat
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
+	"github.com/actions-oss/act-cli/pkg/common"
 )
 
 type ActionCacheBase struct {
@@ -80,4 +84,57 @@ func (cache *ActionCacheBase) GetTarArchive(ctx context.Context, cacheDir string
 		}
 	}()
 	return pr, nil
+}
+
+func fetchAction(ctx context.Context, target string, owner string, name string, resolvedSha string, tarURL string, token string, httpClient *http.Client) (targetFile string, reterr error) {
+	logger := common.Logger(ctx)
+	cachedTar := filepath.Join(target, owner+"."+name+"."+resolvedSha+".tar")
+	defer func() {
+		if reterr != nil {
+			os.Remove(cachedTar)
+		}
+	}()
+	if fr, err := os.Open(cachedTar); err == nil {
+		defer fr.Close()
+		if logger != nil {
+			logger.Infof("Found cache for action %v/%v (sha:%v) from %v", owner, name, resolvedSha, cachedTar)
+		}
+		return cachedTar, nil
+	} else {
+		if logger != nil {
+			logger.Infof("Downloading action %v/%v (sha:%v) from %v", owner, name, resolvedSha, tarURL)
+		}
+		req, err := http.NewRequestWithContext(ctx, "GET", tarURL, nil)
+		if err != nil {
+			return "", err
+		}
+		if token != "" {
+			req.Header.Add("Authorization", "token "+token)
+		}
+		req.Header.Add("User-Agent", "github-act-runner/1.0.0")
+		req.Header.Add("Accept", "*/*")
+		rsp, err := httpClient.Do(req)
+		if err != nil {
+			return "", err
+		}
+		defer rsp.Body.Close()
+		if rsp.StatusCode != 200 {
+			buf := &bytes.Buffer{}
+			io.Copy(buf, rsp.Body)
+			return "", fmt.Errorf("Failed to download action from %v response %v", tarURL, buf.String())
+		}
+		fo, err := os.Create(cachedTar)
+		if err != nil {
+			return "", err
+		}
+		defer fo.Close()
+		len, err := io.Copy(fo, rsp.Body)
+		if err != nil {
+			return "", err
+		}
+		if rsp.ContentLength >= 0 && len != rsp.ContentLength {
+			return "", fmt.Errorf("failed to download tar expected %v, but copied %v", rsp.ContentLength, len)
+		}
+	}
+	return cachedTar, nil
 }
