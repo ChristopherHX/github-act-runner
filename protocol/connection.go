@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"path"
@@ -16,8 +15,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ChristopherHX/github-act-runner/common"
 	"github.com/google/uuid"
+
+	"github.com/ChristopherHX/github-act-runner/common"
+)
+
+const (
+	apiVersionSuffix = "; api-version="
+	statusOnline     = "Online"
+
+	maxIdleConnections = 1
+	maxRedirects       = 10
+
+	requestTimeout        = 1 * time.Minute
+	idleConnectionTimeout = 100 * time.Second
+	httpClientTimeout     = 100 * time.Second
+	maxRetryTime          = 600 * time.Second
 )
 
 type VssConnection struct {
@@ -32,14 +45,14 @@ type VssConnection struct {
 	Trace          bool
 }
 
-func (vssConnection *VssConnection) BuildURL(relativePath string, ppath map[string]string, query map[string]string) (string, error) {
+func (vssConnection *VssConnection) BuildURL(relativePath string, ppath, query map[string]string) (string, error) {
 	url2, err := url.Parse(vssConnection.TenantURL)
 	if err != nil {
 		return "", err
 	}
-	url := relativePath
+	urlPath := relativePath
 	re := regexp.MustCompile(`/*\{[^\}]+\}`)
-	url = re.ReplaceAllStringFunc(url, func(s string) string {
+	urlPath = re.ReplaceAllStringFunc(urlPath, func(s string) string {
 		start := strings.Index(s, "{")
 		end := strings.Index(s, "}")
 		if val, ok := ppath[s[start+1:end]]; ok {
@@ -47,7 +60,7 @@ func (vssConnection *VssConnection) BuildURL(relativePath string, ppath map[stri
 		}
 		return ""
 	})
-	url2.Path = path.Join(url2.Path, url)
+	url2.Path = path.Join(url2.Path, urlPath)
 	q := url2.Query()
 	for p, v := range query {
 		q.Add(p, v)
@@ -56,20 +69,21 @@ func (vssConnection *VssConnection) BuildURL(relativePath string, ppath map[stri
 	return url2.String(), nil
 }
 
-func (vssConnection *VssConnection) HttpClient() *http.Client {
+func (vssConnection *VssConnection) HTTPClient() *http.Client {
 	if vssConnection.Client == nil {
 		customTransport := http.DefaultTransport.(*http.Transport).Clone()
-		customTransport.MaxIdleConns = 1
-		customTransport.IdleConnTimeout = 100 * time.Second
+		customTransport.MaxIdleConns = maxIdleConnections
+		customTransport.IdleConnTimeout = idleConnectionTimeout
 		if v, ok := common.LookupEnvBool("SKIP_TLS_CERT_VALIDATION"); ok && v {
+			//nolint:gosec // Intentionally allows insecure TLS when explicitly configured
 			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 		}
 		vssConnection.Client = &http.Client{
-			Timeout:   100 * time.Second,
+			Timeout:   httpClientTimeout,
 			Transport: customTransport,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if len(via) >= 10 {
-					return fmt.Errorf("stopped after 10 redirects")
+				if len(via) >= maxRedirects {
+					return fmt.Errorf("stopped after %d redirects", maxRedirects)
 				}
 				return nil
 			},
@@ -81,34 +95,38 @@ func (vssConnection *VssConnection) HttpClient() *http.Client {
 func (vssConnection *VssConnection) authorize() (*VssOAuthTokenResponse, error) {
 	var authResponse *VssOAuthTokenResponse
 	var err error
-	authResponse, err = vssConnection.TaskAgent.Authorize(vssConnection.HttpClient(), vssConnection.Key)
+	authResponse, err = vssConnection.TaskAgent.Authorize(vssConnection.HTTPClient(), vssConnection.Key)
 	if err == nil {
 		return authResponse, nil
 	}
 	return nil, err
 }
 
-func (vssConnection *VssConnection) Request(serviceID string, protocol string, method string, urlParameter map[string]string, queryParameter map[string]string, requestBody interface{}, responseBody interface{}) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+func (vssConnection *VssConnection) Request(
+	serviceID, protocol, method string, urlParameter, queryParameter map[string]string, requestBody, responseBody interface{},
+) error {
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()
 	return vssConnection.RequestWithContext(ctx, serviceID, protocol, method, urlParameter, queryParameter, requestBody, responseBody)
 }
 
-func (vssConnection *VssConnection) GetServiceURL(ctx context.Context, serviceID string, urlParameter map[string]string, queryParameter map[string]string) (string, error) {
+func (vssConnection *VssConnection) GetServiceURL(
+	ctx context.Context, serviceID string, urlParameter, queryParameter map[string]string,
+) (string, error) {
 	if vssConnection.connectionData == nil {
 		for i := 1; ; {
 			vssConnection.connectionData = vssConnection.GetConnectionData()
 			if vssConnection.connectionData != nil {
 				break
 			}
-			maxtime := 60 * 10
-			var dtime time.Duration = time.Duration(i) * time.Second
-			if i < maxtime {
+			maxtimeSeconds := int(maxRetryTime / time.Second)
+			dtime := time.Duration(i) * time.Second
+			if i < maxtimeSeconds {
 				i *= 2
 			} else {
-				dtime = time.Duration(maxtime) * time.Second
+				dtime = maxRetryTime
 			}
-			fmt.Printf("Retry retrieving connectiondata from the server in %v seconds\n", dtime)
+			fmt.Printf("Retry retrieving connectiondata from the server in %v seconds\n", dtime/time.Second)
 			select {
 			case <-ctx.Done():
 				return "", fmt.Errorf("aborted to get connectionData")
@@ -129,12 +147,17 @@ func (vssConnection *VssConnection) GetServiceURL(ctx context.Context, serviceID
 	return vssConnection.BuildURL(serv.RelativePath, urlParameter, queryParameter)
 }
 
-func (vssConnection *VssConnection) RequestWithContext(ctx context.Context, serviceID string, protocol string, method string, urlParameter map[string]string, queryParameter map[string]string, requestBody interface{}, responseBody interface{}) error {
-	url, err := vssConnection.GetServiceURL(ctx, serviceID, urlParameter, queryParameter)
+func (vssConnection *VssConnection) RequestWithContext(
+	ctx context.Context,
+	serviceID, protocol, method string,
+	urlParameter, queryParameter map[string]string,
+	requestBody, responseBody interface{},
+) error {
+	requestURL, err := vssConnection.GetServiceURL(ctx, serviceID, urlParameter, queryParameter)
 	if err != nil {
 		return err
 	}
-	return vssConnection.RequestWithContext2(ctx, method, url, protocol, requestBody, responseBody)
+	return vssConnection.RequestWithContext2(ctx, method, requestURL, protocol, requestBody, responseBody)
 }
 
 func extractReader(body interface{}) (io.Reader, []string, error) {
@@ -173,7 +196,7 @@ func setResponseBody(r io.Reader, body interface{}) error {
 	}
 	if bresponse, ok := body.(*[]byte); ok {
 		var err error
-		*bresponse, err = ioutil.ReadAll(r)
+		*bresponse, err = io.ReadAll(r)
 		if err != nil {
 			return err
 		}
@@ -186,18 +209,20 @@ func setResponseBody(r io.Reader, body interface{}) error {
 	return nil
 }
 
-func (vssConnection *VssConnection) requestWithContextNoAuth(ctx context.Context, method string, requesturl string, apiversion string, requestBody interface{}, responseBody interface{}) (int, error) {
+func (vssConnection *VssConnection) requestWithContextNoAuth(
+	ctx context.Context, method, requesturl, apiversion string, requestBody, responseBody interface{},
+) (int, error) {
 	buf, reqContentType, err := extractReader(requestBody)
 	if err != nil {
 		return 0, err
 	}
 	if len(apiversion) > 0 {
 		// vssservice always needs a version, even if there is no content
-		if requrl, err := url.Parse(requesturl); err == nil {
-			query := requrl.Query()
+		if parsedURL, parseErr := url.Parse(requesturl); parseErr == nil {
+			query := parsedURL.Query()
 			query.Set("api-version", apiversion)
-			requrl.RawQuery = query.Encode()
-			requesturl = requrl.String()
+			parsedURL.RawQuery = query.Encode()
+			requesturl = parsedURL.String()
 		}
 	}
 	request, err := http.NewRequestWithContext(ctx, method, requesturl, buf)
@@ -220,10 +245,10 @@ func (vssConnection *VssConnection) requestWithContextNoAuth(ctx context.Context
 	if len(apiversion) > 0 {
 		// vssservice does only accept contenttype in a single line
 		if len(header[contentTypeHeader]) > 0 {
-			header[contentTypeHeader][0] += "; api-version=" + apiversion
+			header[contentTypeHeader][0] += apiVersionSuffix + apiversion
 		}
 		if len(header[acceptHeader]) > 0 {
-			header[acceptHeader][0] += "; api-version=" + apiversion
+			header[acceptHeader][0] += apiVersionSuffix + apiversion
 		}
 		header["X-VSS-E2EID"] = []string{uuid.NewString()}
 		header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
@@ -235,32 +260,40 @@ func (vssConnection *VssConnection) requestWithContextNoAuth(ctx context.Context
 		header["Authorization"] = []string{vssConnection.AuthHeader}
 	}
 	if vssConnection.Trace {
-		fmt.Printf("Http %v Request started %v\nHeaders:\n%v\nBody: `%v`\n", method, requesturl, getHeadersAsString(request.Header), getBodyAsString(buf))
+		fmt.Printf("Http %v Request started %v\nHeaders:\n%v\nBody: `%v`\n",
+			method, requesturl, getHeadersAsString(request.Header), getBodyAsString(buf))
 	}
 
-	response, err := vssConnection.HttpClient().Do(request)
+	response, err := vssConnection.HTTPClient().Do(request)
 	if err != nil {
 		return 0, err
 	}
 	if response == nil {
 		return 0, fmt.Errorf("failed to send request response is nil")
 	}
-	defer response.Body.Close()
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			fmt.Printf("Failed to close response body: %v", closeErr)
+		}
+	}()
 	var rbytes []byte
 	var responseReader io.Reader
-	failed := response.StatusCode < 200 || response.StatusCode >= 300
+	failed := response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices
 	readResponse := vssConnection.Trace || failed
 	if responseBody != nil {
 		responseReader = response.Body
 		if readResponse {
-			rbytes, err = ioutil.ReadAll(response.Body)
+			rbytes, err = io.ReadAll(response.Body)
 			responseReader = bytes.NewReader(rbytes)
 			if err != nil {
 				rbytes = []byte("no response: " + err.Error())
 			}
 		}
 	}
-	traceMessage := fmt.Sprintf("Http %v Request finished %v %v\nHeaders: \n%v\nBody: `%v`\n", method, response.StatusCode, requesturl, getHeadersAsString(response.Header), string(rbytes))
+	traceMessage := fmt.Sprintf(
+		"Http %v Request finished %v %v\nHeaders: \n%v\nBody: `%v`\n",
+		method, response.StatusCode, requesturl,
+		getHeadersAsString(response.Header), string(rbytes))
 	if vssConnection.Trace {
 		fmt.Print(traceMessage)
 	}
@@ -273,15 +306,17 @@ func (vssConnection *VssConnection) requestWithContextNoAuth(ctx context.Context
 	return response.StatusCode, setResponseBody(responseReader, responseBody)
 }
 
-func (vssConnection *VssConnection) RequestWithContext2(ctx context.Context, method string, url string, protocol string, requestBody interface{}, responseBody interface{}) error {
-	statusCode, err := vssConnection.requestWithContextNoAuth(ctx, method, url, protocol, requestBody, responseBody)
+func (vssConnection *VssConnection) RequestWithContext2(
+	ctx context.Context, method, requestURL, protocol string, requestBody, responseBody interface{},
+) error {
+	statusCode, err := vssConnection.requestWithContextNoAuth(ctx, method, requestURL, protocol, requestBody, responseBody)
 	if (statusCode == 401 || statusCode == 400) && vssConnection.TaskAgent != nil && vssConnection.Key != nil {
-		authResponse, err := vssConnection.authorize()
-		if err != nil {
-			return err
+		authResponse, authErr := vssConnection.authorize()
+		if authErr != nil {
+			return authErr
 		}
 		vssConnection.Token = authResponse.AccessToken
-		_, err = vssConnection.requestWithContextNoAuth(ctx, method, url, protocol, requestBody, responseBody)
+		_, err = vssConnection.requestWithContextNoAuth(ctx, method, requestURL, protocol, requestBody, responseBody)
 		return err
 	}
 	return err
@@ -289,7 +324,10 @@ func (vssConnection *VssConnection) RequestWithContext2(ctx context.Context, met
 
 func (vssConnection *VssConnection) GetAgentPools() (*TaskAgentPools, error) {
 	_taskAgentPools := &TaskAgentPools{}
-	if err := vssConnection.Request("a8c47e17-4d56-4a56-92bb-de7ea7dc65be", "", "GET", map[string]string{}, map[string]string{}, nil, _taskAgentPools); err != nil {
+	err := vssConnection.Request(
+		"a8c47e17-4d56-4a56-92bb-de7ea7dc65be", "", "GET",
+		map[string]string{}, map[string]string{}, nil, _taskAgentPools)
+	if err != nil {
 		return nil, err
 	}
 	return _taskAgentPools, nil
@@ -312,7 +350,7 @@ func (vssConnection *VssConnection) CreateSession(ctx context.Context) (*AgentMe
 		_ = con.Delete(ctx)
 		return nil, err
 	}
-	con.Status = "Online"
+	con.Status = statusOnline
 	return con, nil
 }
 
@@ -324,7 +362,7 @@ func (vssConnection *VssConnection) LoadSession(ctx context.Context, session *Ta
 		_ = con.Delete(ctx)
 		return nil, err
 	}
-	con.Status = "Online"
+	con.Status = statusOnline
 	return con, nil
 }
 
@@ -378,7 +416,8 @@ func (vssConnection *VssConnection) FinishJob(e *JobEvent, plan *TaskOrchestrati
 	}, map[string]string{}, e, nil)
 }
 
-func (vssConnection *VssConnection) SendLogLines(plan *TaskOrchestrationPlanReference, timelineID string, lines *TimelineRecordFeedLinesWrapper) error {
+func (vssConnection *VssConnection) SendLogLines(
+	plan *TaskOrchestrationPlanReference, timelineID string, lines *TimelineRecordFeedLinesWrapper) error {
 	return vssConnection.Request("858983e4-19bd-4c5e-864c-507b59b58b12", "5.1-preview", "POST", map[string]string{
 		"scopeIdentifier": plan.ScopeIdentifier,
 		"planId":          plan.PlanID,
