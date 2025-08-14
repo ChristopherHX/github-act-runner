@@ -92,7 +92,7 @@ func (config *ConfigureRunner) Configure(
 		if len(taskAgentPools) == 0 {
 			return nil, fmt.Errorf("failed to configure runner, no self-hosted runner group available")
 		}
-		if len(config.RunnerGroup) > 0 {
+		if config.RunnerGroup != "" {
 			taskAgentPool = config.RunnerGroup
 		} else {
 			taskAgentPool = taskAgentPools[0]
@@ -115,7 +115,7 @@ func (config *ConfigureRunner) Configure(
 
 	taskAgent := &protocol.TaskAgent{}
 	bs := make([]byte, rsaExponentBytes)
-	ui := uint32(key.E)
+	ui := uint32(key.E) //nolint:gosec
 	binary.BigEndian.PutUint32(bs, ui)
 	expof := 0
 	for ; expof < 3 && bs[expof] == 0; expof++ { //nolint:revive // empty-block: intentionally empty loop to find non-zero bytes
@@ -136,7 +136,7 @@ func (config *ConfigureRunner) Configure(
 		}
 	}
 	if !config.Unattended && len(config.Labels) == 0 {
-		if res := survey.GetInput("Please enter custom labels of your new runner (case insensitive, separated by ','):", ""); len(res) > 0 {
+		if res := survey.GetInput("Please enter custom labels of your new runner (case insensitive, separated by ','):", ""); res != "" {
 			config.Labels = strings.Split(res, ",")
 		}
 	}

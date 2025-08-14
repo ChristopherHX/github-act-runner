@@ -3,6 +3,7 @@ package protocol
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 
@@ -407,10 +408,13 @@ func (converter *TemplateTokenConverter) ToYamlNode(token *TemplateToken) (ret *
 func (converter *TemplateTokenConverter) FromYamlNode(node *yaml.Node) (ret *TemplateToken, err error) {
 	defer func() {
 		if ret != nil && (node.Column != 0 || node.Line != 0) {
-			column := int32(node.Column)
-			line := int32(node.Line)
-			ret.Column = &column
-			ret.Line = &line
+			// Check for integer overflow before conversion
+			if node.Column <= math.MaxInt32 && node.Line <= math.MaxInt32 && node.Column >= math.MinInt32 && node.Line >= math.MinInt32 {
+				column := int32(node.Column) //nolint:gosec // bounds checked above
+				line := int32(node.Line)     //nolint:gosec // bounds checked above
+				ret.Column = &column
+				ret.Line = &line
+			}
 		}
 	}()
 	retNil := func() *TemplateToken {

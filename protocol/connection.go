@@ -216,7 +216,7 @@ func (vssConnection *VssConnection) requestWithContextNoAuth(
 	if err != nil {
 		return 0, err
 	}
-	if len(apiversion) > 0 {
+	if apiversion != "" {
 		// vssservice always needs a version, even if there is no content
 		if parsedURL, parseErr := url.Parse(requesturl); parseErr == nil {
 			query := parsedURL.Query()
@@ -242,7 +242,7 @@ func (vssConnection *VssConnection) requestWithContextNoAuth(
 			header.Set(acceptHeader, "application/json")
 		}
 	}
-	if len(apiversion) > 0 {
+	if apiversion != "" {
 		// vssservice does only accept contenttype in a single line
 		if len(header[contentTypeHeader]) > 0 {
 			header[contentTypeHeader][0] += apiVersionSuffix + apiversion
@@ -254,9 +254,9 @@ func (vssConnection *VssConnection) requestWithContextNoAuth(
 		header["X-TFS-FedAuthRedirect"] = []string{"Suppress"}
 		header["X-TFS-Session"] = []string{uuid.NewString()}
 	}
-	if len(vssConnection.Token) > 0 {
+	if vssConnection.Token != "" {
 		header["Authorization"] = []string{"bearer " + vssConnection.Token}
-	} else if len(vssConnection.AuthHeader) > 0 {
+	} else if vssConnection.AuthHeader != "" {
 		header["Authorization"] = []string{vssConnection.AuthHeader}
 	}
 	if vssConnection.Trace {

@@ -121,7 +121,7 @@ func ConvertSteps(jobSteps []protocol.ActionStep) ([]*model.Step, error) {
 				uses = step.Reference.Path
 			} else {
 				uses = step.Reference.Name
-				if len(step.Reference.Path) > 0 {
+				if step.Reference.Path != "" {
 					uses = uses + "/" + step.Reference.Path
 				}
 				uses = uses + "@" + step.Reference.Ref

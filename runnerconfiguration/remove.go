@@ -39,7 +39,7 @@ func (config *RemoveRunner) Remove(settings *RunnerSettings, survey Survey, auth
 	regurl := ""
 	needsPat := false
 	for _, i := range instancesToRemove {
-		if len(regurl) > 0 && regurl != i.RegistrationURL {
+		if regurl != "" && regurl != i.RegistrationURL {
 			needsPat = true
 		} else {
 			regurl = i.RegistrationURL

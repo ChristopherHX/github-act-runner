@@ -83,7 +83,7 @@ func (arunner *WorkerRunnerEnvironment) ExecWorker(
 	if err != nil {
 		fmt.Printf("failed to write new job: %s", err)
 	}
-	binary.BigEndian.PutUint32(mid, uint32(len(src)))
+	binary.BigEndian.PutUint32(mid, uint32(len(src))) //nolint:gosec
 	_, err = in.Write(mid)
 	if err != nil {
 		fmt.Printf("failed to write new job: %s", err)
@@ -102,7 +102,7 @@ func (arunner *WorkerRunnerEnvironment) ExecWorker(
 			if err != nil {
 				fmt.Printf("failed to write cancel job: %s", err)
 			}
-			binary.BigEndian.PutUint32(mid, uint32(len(src)))
+			binary.BigEndian.PutUint32(mid, uint32(len(src))) //nolint:gosec
 			_, err = in.Write(mid)
 			if err != nil {
 				fmt.Printf("failed to write cancel job length: %s", err)

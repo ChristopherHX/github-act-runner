@@ -113,7 +113,7 @@ func (logger *WebsocketLiveloggerWithFallback) InitializeVssLogger() {
 
 func (logger *WebsocketLiveloggerWithFallback) Initialize() {
 	_ = logger.Close() // Ignore error for cleanup
-	if len(logger.FeedStreamURL) > 0 {
+	if logger.FeedStreamURL != "" {
 		wslogger := &WebsocketLivelogger{
 			JobRequest:    logger.JobRequest,
 			Connection:    logger.Connection,

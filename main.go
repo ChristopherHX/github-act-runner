@@ -255,7 +255,7 @@ func main() {
 		Use:   "configure",
 		Short: "Configure your self-hosted runner",
 		Args:  cobra.MaximumNArgs(0),
-		Run: func(cmd *cobra.Command, args []string) {
+		Run: func(_ *cobra.Command, _ []string) {
 			config.ReadFromEnvironment()
 			settings := &runnerconfiguration.RunnerSettings{}
 			if !printJITConfig {
@@ -322,7 +322,7 @@ func main() {
 		Use:   "run",
 		Short: "Run your self-hosted runner",
 		Args:  cobra.MaximumNArgs(0),
-		Run: func(cmd *cobra.Command, args []string) {
+		Run: func(_ *cobra.Command, _ []string) {
 			os.Exit(run.Run())
 		},
 	}
@@ -339,7 +339,7 @@ func main() {
 		Use:   "remove",
 		Short: "Remove your self-hosted runner",
 		Args:  cobra.MaximumNArgs(0),
-		Run: func(cmd *cobra.Command, args []string) {
+		Run: func(_ *cobra.Command, _ []string) {
 			remove.ReadFromEnvironment()
 			var settings *runnerconfiguration.RunnerSettings
 			var err error
@@ -396,7 +396,7 @@ func main() {
 		Use:   "worker",
 		Short: "Run as self-hosted runner worker, can be used to create ephemeral worker without exposing other job requests",
 		Args:  cobra.MaximumNArgs(0),
-		Run: func(cmd *cobra.Command, args []string) {
+		Run: func(_ *cobra.Command, _ []string) {
 			ccontext, cancelccontext := context.WithCancel(context.Background())
 			go func() {
 				execcontext, cancelExec := context.WithCancel(context.Background())
@@ -459,7 +459,7 @@ func main() {
 	svcRun := &cobra.Command{
 		Use:   "run",
 		Short: "Used as service entrypoint",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			err := os.Chdir(wd)
 			if err != nil {
 				return err
@@ -492,7 +492,7 @@ func main() {
 	svcInstall := &cobra.Command{
 		Use:   "install",
 		Short: "Install the service may require admin privileges",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			svc, err := service.New(&RunRunnerSvc{}, getSvcConfig(wd, envFile))
 
 			if err != nil {
@@ -510,7 +510,7 @@ func main() {
 	svcUninstall := &cobra.Command{
 		Use:   "uninstall",
 		Short: "Uninstall the service may require admin privileges",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			svc, err := service.New(&RunRunnerSvc{}, getSvcConfig(wd, envFile))
 
 			if err != nil {
@@ -522,7 +522,7 @@ func main() {
 	svcStart := &cobra.Command{
 		Use:   "start",
 		Short: "Start the service may require admin privileges",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			svc, err := service.New(&RunRunnerSvc{}, getSvcConfig(wd, envFile))
 
 			if err != nil {
@@ -534,7 +534,7 @@ func main() {
 	svcStop := &cobra.Command{
 		Use:   "stop",
 		Short: "Stop the service may require admin privileges",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			svc, err := service.New(&RunRunnerSvc{}, getSvcConfig(wd, envFile))
 
 			if err != nil {

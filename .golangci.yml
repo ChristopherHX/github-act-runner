@@ -4,7 +4,8 @@ run:
 
 linters-settings:
   govet:
-    check-shadowing: true
+    enable:
+      - shadow
   revive:
     min-confidence: 0.8
   gocyclo:
@@ -41,14 +42,14 @@ linters:
     - dogsled
     - dupl
     - errcheck
-    - exportloopref
+    - copyloopvar  # replaces exportloopref for Go 1.22+
     - exhaustive
     - goconst
     - gocritic
     - gofmt
     - goimports
     - revive # replaces golint
-    - gomnd
+    - mnd    # replaces gomnd
     - goprintffuncname
     - gosec
     - gosimple
@@ -72,12 +73,12 @@ issues:
   exclude-rules:
     - path: _test\.go
       linters:
-        - gomnd
+        - mnd
         - gocritic
         - gosec
     - path: main\.go
       linters:
-        - gomnd
+        - mnd
     - path: protocol/
       linters:
         - revive # Protocol has many generated-like structs

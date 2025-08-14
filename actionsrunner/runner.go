@@ -605,7 +605,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 
 		logger.Log(logrus.InfoLevel, "Runner Name: "+instance.Agent.Name)
 		logger.Log(logrus.InfoLevel, "Runner OSDescription: github-act-runner "+runtime.GOOS+"/"+runtime.GOARCH)
-		if len(run.Version) > 0 {
+		if run.Version != "" {
 			logger.Log(logrus.InfoLevel, "Runner Version: "+run.Version)
 		}
 

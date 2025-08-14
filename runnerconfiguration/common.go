@@ -122,7 +122,7 @@ func gitHubAuth(
 	}
 
 	if config.Token == "" {
-		if len(config.Pat) > 0 {
+		if config.Pat != "" {
 			paths := strings.Split(strings.TrimPrefix(registerURL.Path, "/"), "/")
 			repoURL := *registerURL
 			if len(paths) == 1 {

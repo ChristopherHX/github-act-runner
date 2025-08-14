@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -163,7 +164,7 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	}
 	if f.rqt.Variables != nil {
 		for _, v := range f.rqt.Variables {
-			if v.IsSecret && len(v.Value) > 0 && !strings.EqualFold(v.Value, "true") &&
+			if v.IsSecret && v.Value != "" && !strings.EqualFold(v.Value, "true") &&
 				!strings.EqualFold(v.Value, "false") && !strings.EqualFold(v.Value, "0") && !strings.EqualFold(v.Value, "1") {
 				entry.Message = strings.ReplaceAll(entry.Message, v.Value, "***")
 			}
@@ -260,17 +261,17 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	env["ACTIONS_RUNTIME_URL"] = vssConnection.TenantURL
 	env["ACTIONS_RUNTIME_TOKEN"] = vssConnection.Token
 
-	if cacheURL, cacheOk := vssConnectionData["CacheServerUrl"]; cacheOk && len(cacheURL) > 0 {
+	if cacheURL, cacheOk := vssConnectionData["CacheServerUrl"]; cacheOk && cacheURL != "" {
 		env["ACTIONS_CACHE_URL"] = cacheURL
 	}
-	if idTokenURL, idTokenOk := vssConnectionData["GenerateIdTokenUrl"]; idTokenOk && len(idTokenURL) > 0 {
+	if idTokenURL, idTokenOk := vssConnectionData["GenerateIdTokenUrl"]; idTokenOk && idTokenURL != "" {
 		env["ACTIONS_ID_TOKEN_REQUEST_URL"] = idTokenURL
 		env["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] = vssConnection.Token
 	}
-	if resultsServiceURL, resultsOk := vssConnectionData["ResultsServiceUrl"]; resultsOk && len(resultsServiceURL) > 0 {
+	if resultsServiceURL, resultsOk := vssConnectionData["ResultsServiceUrl"]; resultsOk && resultsServiceURL != "" {
 		env["ACTIONS_RESULTS_URL"] = resultsServiceURL
 	}
-	if pipelinesServiceURL, pipelinesOk := vssConnectionData["PipelinesServiceUrl"]; pipelinesOk && len(pipelinesServiceURL) > 0 {
+	if pipelinesServiceURL, pipelinesOk := vssConnectionData["PipelinesServiceUrl"]; pipelinesOk && pipelinesServiceURL != "" {
 		env["ACTIONS_RUNTIME_URL"] = pipelinesServiceURL
 	}
 	if usesCacheServiceV2, cacheV2Ok := rqt.Variables["actions_uses_cache_service_v2"]; cacheV2Ok &&
@@ -542,7 +543,12 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		if canEvaluateNow {
 			rec.Name = eval.Interpolate(jobExecCtx, rec.Name)
 		}
-		jlogger.Append(&rec).Order = int32(i + len(steps) + 1)
+		// Check for integer overflow before conversion
+		order := i + len(steps) + 1
+		if order > math.MaxInt32 { // int32 max value
+			order = math.MaxInt32
+		}
+		jlogger.Append(&rec).Order = int32(order) //nolint:gosec // bounds checked above
 	}
 
 	logrus.SetLevel(actLogger.GetLevel())
