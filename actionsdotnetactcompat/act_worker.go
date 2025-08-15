@@ -38,9 +38,15 @@ const (
 	maxRedirects = 10
 	jobTimeout   = 5 * time.Minute
 	// File permissions
-	directoryPermissions = 0777
+	directoryPermissions = 0o777
 	// Stage constants
 	mainStage = "Main"
+	// Log prefix constants
+	debugPrefix = "##[debug]"
+	warnPrefix  = "##[warn]"
+	errorPrefix = "##[error]"
+	panicPrefix = "##[panic]"
+	fatalPrefix = "##[fatal]"
 )
 
 type ghaFormatter struct {
@@ -54,11 +60,14 @@ type ghaFormatter struct {
 }
 
 func flushInternal(rec *protocol.TimelineRecord, res *model.StepResult) {
-	if res.Conclusion == model.StepStatusSuccess {
+	switch res.Conclusion {
+	case model.StepStatusSuccess:
 		rec.Complete("Succeeded")
-	} else if res.Conclusion == model.StepStatusSkipped {
+	case model.StepStatusSkipped:
 		rec.Complete("Skipped")
-	} else {
+	case model.StepStatusFailure:
+		rec.Complete("Failed")
+	default:
 		rec.Complete("Failed")
 	}
 }
@@ -176,12 +185,21 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	}
 
 	prefix := entry.Time.UTC().Format(protocol.TimestampOutputFormat) + " "
-	if entry.Level == logrus.DebugLevel {
-		prefix += "##[debug]"
-	} else if entry.Level == logrus.WarnLevel {
-		prefix += "##[warning]"
-	} else if entry.Level == logrus.ErrorLevel {
-		prefix += "##[error]"
+	switch entry.Level {
+	case logrus.DebugLevel:
+		prefix += debugPrefix
+	case logrus.WarnLevel:
+		prefix += warnPrefix
+	case logrus.ErrorLevel:
+		prefix += errorPrefix
+	case logrus.PanicLevel:
+		prefix += panicPrefix
+	case logrus.FatalLevel:
+		prefix += fatalPrefix
+	case logrus.InfoLevel:
+		// No special prefix for info level
+	case logrus.TraceLevel:
+		prefix += debugPrefix
 	}
 	entry.Message = f.linefeedregex.ReplaceAllString(prefix+strings.Trim(entry.Message, "\r\n"), "\n"+prefix)
 
@@ -639,7 +657,7 @@ func downloadAndExtractAction(
 		if contextLogger != nil {
 			contextLogger.Infof("Downloading action %v/%v (sha:%v) from %v", owner, name, resolvedSha, tarURL)
 		}
-		req, err := http.NewRequestWithContext(ctx, "GET", tarURL, http.NoBody)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, tarURL, http.NoBody)
 		if err != nil {
 			return err
 		}

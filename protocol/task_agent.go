@@ -83,7 +83,7 @@ func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAut
 	data.Set("grant_type", "client_credentials")
 
 	//nolint:noctx // Legacy function without context - would break API compatibility
-	poolsreq, err := http.NewRequest("POST", taskAgent.Authorization.AuthorizationURL, bytes.NewBufferString(data.Encode()))
+	poolsreq, err := http.NewRequest(http.MethodPost, taskAgent.Authorization.AuthorizationURL, bytes.NewBufferString(data.Encode()))
 	if err != nil {
 		return nil, errors.New(authFailurePrefix + err.Error())
 	}

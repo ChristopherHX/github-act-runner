@@ -83,7 +83,7 @@ func (config *RemoveRunner) Remove(settings *RunnerSettings, survey Survey, auth
 				Trace:     config.Trace,
 			}
 			if err := vssConnection.DeleteAgent(instance.Agent); err != nil {
-				return fmt.Errorf("failed to remove Runner from server: %v", err)
+				return fmt.Errorf("failed to remove Runner from server: %w", err)
 			}
 			return nil
 		}()

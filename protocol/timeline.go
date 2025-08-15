@@ -20,8 +20,7 @@ type Issue struct {
 	Data                  map[string]string
 }
 
-type TimelineAttempt struct {
-}
+type TimelineAttempt struct{}
 
 type TimelineRecord struct {
 	ID               string

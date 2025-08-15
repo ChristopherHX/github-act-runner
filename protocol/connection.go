@@ -300,7 +300,7 @@ func (vssConnection *VssConnection) requestWithContextNoAuth(
 	if failed {
 		return response.StatusCode, fmt.Errorf("http failure: %v", traceMessage)
 	}
-	if response.StatusCode == 204 && responseBody != nil {
+	if response.StatusCode == http.StatusNoContent && responseBody != nil {
 		return response.StatusCode, io.EOF
 	}
 	return response.StatusCode, setResponseBody(responseReader, responseBody)
@@ -332,6 +332,7 @@ func (vssConnection *VssConnection) GetAgentPools() (*TaskAgentPools, error) {
 	}
 	return _taskAgentPools, nil
 }
+
 func (vssConnection *VssConnection) CreateSession(ctx context.Context) (*AgentMessageConnection, error) {
 	session := &TaskAgentSession{}
 	session.Agent = *vssConnection.TaskAgent
@@ -417,7 +418,8 @@ func (vssConnection *VssConnection) FinishJob(e *JobEvent, plan *TaskOrchestrati
 }
 
 func (vssConnection *VssConnection) SendLogLines(
-	plan *TaskOrchestrationPlanReference, timelineID string, lines *TimelineRecordFeedLinesWrapper) error {
+	plan *TaskOrchestrationPlanReference, timelineID string, lines *TimelineRecordFeedLinesWrapper,
+) error {
 	return vssConnection.Request("858983e4-19bd-4c5e-864c-507b59b58b12", "5.1-preview", "POST", map[string]string{
 		"scopeIdentifier": plan.ScopeIdentifier,
 		"planId":          plan.PlanID,

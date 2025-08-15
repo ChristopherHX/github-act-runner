@@ -137,5 +137,7 @@ type VssOAuthTokenResponse struct {
 	TokenType   string `json:"token_type"`
 }
 
-var TimestampInputFormat = "2006-01-02T15:04:05.9999999Z07:00"  // allow to omit fractional seconds
-var TimestampOutputFormat = "2006-01-02T15:04:05.0000000Z07:00" // dotnet "O"
+var (
+	TimestampInputFormat  = "2006-01-02T15:04:05.9999999Z07:00" // allow to omit fractional seconds
+	TimestampOutputFormat = "2006-01-02T15:04:05.0000000Z07:00" // dotnet "O"
+)

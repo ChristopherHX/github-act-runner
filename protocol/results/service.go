@@ -16,7 +16,7 @@ type ResultsService struct {
 }
 
 func (rs *ResultsService) UploadBlockFileAsync(ctx context.Context, url, blobStorageType string, fileContent io.Reader) error {
-	request, err := http.NewRequestWithContext(ctx, "PUT", url, fileContent)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, url, fileContent)
 	if err != nil {
 		return err
 	}
@@ -38,7 +38,7 @@ func (rs *ResultsService) UploadBlockFileAsync(ctx context.Context, url, blobSto
 }
 
 func (rs *ResultsService) CreateAppendFileAsync(ctx context.Context, url, blobStorageType string) error {
-	request, err := http.NewRequestWithContext(ctx, "PUT", url, bytes.NewBufferString(""))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewBufferString(""))
 	if err != nil {
 		return err
 	}
@@ -66,7 +66,7 @@ func (rs *ResultsService) UploadAppendFileAsync(
 	if finalize {
 		comp = "&comp=appendblock&seal=true"
 	}
-	request, err := http.NewRequestWithContext(ctx, "PUT", url+comp, fileContent)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, url+comp, fileContent)
 	if err != nil {
 		return err
 	}

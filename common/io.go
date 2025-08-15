@@ -7,7 +7,7 @@ import (
 
 const (
 	// File permissions
-	filePermissions = 0664
+	filePermissions = 0o664
 )
 
 func WriteJSON(path string, value interface{}) error {

@@ -168,9 +168,8 @@ func gitHubAuth(
 		URL:         config.URL,
 		RunnerEvent: runnerEvent,
 	}, res)
-
 	if err != nil {
-		return nil, fmt.Errorf("failed to authenticate as Runner Admin: %v", err)
+		return nil, fmt.Errorf("failed to authenticate as Runner Admin: %w", err)
 	}
 	return res, nil
 }
@@ -178,6 +177,7 @@ func gitHubAuth(
 func (config *ConfigureRunner) Authenticate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
 	return gitHubAuth(&config.ConfigureRemoveRunner, c, "register", "registration-token", survey)
 }
+
 func (config *RemoveRunner) Authenticate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
 	return gitHubAuth(&config.ConfigureRemoveRunner, c, "remove", "remove-token", survey)
 }

@@ -16,7 +16,7 @@ const (
 	messageIDSize    = 4
 	cancelRequestCmd = 2
 	// File permissions
-	filePermissions = 0664
+	filePermissions = 0o664
 )
 
 type WorkerRunnerEnvironment struct {
@@ -57,7 +57,7 @@ func (arunner *WorkerRunnerEnvironment) ExecWorker(
 		return fmt.Errorf("missing WorkerArgs to execute an external worker")
 	}
 	//nolint:gosec // WorkerArgs are configured by the administrator, not user input
-	worker := exec.Command(arunner.WorkerArgs[0], arunner.WorkerArgs[1:]...)
+	worker := exec.CommandContext(jobExecCtx, arunner.WorkerArgs[0], arunner.WorkerArgs[1:]...)
 	in, err := worker.StdinPipe()
 	if err != nil {
 		return err
