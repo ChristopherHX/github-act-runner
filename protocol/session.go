@@ -8,7 +8,6 @@ import (
 	"crypto/rsa"
 	"strings"
 
-	// nolint:gosec
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
@@ -18,6 +17,11 @@ import (
 	"hash"
 	"io"
 	"time"
+)
+
+const (
+	// Message retry timeout
+	messageRetryTimeout = 10 * time.Second
 )
 
 type TaskAgentMessage struct {
@@ -43,7 +47,9 @@ func (message *TaskAgentMessage) Decrypt(block cipher.Block) ([]byte, error) {
 	cbcdec.CryptBlocks(src, src)
 	maxlen := block.BlockSize()
 	validlen := len(src)
-	if int(src[len(src)-1]) <= maxlen { // <= is needed if the message ends within a block boundary and maxlen=16 then we get 16 times char 16 appended, one whole extra block
+	// <= is needed if the message ends within a block boundary and maxlen=16
+	// then we get 16 times char 16 appended, one whole extra block
+	if int(src[len(src)-1]) <= maxlen {
 		ok := true
 		for i := 2; i <= int(src[len(src)-1]); i++ {
 			if src[len(src)-i] != src[len(src)-1] {
@@ -64,7 +70,7 @@ func (message *TaskAgentMessage) Decrypt(block cipher.Block) ([]byte, error) {
 }
 
 type BrokerMigration struct {
-	BrokerBaseUrl string `json:"brokerBaseUrl"`
+	BrokerBaseURL string `json:"brokerBaseUrl"`
 }
 
 func (message *TaskAgentMessage) FetchBrokerIfNeeded(xctx context.Context, session *AgentMessageConnection) error {
@@ -80,16 +86,16 @@ func (message *TaskAgentMessage) FetchBrokerIfNeeded(xctx context.Context, sessi
 			return err
 		}
 		for retries := 0; retries < 5; retries++ {
-			copy := *vssConnection
-			vssConnection := &copy
-			vssConnection.TenantURL = rjrr.BrokerBaseUrl
-			furl, err := vssConnection.BuildURL("message", map[string]string{}, map[string]string{
+			connCopy := *vssConnection
+			vssConnection := &connCopy
+			vssConnection.TenantURL = rjrr.BrokerBaseURL
+			furl, urlErr := vssConnection.BuildURL("message", map[string]string{}, map[string]string{
 				"sessionId":     session.TaskAgentSession.SessionID,
 				"runnerVersion": "3.0.0",
 				"status":        session.Status,
 			})
-			if err != nil {
-				return err
+			if urlErr != nil {
+				return urlErr
 			}
 			err = vssConnection.RequestWithContext2(xctx, "GET", furl, "", nil, &message)
 			if err == nil || errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
@@ -129,7 +135,6 @@ func (session *TaskAgentSession) GetSessionKey(key *rsa.PrivateKey) (cipher.Bloc
 		if session.UseFipsEncryption {
 			h = sha256.New()
 		} else {
-			// nolint:gosec // Needed for backward compatibility
 			h = sha1.New()
 		}
 		sessionKey, err = rsa.DecryptOAEP(h, rand.Reader, key, sessionKey, []byte{})
@@ -181,7 +186,7 @@ func (session *AgentMessageConnection) GetNextMessage(ctx context.Context) (*Tas
 				select {
 				case <-ctx.Done():
 					return nil, context.Canceled
-				case <-time.After(10 * time.Second):
+				case <-time.After(messageRetryTimeout):
 				}
 			}
 		} else {

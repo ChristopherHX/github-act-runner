@@ -15,7 +15,7 @@ type ResultsService struct {
 	Connection *protocol.VssConnection
 }
 
-func (rs *ResultsService) UploadBlockFileAsync(ctx context.Context, url string, blobStorageType string, fileContent io.Reader) error {
+func (rs *ResultsService) UploadBlockFileAsync(ctx context.Context, url, blobStorageType string, fileContent io.Reader) error {
 	request, err := http.NewRequestWithContext(ctx, "PUT", url, fileContent)
 	if err != nil {
 		return err
@@ -23,17 +23,21 @@ func (rs *ResultsService) UploadBlockFileAsync(ctx context.Context, url string, 
 	if blobStorageType == BlobStorageTypeAzureBlobStorage {
 		request.Header.Set(AzureBlobTypeHeader, AzureBlockBlob)
 	}
-	response, err := rs.Connection.HttpClient().Do(request)
+	response, err := rs.Connection.HTTPClient().Do(request)
 	if err != nil {
 		return fmt.Errorf("failed to upload file, error %v", err.Error())
 	}
+	defer func() {
+		_ = response.Body.Close() // Ignore error for body close
+	}()
+
 	if response.StatusCode >= 200 && response.StatusCode < 300 {
 		return nil
 	}
 	return fmt.Errorf("failed to upload file, status code: %v", response.StatusCode)
 }
 
-func (rs *ResultsService) CreateAppendFileAsync(ctx context.Context, url string, blobStorageType string) error {
+func (rs *ResultsService) CreateAppendFileAsync(ctx context.Context, url, blobStorageType string) error {
 	request, err := http.NewRequestWithContext(ctx, "PUT", url, bytes.NewBufferString(""))
 	if err != nil {
 		return err
@@ -42,17 +46,22 @@ func (rs *ResultsService) CreateAppendFileAsync(ctx context.Context, url string,
 		request.Header.Set(AzureBlobTypeHeader, AzureAppendBlob)
 		request.Header.Set("Content-Length", "0")
 	}
-	response, err := rs.Connection.HttpClient().Do(request)
+	response, err := rs.Connection.HTTPClient().Do(request)
 	if err != nil {
 		return fmt.Errorf("failed to create append file, error %v", err.Error())
 	}
+	defer func() {
+		_ = response.Body.Close() // Ignore error for body close
+	}()
 	if response.StatusCode >= 200 && response.StatusCode < 300 {
 		return nil
 	}
 	return fmt.Errorf("failed to create append file, status code: %v", response.StatusCode)
 }
 
-func (rs *ResultsService) UploadAppendFileAsync(ctx context.Context, url string, blobStorageType string, fileContent io.Reader, finalize bool, fileSize int64) error {
+func (rs *ResultsService) UploadAppendFileAsync(
+	ctx context.Context, url, blobStorageType string, fileContent io.Reader, finalize bool, fileSize int64,
+) error {
 	comp := "&comp=appendblock"
 	if finalize {
 		comp = "&comp=appendblock&seal=true"
@@ -65,45 +74,54 @@ func (rs *ResultsService) UploadAppendFileAsync(ctx context.Context, url string,
 		request.Header.Set(AzureBlobSealedHeader, fmt.Sprint(finalize))
 		request.Header.Set("Content-Length", fmt.Sprint(fileSize))
 	}
-	response, err := rs.Connection.HttpClient().Do(request)
+	response, err := rs.Connection.HTTPClient().Do(request)
 	if err != nil {
 		return fmt.Errorf("failed to upload append file, error %v", err.Error())
 	}
+	defer func() {
+		_ = response.Body.Close() // Ignore error for body close
+	}()
 	if response.StatusCode >= 200 && response.StatusCode < 300 {
 		return nil
 	}
 	return fmt.Errorf("failed to upload append file, status code: %v", response.StatusCode)
 }
 
-func (rs *ResultsService) UploadResultsStepSummaryAsync(ctx context.Context, planId string, jobId string, stepId string, fileContent io.Reader, fileSize int64) error {
+func (rs *ResultsService) UploadResultsStepSummaryAsync(
+	ctx context.Context, planID, jobID, stepID string, fileContent io.Reader, fileSize int64,
+) error {
 	req := &GetSignedStepSummaryURLRequest{
-		WorkflowRunBackendId:    planId,
-		WorkflowJobRunBackendId: jobId,
-		StepBackendId:           stepId,
+		WorkflowRunBackendID:    planID,
+		WorkflowJobRunBackendID: jobID,
+		StepBackendID:           stepID,
 	}
-	uploadUrlResponse := &GetSignedStepSummaryURLResponse{}
+	uploadURLResponse := &GetSignedStepSummaryURLResponse{}
 	url, err := rs.Connection.BuildURL(GetStepSummarySignedBlobURL, nil, nil)
 	if err != nil {
 		return err
 	}
-	if err := rs.Connection.RequestWithContext2(ctx, "POST", url, "", req, uploadUrlResponse); err != nil {
-		return err
+	if requestErr := rs.Connection.RequestWithContext2(ctx, "POST", url, "", req, uploadURLResponse); requestErr != nil {
+		return requestErr
 	}
-	if uploadUrlResponse.SummaryUrl == "" {
+	if uploadURLResponse.SummaryURL == "" {
 		return fmt.Errorf("failed to get step log upload url")
 	}
-	if fileSize > uploadUrlResponse.SoftSizeLimit {
-		return fmt.Errorf("file size is larger than the upload url allows, file size: %v, upload url size: %v", fileSize, uploadUrlResponse.SoftSizeLimit)
+	if fileSize > uploadURLResponse.SoftSizeLimit {
+		return fmt.Errorf(
+			"file size is larger than the upload url allows, file size: %v, upload url size: %v",
+			fileSize,
+			uploadURLResponse.SoftSizeLimit,
+		)
 	}
-	err = rs.UploadBlockFileAsync(ctx, uploadUrlResponse.SummaryUrl, uploadUrlResponse.BlobStorageType, fileContent)
+	err = rs.UploadBlockFileAsync(ctx, uploadURLResponse.SummaryURL, uploadURLResponse.BlobStorageType, fileContent)
 	if err != nil {
 		return err
 	}
 	timestamp := time.Now().UTC().Format(TimestampOutputFormat)
 	mreq := &StepSummaryMetadataCreate{
-		WorkflowJobRunBackendId: jobId,
-		WorkflowRunBackendId:    planId,
-		StepBackendId:           stepId,
+		WorkflowJobRunBackendID: jobID,
+		WorkflowRunBackendID:    planID,
+		StepBackendID:           stepID,
 		UploadedAt:              timestamp,
 	}
 	url, err = rs.Connection.BuildURL(CreateStepSummaryMetadata, nil, nil)
@@ -116,39 +134,41 @@ func (rs *ResultsService) UploadResultsStepSummaryAsync(ctx context.Context, pla
 	return nil
 }
 
-func (rs *ResultsService) UploadResultsStepLogAsync(ctx context.Context, planId string, jobId string, stepId string, fileContent io.Reader, fileSize int64, finalize bool, firstBlock bool, lineCount int64) error {
+func (rs *ResultsService) UploadResultsStepLogAsync(
+	ctx context.Context, planID, jobID, stepID string, fileContent io.Reader, fileSize int64, finalize, firstBlock bool, lineCount int64,
+) error {
 	req := &GetSignedStepLogsURLRequest{
-		WorkflowRunBackendId:    planId,
-		WorkflowJobRunBackendId: jobId,
-		StepBackendId:           stepId,
+		WorkflowRunBackendID:    planID,
+		WorkflowJobRunBackendID: jobID,
+		StepBackendID:           stepID,
 	}
-	uploadUrlResponse := &GetSignedStepLogsURLResponse{}
+	uploadURLResponse := &GetSignedStepLogsURLResponse{}
 	url, err := rs.Connection.BuildURL(GetStepLogsSignedBlobURL, nil, nil)
 	if err != nil {
 		return err
 	}
-	if err := rs.Connection.RequestWithContext2(ctx, "POST", url, "", req, uploadUrlResponse); err != nil {
-		return err
+	if requestErr := rs.Connection.RequestWithContext2(ctx, "POST", url, "", req, uploadURLResponse); requestErr != nil {
+		return requestErr
 	}
-	if uploadUrlResponse.LogsUrl == "" {
+	if uploadURLResponse.LogsURL == "" {
 		return fmt.Errorf("failed to get step log upload url")
 	}
 	if firstBlock {
-		err := rs.CreateAppendFileAsync(ctx, uploadUrlResponse.LogsUrl, uploadUrlResponse.BlobStorageType)
-		if err != nil {
-			return err
+		createErr := rs.CreateAppendFileAsync(ctx, uploadURLResponse.LogsURL, uploadURLResponse.BlobStorageType)
+		if createErr != nil {
+			return createErr
 		}
 	}
-	err = rs.UploadAppendFileAsync(ctx, uploadUrlResponse.LogsUrl, uploadUrlResponse.BlobStorageType, fileContent, finalize, fileSize)
+	err = rs.UploadAppendFileAsync(ctx, uploadURLResponse.LogsURL, uploadURLResponse.BlobStorageType, fileContent, finalize, fileSize)
 	if err != nil {
 		return err
 	}
 	if finalize {
 		timestamp := time.Now().UTC().Format(TimestampOutputFormat)
 		req := &StepLogsMetadataCreate{
-			WorkflowJobRunBackendId: jobId,
-			WorkflowRunBackendId:    planId,
-			StepBackendId:           stepId,
+			WorkflowJobRunBackendID: jobID,
+			WorkflowRunBackendID:    planID,
+			StepBackendID:           stepID,
 			UploadedAt:              timestamp,
 			LineCount:               lineCount,
 		}
@@ -163,37 +183,39 @@ func (rs *ResultsService) UploadResultsStepLogAsync(ctx context.Context, planId 
 	return nil
 }
 
-func (rs *ResultsService) UploadResultsJobLogAsync(ctx context.Context, planId string, jobId string, fileContent io.Reader, fileSize int64, finalize bool, firstBlock bool, lineCount int64) error {
+func (rs *ResultsService) UploadResultsJobLogAsync(
+	ctx context.Context, planID, jobID string, fileContent io.Reader, fileSize int64, finalize, firstBlock bool, lineCount int64,
+) error {
 	req := &GetSignedJobLogsURLRequest{
-		WorkflowRunBackendId:    planId,
-		WorkflowJobRunBackendId: jobId,
+		WorkflowRunBackendID:    planID,
+		WorkflowJobRunBackendID: jobID,
 	}
-	uploadUrlResponse := &GetSignedJobLogsURLResponse{}
+	uploadURLResponse := &GetSignedJobLogsURLResponse{}
 	url, err := rs.Connection.BuildURL(GetJobLogsSignedBlobURL, nil, nil)
 	if err != nil {
 		return err
 	}
-	if err := rs.Connection.RequestWithContext2(ctx, "POST", url, "", req, uploadUrlResponse); err != nil {
-		return err
+	if requestErr := rs.Connection.RequestWithContext2(ctx, "POST", url, "", req, uploadURLResponse); requestErr != nil {
+		return requestErr
 	}
-	if uploadUrlResponse.LogsUrl == "" {
+	if uploadURLResponse.LogsURL == "" {
 		return fmt.Errorf("failed to get step log upload url")
 	}
 	if firstBlock {
-		err := rs.CreateAppendFileAsync(ctx, uploadUrlResponse.LogsUrl, uploadUrlResponse.BlobStorageType)
-		if err != nil {
-			return err
+		createErr := rs.CreateAppendFileAsync(ctx, uploadURLResponse.LogsURL, uploadURLResponse.BlobStorageType)
+		if createErr != nil {
+			return createErr
 		}
 	}
-	err = rs.UploadAppendFileAsync(ctx, uploadUrlResponse.LogsUrl, uploadUrlResponse.BlobStorageType, fileContent, finalize, fileSize)
+	err = rs.UploadAppendFileAsync(ctx, uploadURLResponse.LogsURL, uploadURLResponse.BlobStorageType, fileContent, finalize, fileSize)
 	if err != nil {
 		return err
 	}
 	if finalize {
 		timestamp := time.Now().UTC().Format(TimestampOutputFormat)
 		req := &JobLogsMetadataCreate{
-			WorkflowJobRunBackendId: jobId,
-			WorkflowRunBackendId:    planId,
+			WorkflowJobRunBackendID: jobID,
+			WorkflowRunBackendID:    planID,
 			UploadedAt:              timestamp,
 			LineCount:               lineCount,
 		}
@@ -227,8 +249,8 @@ var (
 	CreateStepLogsMetadata       = ResultsReceiverTwirpEndpoint + "CreateStepLogsMetadata"
 	GetJobLogsSignedBlobURL      = ResultsReceiverTwirpEndpoint + "GetJobLogsSignedBlobURL"
 	CreateJobLogsMetadata        = ResultsReceiverTwirpEndpoint + "CreateJobLogsMetadata"
-	ResultsProtoApiV1Endpoint    = "twirp/github.actions.results.api.v1.WorkflowStepUpdateService/"
-	WorkflowStepsUpdate          = ResultsProtoApiV1Endpoint + "WorkflowStepsUpdate"
+	ResultsProtoAPIV1Endpoint    = "twirp/github.actions.results.api.v1.WorkflowStepUpdateService/"
+	WorkflowStepsUpdate          = ResultsProtoAPIV1Endpoint + "WorkflowStepsUpdate"
 
 	AzureBlobSealedHeader = "x-ms-blob-sealed"
 	AzureBlobTypeHeader   = "x-ms-blob-type"

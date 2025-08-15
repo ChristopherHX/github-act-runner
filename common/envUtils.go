@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func LookupEnvBool(name string) (bool, bool) {
+func LookupEnvBool(name string) (value, found bool) {
 	if v, ok := os.LookupEnv(name); ok {
 		if v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "Y") || strings.EqualFold(v, "Yes") {
 			return true, true

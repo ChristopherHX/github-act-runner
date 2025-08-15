@@ -1,3 +1,4 @@
+//go:build linux || darwin || windows || openbsd || netbsd || freebsd
 // +build linux darwin windows openbsd netbsd freebsd
 
 package main
@@ -20,7 +21,7 @@ func RunnerGroupSurvey(taskAgentPool string, taskAgentPools []string) string {
 	return taskAgentPool
 }
 
-func GetInput(prompt string, answer string) string {
+func GetInput(prompt, answer string) string {
 	in := &survey.Input{
 		Message: prompt,
 		Default: answer,

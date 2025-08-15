@@ -9,8 +9,9 @@ type ActRunner struct {
 	actionsrunner.WorkerRunnerEnvironment
 }
 
-func (arunner *ActRunner) ExecWorker(run *actionsrunner.RunRunner, wc actionsrunner.WorkerContext, jobreq *protocol.AgentJobRequestMessage, src []byte) error {
-	if len(arunner.WorkerArgs) <= 0 {
+func (arunner *ActRunner) ExecWorker(run *actionsrunner.RunRunner, wc actionsrunner.WorkerContext,
+	jobreq *protocol.AgentJobRequestMessage, src []byte) error {
+	if len(arunner.WorkerArgs) == 0 {
 		ExecWorker(jobreq, wc)
 		return nil
 	}

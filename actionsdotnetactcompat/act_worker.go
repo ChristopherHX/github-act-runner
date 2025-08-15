@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,11 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ChristopherHX/github-act-runner/actionsrunner"
-	rcommon "github.com/ChristopherHX/github-act-runner/common"
-	"github.com/ChristopherHX/github-act-runner/protocol"
-	"github.com/ChristopherHX/github-act-runner/protocol/launch"
-	"github.com/ChristopherHX/github-act-runner/protocol/logger"
 	"github.com/google/uuid"
 	"github.com/nektos/act/pkg/common"
 	"github.com/nektos/act/pkg/common/git"
@@ -29,6 +25,22 @@ import (
 	"github.com/rhysd/actionlint"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ChristopherHX/github-act-runner/actionsrunner"
+	rcommon "github.com/ChristopherHX/github-act-runner/common"
+	"github.com/ChristopherHX/github-act-runner/protocol"
+	"github.com/ChristopherHX/github-act-runner/protocol/launch"
+	"github.com/ChristopherHX/github-act-runner/protocol/logger"
+)
+
+const (
+	// HTTP and redirects constants
+	maxRedirects = 10
+	jobTimeout   = 5 * time.Minute
+	// File permissions
+	directoryPermissions = 0777
+	// Stage constants
+	mainStage = "Main"
 )
 
 type ghaFormatter struct {
@@ -99,7 +111,7 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	if hasStepID {
 		stepIDArray, _ := rawStepID.([]string)
 		var prefix string
-		if hasStage && stage != "Main" {
+		if hasStage && stage != mainStage {
 			prefix = stage.(string) + "-"
 		}
 		stepID = prefix + stepIDArray[0]
@@ -122,11 +134,11 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 			f.logger.MoveNextExt(false)
 			te := protocol.CreateTimelineEntry(f.logger.TimelineRecords.Value[0].ID, stepID, stage.(string)+" "+stepName.(string))
 			te.Order = f.logger.TimelineRecords.Value[f.logger.CurrentRecord-1].Order + 1
-			f.logger.Insert(te)
+			f.logger.Insert(&te)
 			if cur := f.logger.Current(); cur != nil {
 				cur.Start()
 			}
-			f.logger.Update()
+			_ = f.logger.Update() // Ignore logger update errors
 		} else {
 			for {
 				next := f.logger.MoveNext()
@@ -139,12 +151,12 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 			if cur := f.logger.Current(); cur != nil {
 				cur.Start()
 			}
-			f.logger.Update()
+			_ = f.logger.Update() // Ignore logger update errors
 		}
 	}
 	if f.rqt.MaskHints != nil {
 		for _, v := range f.rqt.MaskHints {
-			if strings.ToLower(v.Type) == "regex" {
+			if strings.EqualFold(v.Type, "regex") {
 				r, _ := regexp.Compile(v.Value)
 				entry.Message = r.ReplaceAllString(entry.Message, "***")
 			}
@@ -152,7 +164,8 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	}
 	if f.rqt.Variables != nil {
 		for _, v := range f.rqt.Variables {
-			if v.IsSecret && len(v.Value) > 0 && !strings.EqualFold(v.Value, "true") && !strings.EqualFold(v.Value, "false") && !strings.EqualFold(v.Value, "0") && !strings.EqualFold(v.Value, "1") {
+			if v.IsSecret && v.Value != "" && !strings.EqualFold(v.Value, "true") &&
+				!strings.EqualFold(v.Value, "false") && !strings.EqualFold(v.Value, "0") && !strings.EqualFold(v.Value, "1") {
 				entry.Message = strings.ReplaceAll(entry.Message, v.Value, "***")
 			}
 		}
@@ -182,25 +195,25 @@ type JobLoggerFactory struct {
 }
 
 func (factory *JobLoggerFactory) WithJobLogger() *logrus.Logger {
-	logger := logrus.New()
-	logger.SetOutput(factory.Logger.Out)
-	logger.SetLevel(factory.Logger.Level)
-	logger.SetFormatter(factory.Logger.Formatter)
-	return logger
+	jobLogger := logrus.New()
+	jobLogger.SetOutput(factory.Logger.Out)
+	jobLogger.SetLevel(factory.Logger.Level)
+	jobLogger.SetFormatter(factory.Logger.Formatter)
+	return jobLogger
 }
 
 func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerContext) {
 	jlogger := wc.Logger()
 	jobExecCtx := wc.JobExecCtx()
-	logger := logrus.New()
-	logger.SetOutput(jlogger)
+	actLogger := logrus.New()
+	actLogger.SetOutput(jlogger)
 	formatter := &ghaFormatter{
 		rqt:    rqt,
 		logger: jlogger,
 		ctx:    jobExecCtx,
 	}
-	logger.SetFormatter(formatter)
-	logger.Println("Initialize translating the job request to nektos/act")
+	actLogger.SetFormatter(formatter)
+	actLogger.Println("Initialize translating the job request to nektos/act")
 	vssConnection, vssConnectionData, _ := rqt.GetConnection("SystemVssConnection")
 	if jlogger.Connection != nil {
 		vssConnection.Client = jlogger.Connection.Client
@@ -208,7 +221,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	}
 	finishJob2 := func(result string, outputs *map[string]protocol.VariableValue) {
 		jlogger.TimelineRecords.Value[0].Complete(result)
-		jlogger.Logger.Close()
+		_ = jlogger.Logger.Close() // Ignore logger close errors
 		jlogger.Finish()
 		wc.FinishJob(result, outputs)
 	}
@@ -248,20 +261,21 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	env["ACTIONS_RUNTIME_URL"] = vssConnection.TenantURL
 	env["ACTIONS_RUNTIME_TOKEN"] = vssConnection.Token
 
-	if cacheUrl, ok := vssConnectionData["CacheServerUrl"]; ok && len(cacheUrl) > 0 {
-		env["ACTIONS_CACHE_URL"] = cacheUrl
+	if cacheURL, cacheOk := vssConnectionData["CacheServerUrl"]; cacheOk && cacheURL != "" {
+		env["ACTIONS_CACHE_URL"] = cacheURL
 	}
-	if idTokenUrl, ok := vssConnectionData["GenerateIdTokenUrl"]; ok && len(idTokenUrl) > 0 {
-		env["ACTIONS_ID_TOKEN_REQUEST_URL"] = idTokenUrl
+	if idTokenURL, idTokenOk := vssConnectionData["GenerateIdTokenUrl"]; idTokenOk && idTokenURL != "" {
+		env["ACTIONS_ID_TOKEN_REQUEST_URL"] = idTokenURL
 		env["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] = vssConnection.Token
 	}
-	if resultsServiceUrl, ok := vssConnectionData["ResultsServiceUrl"]; ok && len(resultsServiceUrl) > 0 {
-		env["ACTIONS_RESULTS_URL"] = resultsServiceUrl
+	if resultsServiceURL, resultsOk := vssConnectionData["ResultsServiceUrl"]; resultsOk && resultsServiceURL != "" {
+		env["ACTIONS_RESULTS_URL"] = resultsServiceURL
 	}
-	if pipelinesServiceUrl, ok := vssConnectionData["PipelinesServiceUrl"]; ok && len(pipelinesServiceUrl) > 0 {
-		env["ACTIONS_RUNTIME_URL"] = pipelinesServiceUrl
+	if pipelinesServiceURL, pipelinesOk := vssConnectionData["PipelinesServiceUrl"]; pipelinesOk && pipelinesServiceURL != "" {
+		env["ACTIONS_RUNTIME_URL"] = pipelinesServiceURL
 	}
-	if uses_cache_service_v2, ok := rqt.Variables["actions_uses_cache_service_v2"]; ok && strings.EqualFold(uses_cache_service_v2.Value, "True") {
+	if usesCacheServiceV2, cacheV2Ok := rqt.Variables["actions_uses_cache_service_v2"]; cacheV2Ok &&
+		strings.EqualFold(usesCacheServiceV2.Value, "True") {
 		env["ACTIONS_CACHE_SERVICE_V2"] = "True" // bool.TrueString
 	}
 
@@ -275,9 +289,9 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		failInitJob(err.Error())
 		return
 	}
-	actions_step_debug := false
-	if sd, ok := rqt.Variables["ACTIONS_STEP_DEBUG"]; ok && (sd.Value == "true" || sd.Value == "1") {
-		actions_step_debug = true
+	actionsStepDebug := false
+	if sd, debugOk := rqt.Variables["ACTIONS_STEP_DEBUG"]; debugOk && (sd.Value == "true" || sd.Value == "1") {
+		actionsStepDebug = true
 	}
 	rawContainer := yaml.Node{}
 	if rqt.JobContainer != nil {
@@ -294,12 +308,12 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		e, _ := json.Marshal(githubCtxMap["event"])
 		payload = string(e)
 	}
-	unix_host_prefix := "unix://"
+	unixHostPrefix := "unix://"
 	// derive from DOCKER_HOST or use custom value from DOCKER_HOST_MOUNT_PATH
-	if docker_host_mount_path, ok := os.LookupEnv("DOCKER_HOST_MOUNT_PATH"); ok {
-		runnerConfig.ContainerDaemonSocket = docker_host_mount_path
-	} else if docker_host, ok := os.LookupEnv("DOCKER_HOST"); ok && strings.HasPrefix(strings.ToLower(docker_host), unix_host_prefix) {
-		runnerConfig.ContainerDaemonSocket = docker_host[len(unix_host_prefix):]
+	if dockerHostMountPath, ok := os.LookupEnv("DOCKER_HOST_MOUNT_PATH"); ok {
+		runnerConfig.ContainerDaemonSocket = dockerHostMountPath
+	} else if dockerHost, ok := os.LookupEnv("DOCKER_HOST"); ok && strings.HasPrefix(strings.ToLower(dockerHost), unixHostPrefix) {
+		runnerConfig.ContainerDaemonSocket = dockerHost[len(unixHostPrefix):]
 	}
 	// Non customizable config
 	runnerConfig.Secrets = secrets
@@ -321,10 +335,10 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	runnerConfig.ForcePull = true
 	runnerConfig.ForceRebuild = true
 	// allow downloading actions like older actions/runner using credentials of the redirect url
-	downloadActionHttpClient := *vssConnection.HttpClient()
-	downloadActionHttpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 10 {
-			return fmt.Errorf("stopped after 10 redirects")
+	downloadActionHTTPClient := *vssConnection.HTTPClient()
+	downloadActionHTTPClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= maxRedirects {
+			return fmt.Errorf("stopped after %d redirects", maxRedirects)
 		}
 		if len(via) >= 1 && req.Host != via[0].Host {
 			req.Header.Del("Authorization")
@@ -340,22 +354,22 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 				{NameWithOwner: strings.Join(actionurl, "/"), Ref: ngcei.Ref},
 			}
 			actionDownloadInfo := &protocol.ActionDownloadInfoCollection{}
-			err := vssConnection.RequestWithContext(ctx, "27d7f831-88c1-4719-8ca1-6a061dad90eb", "6.0-preview", "POST", map[string]string{
+			if requestErr := vssConnection.RequestWithContext(ctx, "27d7f831-88c1-4719-8ca1-6a061dad90eb", "6.0-preview", "POST", map[string]string{
 				"scopeIdentifier": rqt.Plan.ScopeIdentifier,
 				"hubName":         rqt.Plan.PlanType,
 				"planId":          rqt.Plan.PlanID,
-			}, nil, actionList, actionDownloadInfo)
-			if err != nil {
-				return err
+			}, nil, actionList, actionDownloadInfo); requestErr != nil {
+				return requestErr
 			}
 			for _, v := range actionDownloadInfo.Actions {
 				token := runnerConfig.Token
 				if v.Authentication != nil && v.Authentication.Token != "" {
 					token = v.Authentication.Token
 				}
-				err := downloadAndExtractAction(ctx, ngcei.Dir, actionurl[0], actionurl[1], v.ResolvedSha, v.TarballUrl, token, &downloadActionHttpClient)
-				if err != nil {
-					return err
+				downloadErr := downloadAndExtractAction(ctx, ngcei.Dir, actionurl[0], actionurl[1],
+					v.ResolvedSha, v.TarballURL, token, &downloadActionHTTPClient)
+				if downloadErr != nil {
+					return downloadErr
 				}
 			}
 			return nil
@@ -375,25 +389,26 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 					}
 					actionDownloadInfo := &launch.ActionDownloadInfoResponseCollection{}
 					urlBuilder := protocol.VssConnection{TenantURL: launchEndpoint.Value}
-					url, err := urlBuilder.BuildURL("actions/build/{planId}/jobs/{jobId}/runnerresolve/actions", map[string]string{
+					url, urlErr := urlBuilder.BuildURL("actions/build/{planId}/jobs/{jobId}/runnerresolve/actions", map[string]string{
 						"jobId":  rqt.JobID,
 						"planId": rqt.Plan.PlanID,
 					}, nil)
-					if err != nil {
-						return err
+					if urlErr != nil {
+						return urlErr
 					}
-					err = vssConnection.RequestWithContext2(ctx, "POST", url, "", actionList, actionDownloadInfo)
-					if err != nil {
-						return err
+					if requestErr := vssConnection.RequestWithContext2(ctx, "POST", url, "", actionList, actionDownloadInfo); requestErr != nil {
+						return requestErr
 					}
 					for _, v := range actionDownloadInfo.Actions {
 						token := runnerConfig.Token
 						if v.Authentication != nil && v.Authentication.Token != "" {
 							token = v.Authentication.Token
 						}
-						err := downloadAndExtractAction(ctx, ngcei.Dir, actionurl[0], actionurl[1], v.ResolvedSha, v.TarUrl, token, &downloadActionHttpClient)
-						if err != nil {
-							return err
+						downloadErr := downloadAndExtractAction(
+							ctx, ngcei.Dir, actionurl[0], actionurl[1], v.ResolvedSha, v.TarURL, token, &downloadActionHTTPClient,
+						)
+						if downloadErr != nil {
+							return downloadErr
 						}
 					}
 					return nil
@@ -502,10 +517,10 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	rc.ExprEval = ee
 
 	formatter.rc = rc
-	if actions_step_debug {
-		logger.SetLevel(logrus.DebugLevel)
+	if actionsStepDebug {
+		actLogger.SetLevel(logrus.DebugLevel)
 	} else {
-		logger.SetLevel(logrus.InfoLevel)
+		actLogger.SetLevel(logrus.InfoLevel)
 	}
 
 	rc.StepResults = make(map[string]*model.StepResult)
@@ -528,28 +543,38 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		if canEvaluateNow {
 			rec.Name = eval.Interpolate(jobExecCtx, rec.Name)
 		}
-		jlogger.Append(rec).Order = int32(i + len(steps) + 1)
+		// Check for integer overflow before conversion
+		order := i + len(steps) + 1
+		if order > math.MaxInt32 { // int32 max value
+			order = math.MaxInt32
+		}
+		jlogger.Append(&rec).Order = int32(order) //nolint:gosec // bounds checked above
 	}
 
-	logrus.SetLevel(logger.GetLevel())
-	logrus.SetFormatter(logger.Formatter)
-	logrus.SetOutput(logger.Out)
+	logrus.SetLevel(actLogger.GetLevel())
+	logrus.SetFormatter(actLogger.Formatter)
+	logrus.SetOutput(actLogger.Out)
 
 	cacheDir := rc.ActionCacheDir()
-	if err := os.MkdirAll(cacheDir, 0777); err != nil {
-		logger.Warn("github-act-runner is be unable to access \"" + cacheDir + "\". You might want set one of the following environment variables XDG_CACHE_HOME, HOME to a user read and writeable location. Details: " + err.Error())
+	if mkdirErr := os.MkdirAll(cacheDir, directoryPermissions); mkdirErr != nil {
+		actLogger.Warn("github-act-runner is be unable to access \"" + cacheDir + "\". You might want set one of the " +
+			"following environment variables XDG_CACHE_HOME, HOME to a user read and writeable location. Details: " + mkdirErr.Error())
 	}
-	logger.Println("Starting nektos/act")
+	actLogger.Println("Starting nektos/act")
 	select {
 	case <-jobExecCtx.Done():
 	default:
 		fcancelctx, fcancel := context.WithCancel(context.Background())
 		defer fcancel()
-		ctxError := common.WithJobErrorContainer(runner.WithJobLogger(runner.WithJobLoggerFactory(common.WithLogger(fcancelctx, logger), &JobLoggerFactory{Logger: logger}), "", "", runnerConfig, &rc.Masks, rc.Matrix))
+		ctxError := common.WithJobErrorContainer(
+			runner.WithJobLogger(
+				runner.WithJobLoggerFactory(
+					common.WithLogger(fcancelctx, actLogger), &JobLoggerFactory{Logger: actLogger}),
+				"", "", runnerConfig, &rc.Masks, rc.Matrix))
 		go func() {
 			select {
 			case <-jobExecCtx.Done():
-				<-time.After(5 * time.Minute)
+				<-time.After(jobTimeout)
 				fcancel()
 			case <-fcancelctx.Done():
 			}
@@ -570,7 +595,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	var outputMap *map[string]protocol.VariableValue
 
 	if err != nil {
-		logger.Logf(logrus.ErrorLevel, "%v", err.Error())
+		actLogger.Logf(logrus.ErrorLevel, "%v", err.Error())
 		jobStatus = "Failed"
 	}
 	formatter.Flush()
@@ -592,26 +617,29 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	finishJob2(jobStatus, outputMap)
 }
 
-func downloadAndExtractAction(ctx context.Context, target string, owner string, name string, resolvedSha string, tarURL string, token string, httpClient *http.Client) (reterr error) {
-	logger := common.Logger(ctx)
+func downloadAndExtractAction(
+	ctx context.Context, target, owner, name, resolvedSha, tarURL, token string, httpClient *http.Client,
+) (reterr error) {
+	contextLogger := common.Logger(ctx)
 	cachedTar := filepath.Join(target, "..", owner+"."+name+"."+resolvedSha+".tar")
 	defer func() {
 		if reterr != nil {
-			os.Remove(cachedTar)
+			_ = os.Remove(cachedTar) // Ignore cleanup errors
 		}
 	}()
 	var tarstream io.Reader
+	//nolint:gosec // cachedTar is constructed from controlled inputs (owner, name, resolvedSha)
 	if fr, err := os.Open(cachedTar); err == nil {
 		tarstream = fr
-		defer fr.Close()
-		if logger != nil {
-			logger.Infof("Found cache for action %v/%v (sha:%v) from %v", owner, name, resolvedSha, cachedTar)
+		defer func() { _ = fr.Close() }() // Ignore file close errors
+		if contextLogger != nil {
+			contextLogger.Infof("Found cache for action %v/%v (sha:%v) from %v", owner, name, resolvedSha, cachedTar)
 		}
 	} else {
-		if logger != nil {
-			logger.Infof("Downloading action %v/%v (sha:%v) from %v", owner, name, resolvedSha, tarURL)
+		if contextLogger != nil {
+			contextLogger.Infof("Downloading action %v/%v (sha:%v) from %v", owner, name, resolvedSha, tarURL)
 		}
-		req, err := http.NewRequestWithContext(ctx, "GET", tarURL, nil)
+		req, err := http.NewRequestWithContext(ctx, "GET", tarURL, http.NoBody)
 		if err != nil {
 			return err
 		}
@@ -624,27 +652,28 @@ func downloadAndExtractAction(ctx context.Context, target string, owner string, 
 		if err != nil {
 			return err
 		}
-		defer rsp.Body.Close()
-		if rsp.StatusCode != 200 {
+		defer func() { _ = rsp.Body.Close() }() // Ignore response body close errors
+		if rsp.StatusCode != http.StatusOK {
 			buf := &bytes.Buffer{}
-			io.Copy(buf, rsp.Body)
-			return fmt.Errorf("Failed to download action from %v response %v", tarURL, buf.String())
+			_, _ = io.Copy(buf, rsp.Body) // Ignore error copy for error message
+			return fmt.Errorf("failed to download action from %v response %v", tarURL, buf.String())
 		}
 		if len(resolvedSha) == len("0000000000000000000000000000000000000000") {
+			//nolint:gosec // cachedTar is constructed from controlled inputs (owner, name, resolvedSha)
 			fo, err := os.Create(cachedTar)
 			if err != nil {
 				return err
 			}
-			defer fo.Close()
-			len, err := io.Copy(fo, rsp.Body)
+			defer func() { _ = fo.Close() }() // Ignore file close errors
+			bytesWritten, err := io.Copy(fo, rsp.Body)
 			if err != nil {
 				return err
 			}
-			if rsp.ContentLength >= 0 && len != rsp.ContentLength {
-				return fmt.Errorf("failed to download tar expected %v, but copied %v", rsp.ContentLength, len)
+			if rsp.ContentLength >= 0 && bytesWritten != rsp.ContentLength {
+				return fmt.Errorf("failed to download tar expected %v, but copied %v", rsp.ContentLength, bytesWritten)
 			}
 			tarstream = fo
-			fo.Seek(0, 0)
+			_, _ = fo.Seek(0, 0) // Ignore seek errors
 		} else {
 			tarstream = rsp.Body
 		}
@@ -660,6 +689,6 @@ func extractTarGz(reader io.Reader, dir string) error {
 	if err != nil {
 		return err
 	}
-	defer gzr.Close()
+	defer func() { _ = gzr.Close() }() // Ignore gzip reader close errors
 	return filecollector.ExtractTar(gzr, dir)
 }

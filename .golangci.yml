@@ -1,0 +1,115 @@
+run:
+  timeout: 5m
+  go: '1.21'
+
+linters-settings:
+  govet:
+    enable:
+      - shadow
+  revive:
+    min-confidence: 0.8
+  gocyclo:
+    min-complexity: 15
+  dupl:
+    threshold: 100
+  goconst:
+    min-len: 2
+    min-occurrences: 2
+  misspell:
+    locale: US
+  lll:
+    line-length: 140
+  goimports:
+    local-prefixes: github.com/ChristopherHX/github-act-runner
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - dupImport # https://github.com/go-critic/go-critic/issues/845
+      - ifElseChain
+      - octalLiteral
+      - whyNoLint
+      - wrapperFunc
+
+linters:
+  enable:
+    - bodyclose
+    # - depguard  # Disabled for now as it's too restrictive
+    - dogsled
+    - dupl
+    - errcheck
+    - copyloopvar  # replaces exportloopref for Go 1.22+
+    - exhaustive
+    - goconst
+    - gocritic
+    - gofmt
+    - goimports
+    - revive # replaces golint
+    - mnd    # replaces gomnd
+    - goprintffuncname
+    - gosec
+    - gosimple
+    - govet
+    - ineffassign
+    - lll
+    - misspell
+    - nakedret
+    - noctx
+    - nolintlint
+    - rowserrcheck
+    - staticcheck
+    - stylecheck
+    - typecheck
+    - unconvert
+    - unparam
+    - unused
+    - whitespace
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - mnd
+        - gocritic
+        - gosec
+    - path: main\.go
+      linters:
+        - mnd
+    - path: protocol/
+      linters:
+        - revive # Protocol has many generated-like structs
+    - text: "weak cryptographic primitive"
+      linters:
+        - gosec
+    - text: "Use of weak random number generator"
+      linters:
+        - gosec
+    - text: "at least one file in a package should have a package comment"
+      linters:
+        - stylecheck
+    - text: "should have a package comment"
+      linters:
+        - stylecheck
+    - text: "package-comments: should have a package comment"
+      linters:
+        - revive
+    - text: "exported function .* should have comment or be unexported"
+      linters:
+        - revive
+    - text: "exported method .* should have comment or be unexported"
+      linters:
+        - revive
+    - text: "exported type .* should have comment or be unexported"
+      linters:
+        - revive
+    - text: "exported var .* should have comment or be unexported"
+      linters:
+        - revive
+
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
