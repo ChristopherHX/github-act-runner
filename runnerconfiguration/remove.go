@@ -1,6 +1,7 @@
 package runnerconfiguration
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
@@ -75,16 +76,39 @@ func (config *RemoveRunner) Remove(settings *RunnerSettings, survey Survey, auth
 				res = authres
 			}
 
-			vssConnection := &protocol.VssConnection{
-				Client:    c,
-				TenantURL: res.TenantURL,
-				Token:     res.Token,
-				PoolID:    instance.PoolID,
-				Trace:     config.Trace,
+			if res.UseV2FLow {
+				// This is not based on any code of actions/runner
+				// it uses the pipelines api to remove the runner
+				vssConnection := &protocol.VssConnection{
+					AuthHeader: "RemoteAuth " + config.Token,
+					Trace:      config.Trace,
+					Client:     c,
+				}
+				apiBuilder, err := NewGithubApiUrlBuilder(config.URL)
+				if err != nil {
+					return fmt.Errorf("invalid Url: %v", config.URL)
+				}
+				runnerURL, err := apiBuilder.ScopedApiUrl(fmt.Sprintf("actions/runners/%d", instance.Agent.ID))
+				if err != nil {
+					return fmt.Errorf("failed to remove Runner from server: %w", err)
+				}
+				err = vssConnection.RequestWithContext2(context.Background(), "DELETE", runnerURL, "", nil, nil)
+				if err != nil {
+					return fmt.Errorf("failed to remove Runner from server: %w", err)
+				}
+			} else {
+				vssConnection := &protocol.VssConnection{
+					Client:    c,
+					TenantURL: res.TenantURL,
+					Token:     res.Token,
+					PoolID:    instance.PoolID,
+					Trace:     config.Trace,
+				}
+				if err := vssConnection.DeleteAgent(instance.Agent); err != nil {
+					return fmt.Errorf("failed to remove Runner from server: %w", err)
+				}
 			}
-			if err := vssConnection.DeleteAgent(instance.Agent); err != nil {
-				return fmt.Errorf("failed to remove Runner from server: %w", err)
-			}
+
 			return nil
 		}()
 		if result != nil && !config.Force {

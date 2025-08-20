@@ -1,11 +1,13 @@
 package runnerconfiguration
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/xml"
 	"fmt"
 	"os"
 	"runtime"
@@ -77,10 +79,53 @@ func (config *ConfigureRunner) Configure(
 		Token:     res.Token,
 		Trace:     config.Trace,
 	}
+	if res.UseV2FLow {
+		vssConnection = &protocol.VssConnection{
+			AuthHeader: "RemoteAuth " + config.Token,
+			Trace:      config.Trace,
+			Client:     c,
+		}
+	}
+
+	getRunnerGroups := func() (*protocol.TaskAgentPools, error) {
+		return vssConnection.GetAgentPools()
+	}
+	var apiBuilder *GithubApiUrlBuilder
+	if res.UseV2FLow {
+		var err error
+		apiBuilder, err = NewGithubApiUrlBuilder(config.URL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Url: %v", config.URL)
+		}
+		getRunnerGroups = func() (*protocol.TaskAgentPools, error) {
+			runnerGroupsURL, err := apiBuilder.ScopedApiUrl("actions/runner-groups")
+			if err != nil {
+				return nil, err
+			}
+			runnerGroups := &protocol.RunnerGroupList{}
+			err = vssConnection.RequestWithContext2(context.Background(), "GET", runnerGroupsURL, "", nil, runnerGroups)
+			if err != nil {
+				return nil, err
+			}
+			poolList := &protocol.TaskAgentPools{}
+			poolList.Count = int64(len(runnerGroups.RunnerGroups))
+			for _, val := range runnerGroups.RunnerGroups {
+				poolList.Value = append(poolList.Value, protocol.TaskAgentPool{
+					TaskAgentPoolReference: protocol.TaskAgentPoolReference{
+						ID:         int64(val.Id),
+						Name:       val.Name,
+						IsHosted:   val.IsHosted,
+						IsInternal: val.IsDefault,
+					},
+				})
+			}
+			return poolList, nil
+		}
+	}
 	{
 		taskAgentPool := ""
 		taskAgentPools := []string{}
-		_taskAgentPools, err := vssConnection.GetAgentPools()
+		_taskAgentPools, err := getRunnerGroups()
 		if err != nil {
 			return nil, fmt.Errorf("failed to configure runner: %w", err)
 		}
@@ -160,18 +205,38 @@ func (config *ConfigureRunner) Configure(
 	taskAgent.Ephemeral = config.Ephemeral
 	taskAgent.DisableUpdate = config.DisableUpdate
 	{
-		err := vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "POST", map[string]string{
-			"poolId": fmt.Sprint(vssConnection.PoolID),
-		}, map[string]string{}, taskAgent, taskAgent)
+		var err error
+		if res.UseV2FLow {
+			err = registerOrReplaceRunnerV2(taskAgent, config, vssConnection, apiBuilder, false)
+		} else {
+			err = vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "POST", map[string]string{
+				"poolId": fmt.Sprint(vssConnection.PoolID),
+			}, map[string]string{}, taskAgent, taskAgent)
+		}
 		if err != nil {
 			if !config.Replace {
 				return nil, fmt.Errorf("failed to create taskAgent: %v", err.Error())
 			}
 			// Try replaceing runner if creation failed
 			taskAgents := &protocol.TaskAgents{}
-			err := vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "GET", map[string]string{
-				"poolId": fmt.Sprint(vssConnection.PoolID),
-			}, map[string]string{}, nil, taskAgents)
+			if res.UseV2FLow {
+				resv2 := &protocol.ListRunnersResponse{}
+				runnersURL, _ := apiBuilder.ScopedApiUrl("actions/runners")
+				err = vssConnection.RequestWithContext2(context.Background(), "GET", runnersURL, "", nil, resv2)
+				if err == nil {
+					for _, runner := range resv2.Runners {
+						taskAgents.Value = append(taskAgents.Value, protocol.TaskAgent{
+							ID:   runner.Id,
+							Name: runner.Name,
+						})
+					}
+					taskAgents.Count = int64(len(taskAgents.Value))
+				}
+			} else {
+				err = vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "GET", map[string]string{
+					"poolId": fmt.Sprint(vssConnection.PoolID),
+				}, map[string]string{}, nil, taskAgents)
+			}
 			if err != nil {
 				return nil, fmt.Errorf("failed to update taskAgent: %v", err.Error())
 			}
@@ -186,10 +251,14 @@ func (config *ConfigureRunner) Configure(
 			if invalid {
 				return nil, fmt.Errorf("failed to update taskAgent: failed to find agent")
 			}
-			err = vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "PUT", map[string]string{
-				"poolId":  fmt.Sprint(vssConnection.PoolID),
-				"agentId": fmt.Sprint(taskAgent.ID),
-			}, map[string]string{}, taskAgent, taskAgent)
+			if res.UseV2FLow {
+				err = registerOrReplaceRunnerV2(taskAgent, config, vssConnection, apiBuilder, true)
+			} else {
+				err = vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "PUT", map[string]string{
+					"poolId":  fmt.Sprint(vssConnection.PoolID),
+					"agentId": fmt.Sprint(taskAgent.ID),
+				}, map[string]string{}, taskAgent, taskAgent)
+			}
 			if err != nil {
 				return nil, fmt.Errorf("failed to update taskAgent: %v", err.Error())
 			}
@@ -199,6 +268,49 @@ func (config *ConfigureRunner) Configure(
 	instance.PoolID = vssConnection.PoolID
 	settings.Instances = append(settings.Instances, instance)
 	return settings, nil
+}
+
+type RSAKeyValue struct {
+	Modulus  string
+	Exponent string
+}
+
+func registerOrReplaceRunnerV2(taskAgent *protocol.TaskAgent, config *ConfigureRunner,
+	vssConnection *protocol.VssConnection, apiBuilder *GithubApiUrlBuilder, replace bool,
+) error {
+	runnerResp := &protocol.Runner{}
+	pubKeyXml, err := xml.Marshal(&RSAKeyValue{
+		Modulus:  taskAgent.Authorization.PublicKey.Modulus,
+		Exponent: taskAgent.Authorization.PublicKey.Exponent,
+	})
+	if err != nil {
+		return err
+	}
+	v2Register := map[string]interface{}{
+		"url":              config.URL,
+		"group_id":         vssConnection.PoolID,
+		"name":             config.Name,
+		"version":          taskAgent.Version,
+		"updates_disabled": taskAgent.DisableUpdate,
+		"ephemeral":        taskAgent.Ephemeral,
+		"labels":           taskAgent.Labels,
+		"public_key":       string(pubKeyXml),
+	}
+	if replace {
+		v2Register["runner_id"] = taskAgent.ID
+		v2Register["replace"] = true
+	}
+	err = vssConnection.RequestWithContext2(context.Background(), "POST",
+		apiBuilder.AbsoluteApiUrl("actions/runners/register"), "", v2Register, runnerResp)
+	if err != nil {
+		return err
+	}
+	taskAgent.ID = runnerResp.Id
+	taskAgent.Name = runnerResp.Name
+	taskAgent.Authorization.AuthorizationURL = runnerResp.Authorization.AuthorizationURL
+	taskAgent.Authorization.ClientID = runnerResp.Authorization.ClientId
+	taskAgent.ServerV2URL = runnerResp.Authorization.ServerURL
+	return nil
 }
 
 func (config *ConfigureRunner) ReadFromEnvironment() {

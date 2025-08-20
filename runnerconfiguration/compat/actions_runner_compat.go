@@ -4,7 +4,6 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -35,6 +34,8 @@ type DotnetAgent struct {
 	ServerURL     string `json:"ServerUrl"`
 	WorkFolder    string `json:"WorkFolder"`
 	GitHubURL     string `json:"GitHubUrl"`
+	UseV2Flow     bool   `json:"UseV2Flow"`
+	ServerURLV2   string `json:"ServerUrlV2"`
 }
 
 type DotnetCredentials struct {
@@ -131,7 +132,7 @@ func ToRunnerInstance(fileAccess ConfigFileAccess) (*runnerconfiguration.RunnerI
 	if err != nil {
 		return nil, err
 	}
-	agentID, err := strconv.ParseInt(agent.AgentID, 10, 32)
+	agentID, err := strconv.ParseInt(agent.AgentID, 10, 64)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +145,7 @@ func ToRunnerInstance(fileAccess ConfigFileAccess) (*runnerconfiguration.RunnerI
 		},
 		PKey: FromRsaParameters(rsaParameters),
 		Agent: &protocol.TaskAgent{
-			ID:             int(agentID),
+			ID:             agentID,
 			Ephemeral:      ephemeral,
 			Name:           agent.AgentName,
 			MaxParallelism: 1,
@@ -154,6 +155,7 @@ func ToRunnerInstance(fileAccess ConfigFileAccess) (*runnerconfiguration.RunnerI
 			},
 			DisableUpdate: disableUpdate,
 			Version:       "3.0.0",
+			ServerV2URL:   agent.ServerURLV2,
 		},
 		WorkFolder:      agent.WorkFolder,
 		RegistrationURL: agent.GitHubURL,
@@ -170,6 +172,8 @@ func FromRunnerInstance(instance *runnerconfiguration.RunnerInstance, fileAccess
 		ServerURL:     instance.Auth.TenantURL,
 		WorkFolder:    instance.WorkFolder,
 		GitHubURL:     instance.RegistrationURL,
+		UseV2Flow:     instance.Auth.UseV2FLow,
+		ServerURLV2:   instance.Agent.ServerV2URL,
 	}
 	if agent.WorkFolder == "" {
 		agent.WorkFolder = "_work"
@@ -187,7 +191,7 @@ func FromRunnerInstance(instance *runnerconfiguration.RunnerInstance, fileAccess
 	if err := fileAccess.Write(".credentials", credentials); err != nil {
 		return err
 	}
-	if err := instance.EnshurePKey(); err != nil {
+	if err := instance.EnsurePKey(); err != nil {
 		return err
 	}
 	if err := fileAccess.Write(".credentials_rsaparams", ToRsaParameters(instance.PKey)); err != nil {
@@ -206,10 +210,6 @@ func ParseJitRunnerConfig(conf string) (*runnerconfiguration.RunnerSettings, err
 		return nil, unmarshalErr
 	}
 	ret, err := ToRunnerInstance(JITConfigFileAccess(files))
-	_, xmlErr := ToXMLString(&ret.PKey.PublicKey)
-	if xmlErr != nil {
-		fmt.Printf("convert xml string: %v", xmlErr)
-	}
 	return &runnerconfiguration.RunnerSettings{
 		Instances: []*runnerconfiguration.RunnerInstance{
 			ret,
@@ -227,17 +227,4 @@ func ToJitRunnerConfig(instance *runnerconfiguration.RunnerInstance) (string, er
 		return "", err
 	}
 	return base64.StdEncoding.EncodeToString(rawfiles), nil
-}
-
-type RSAKeyValue struct {
-	Modulus  string
-	Exponent string
-}
-
-func ToXMLString(publicKey *rsa.PublicKey) (string, error) {
-	res, err := xml.Marshal(&RSAKeyValue{
-		Modulus:  base64.StdEncoding.EncodeToString(publicKey.N.Bytes()),
-		Exponent: base64.StdEncoding.EncodeToString(big.NewInt(int64(publicKey.E)).Bytes()),
-	})
-	return string(res), err
 }
