@@ -494,8 +494,8 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 					acquirejobURL.Path = path.Join(acquirejobURL.Path, "acquirejob")
 					vssConnection.TenantURL = runServiceURL
 					payload := &runservice.AcquireJobRequest{
-						StreamID:     rjrr.RunnerRequestID,
-						JobMessageID: rjrr.RunnerRequestID,
+						StreamID:       rjrr.RunnerRequestID,
+						JobMessageID:   rjrr.RunnerRequestID,
 						BillingOwnerID: rjrr.BillingOwnerID,
 					}
 					requestErr = vssConnection.RequestWithContext2(jobctx, "POST", acquirejobURL.String(), "", payload, &src)
