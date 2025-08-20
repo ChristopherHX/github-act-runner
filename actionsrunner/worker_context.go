@@ -44,7 +44,7 @@ func (wc *DefaultWorkerContext) FinishJob(result string, outputs *map[string]pro
 			JobID:          wc.Message().JobID,
 			Conclusion:     strings.ToLower(result),
 			Outputs:        nil,
-			BillingOwnerId: wc.Message().BillingOwnerId,
+			BillingOwnerID: wc.Message().BillingOwnerID,
 		}
 		if outputs != nil {
 			payload.Outputs = *outputs
