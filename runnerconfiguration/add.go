@@ -82,7 +82,7 @@ func (config *ConfigureRunner) Configure(
 		taskAgentPools := []string{}
 		_taskAgentPools, err := vssConnection.GetAgentPools()
 		if err != nil {
-			return nil, fmt.Errorf("failed to configure runner: %v", err)
+			return nil, fmt.Errorf("failed to configure runner: %w", err)
 		}
 		for _, val := range _taskAgentPools.Value {
 			if !val.IsHosted {
@@ -118,7 +118,7 @@ func (config *ConfigureRunner) Configure(
 	ui := uint32(key.E) //nolint:gosec
 	binary.BigEndian.PutUint32(bs, ui)
 	expof := 0
-	for ; expof < 3 && bs[expof] == 0; expof++ { //nolint:revive // empty-block: intentionally empty loop to find non-zero bytes
+	for ; expof < 3 && bs[expof] == 0; expof++ {
 		// Skip leading zero bytes
 	}
 	taskAgent.Authorization.PublicKey = protocol.TaskAgentPublicKey{

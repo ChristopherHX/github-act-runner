@@ -6,8 +6,6 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
-	"strings"
-
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
@@ -16,6 +14,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"strings"
 	"time"
 )
 

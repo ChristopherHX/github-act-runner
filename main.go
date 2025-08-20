@@ -33,7 +33,7 @@ const (
 	// Binary protocol constants
 	bufferSize = 4
 	// File permissions
-	logFilePermissions = 0777
+	logFilePermissions = 0o777
 )
 
 type RunRunner struct {
@@ -178,15 +178,16 @@ func (run *RunRunner) RunWithContext(listenerctx, ctx context.Context) int {
 
 var version = "0.8.x-dev"
 
-type interactive struct {
-}
+type interactive struct{}
 
 func (i *interactive) GetInput(prompt, def string) string {
 	return GetInput(prompt, def)
 }
+
 func (i *interactive) GetSelectInput(_ string, options []string, def string) string {
 	return RunnerGroupSurvey(def, options)
 }
+
 func (i *interactive) GetMultiSelectInput(prompt string, options []string) []string {
 	return GetMultiSelectInput(prompt, options)
 }
@@ -251,7 +252,7 @@ func main() {
 	remove := &runnerconfiguration.RemoveRunner{}
 	printJITConfig := false
 	saveActionsRunnerConfig := false
-	var cmdConfigure = &cobra.Command{
+	cmdConfigure := &cobra.Command{
 		Use:   "configure",
 		Short: "Configure your self-hosted runner",
 		Args:  cobra.MaximumNArgs(0),
@@ -318,7 +319,7 @@ func main() {
 		"use the format of actions/runner to save the configuration")
 	cmdConfigure.Flags().StringVar(&config.WorkFolder, "work", "_work", "actions/runner work folder (has no effect)")
 
-	var cmdRun = &cobra.Command{
+	cmdRun := &cobra.Command{
 		Use:   "run",
 		Short: "Run your self-hosted runner",
 		Args:  cobra.MaximumNArgs(0),
@@ -335,7 +336,7 @@ func main() {
 		"read the runner configuration from the jitconfig")
 	var jitConfig string
 	local, _ := common.LookupEnvBool("ACTIONS_RUNNER_INPUT_LOCAL")
-	var cmdRemove = &cobra.Command{
+	cmdRemove := &cobra.Command{
 		Use:   "remove",
 		Short: "Remove your self-hosted runner",
 		Args:  cobra.MaximumNArgs(0),
@@ -392,7 +393,7 @@ func main() {
 		"read the runner configuration from the jitconfig, this doesn't replace token/pat")
 	cmdRemove.Flags().BoolVar(&local, "local", local, "only delete the configuration")
 
-	var cmdWorker = &cobra.Command{
+	cmdWorker := &cobra.Command{
 		Use:   "worker",
 		Short: "Run as self-hosted runner worker, can be used to create ephemeral worker without exposing other job requests",
 		Args:  cobra.MaximumNArgs(0),
@@ -447,7 +448,7 @@ func main() {
 			<-ccontext.Done()
 		},
 	}
-	var cmdSvc = &cobra.Command{
+	cmdSvc := &cobra.Command{
 		Use:   "svc",
 		Short: "Manage the runner as a system service",
 	}
@@ -481,7 +482,6 @@ func main() {
 			}
 
 			svc, err := service.New(&RunRunnerSvc{}, getSvcConfig(wd, envFile))
-
 			if err != nil {
 				return err
 			}
@@ -494,7 +494,6 @@ func main() {
 		Short: "Install the service may require admin privileges",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			svc, err := service.New(&RunRunnerSvc{}, getSvcConfig(wd, envFile))
-
 			if err != nil {
 				return err
 			}
@@ -512,7 +511,6 @@ func main() {
 		Short: "Uninstall the service may require admin privileges",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			svc, err := service.New(&RunRunnerSvc{}, getSvcConfig(wd, envFile))
-
 			if err != nil {
 				return err
 			}
@@ -524,7 +522,6 @@ func main() {
 		Short: "Start the service may require admin privileges",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			svc, err := service.New(&RunRunnerSvc{}, getSvcConfig(wd, envFile))
-
 			if err != nil {
 				return err
 			}
@@ -536,7 +533,6 @@ func main() {
 		Short: "Stop the service may require admin privileges",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			svc, err := service.New(&RunRunnerSvc{}, getSvcConfig(wd, envFile))
-
 			if err != nil {
 				return err
 			}
@@ -545,7 +541,7 @@ func main() {
 	}
 	cmdSvc.AddCommand(svcInstall, svcStart, svcStop, svcRun, svcUninstall)
 
-	var rootCmd = &cobra.Command{
+	rootCmd := &cobra.Command{
 		Use:     "github-act-runner",
 		Version: version,
 	}

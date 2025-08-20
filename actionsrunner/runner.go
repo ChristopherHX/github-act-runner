@@ -61,7 +61,6 @@ type RunnerEnvironment interface {
 	ExecWorker(run *RunRunner, wc WorkerContext, jobreq *protocol.AgentJobRequestMessage, src []byte) error
 }
 
-//nolint:revive // context-as-argument: API compatibility requirement - cannot change parameter order
 func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx, corectx context.Context) error {
 	settings := run.Settings
 	for i := 0; i < len(settings.Instances); i++ {
@@ -448,17 +447,16 @@ type RunnerJobRequestRef struct {
 	RunServiceURL   string `json:"run_service_url"`
 }
 
-type plainTextFormatter struct {
-}
+type plainTextFormatter struct{}
 
 func (f *plainTextFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	return []byte(entry.Time.UTC().Format(protocol.TimestampOutputFormat) + " " + entry.Message + "\n"), nil
 }
 
-//nolint:revive // context-as-argument: Legacy function signature for compatibility
 func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *protocol.VssConnection, run *RunRunner,
 	cancel context.CancelFunc, cancelJob context.CancelFunc, finishJob context.CancelFunc, jobExecCtx context.Context, jobctx context.Context,
-	session *protocol.AgentMessageConnection, message protocol.TaskAgentMessage, instance *runnerconfiguration.RunnerInstance) {
+	session *protocol.AgentMessageConnection, message protocol.TaskAgentMessage, instance *runnerconfiguration.RunnerInstance,
+) {
 	go func() {
 		plogger := &PrefixConsoleLogger{
 			Parent: runnerenv,

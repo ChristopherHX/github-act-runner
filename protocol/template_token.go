@@ -390,8 +390,10 @@ func (converter *TemplateTokenConverter) ToYamlNode(token *TemplateToken) (ret *
 		if !converter.AllowExpressions {
 			return nil, fmt.Errorf("directives are not allowed: %s", *token.Expr)
 		}
-		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle,
-			Value: templateOpenToken + *token.Directive + templateCloseToken}, nil
+		return &yaml.Node{
+			Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle,
+			Value: templateOpenToken + *token.Directive + templateCloseToken,
+		}, nil
 	case TokenTypeBool:
 		val, _ := yaml.Marshal(token.Bool)
 		return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.FlowStyle, Value: string(val[:len(val)-1])}, nil
