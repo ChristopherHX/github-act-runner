@@ -11,7 +11,7 @@ import (
 type AcquireJobRequest struct {
 	StreamID       string `json:"streamId,omitempty"` // Deprecated: https://github.com/actions/runner/pull/2547
 	JobMessageID   string `json:"jobMessageId"`
-	BillingOwnerId string `json:"billingOwnerId,omitempty"`
+	BillingOwnerID string `json:"billingOwnerId,omitempty"`
 }
 
 type CompleteJobRequest struct {
