@@ -8,8 +8,7 @@ type BasicLogger interface {
 	Printf(format string, a ...interface{})
 }
 
-type ConsoleLogger struct {
-}
+type ConsoleLogger struct{}
 
 func (*ConsoleLogger) Printf(format string, a ...interface{}) {
 	fmt.Printf(format, a...)

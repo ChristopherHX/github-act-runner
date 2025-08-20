@@ -12,6 +12,12 @@ import (
 	"github.com/ChristopherHX/github-act-runner/protocol/run"
 )
 
+// Constants for worker context retry logic
+const (
+	workerMaxRetryAttempts = 10
+	workerRetry            = 10 * time.Second
+)
+
 type WorkerContext interface {
 	FinishJob(result string, outputs *map[string]protocol.VariableValue)
 	FailInitJob(title string, message string)
@@ -28,6 +34,9 @@ type DefaultWorkerContext struct {
 	RunnerLogger        BasicLogger
 }
 
+// FinishJob completes the job execution with the given result and outputs
+//
+//nolint:gocritic // ptrToRefParam: API compatibility requirement - changing pointer to value would be breaking change
 func (wc *DefaultWorkerContext) FinishJob(result string, outputs *map[string]protocol.VariableValue) {
 	if strings.EqualFold(wc.Message().MessageType, "RunnerJobRequest") {
 		payload := &run.CompleteJobRequest{
@@ -51,24 +60,25 @@ func (wc *DefaultWorkerContext) FinishJob(result string, outputs *map[string]pro
 					}
 					payload.Annotations = annotations
 				} else if rec != nil {
-					stepResults = append(stepResults, run.TimeLineRecordToStepResult(*rec))
+					stepResults = append(stepResults, run.TimeLineRecordToStepResult(rec))
 				}
 			}
 			payload.StepResults = stepResults
 		}
 
-		completejobUrl, _ := url.Parse(wc.VssConnection.TenantURL)
-		completejobUrl.Path = path.Join(completejobUrl.Path, "completejob")
+		completejobURL, _ := url.Parse(wc.VssConnection.TenantURL)
+		completejobURL.Path = path.Join(completejobURL.Path, "completejob")
 		for i := 0; ; i++ {
-			if err := wc.VssConnection.RequestWithContext2(context.Background(), "POST", completejobUrl.String(), "", payload, nil); err != nil {
+			if err := wc.VssConnection.RequestWithContext2(context.Background(), "POST", completejobURL.String(), "", payload, nil); err != nil {
 				wc.RunnerLogger.Printf("Failed to finish Job '%v' with Status %v: %v\n", wc.Message().JobDisplayName, result, err.Error())
 			} else {
 				wc.RunnerLogger.Printf("Finished Job '%v' with Status %v\n", wc.Message().JobDisplayName, result)
 				break
 			}
-			if i < 10 {
-				wc.RunnerLogger.Printf("Retry finishing '%v' in 10 seconds attempt %v of 10\n", wc.Message().JobDisplayName, i+1)
-				<-time.After(time.Second * 10)
+			if i < workerMaxRetryAttempts {
+				wc.RunnerLogger.Printf("Retry finishing '%v' in %d seconds attempt %v of %d\n",
+					wc.Message().JobDisplayName, workerRetry/time.Second, i+1, workerMaxRetryAttempts)
+				<-time.After(workerRetry)
 			} else {
 				break
 			}
@@ -89,20 +99,22 @@ func (wc *DefaultWorkerContext) FinishJob(result string, outputs *map[string]pro
 			wc.RunnerLogger.Printf("Finished Job '%v' with Status %v\n", wc.Message().JobDisplayName, result)
 			break
 		}
-		if i < 10 {
-			wc.RunnerLogger.Printf("Retry finishing '%v' in 10 seconds attempt %v of 10\n", wc.Message().JobDisplayName, i+1)
-			<-time.After(time.Second * 10)
+		if i < workerMaxRetryAttempts {
+			wc.RunnerLogger.Printf("Retry finishing '%v' in %d seconds attempt %v of %d\n",
+				wc.Message().JobDisplayName, workerRetry/time.Second, i+1, workerMaxRetryAttempts)
+			<-time.After(workerRetry)
 		} else {
 			break
 		}
 	}
 }
 
-func (wc *DefaultWorkerContext) FailInitJob(title string, message string) {
+func (wc *DefaultWorkerContext) FailInitJob(title, message string) {
 	if wc.Logger().Current() != nil {
 		wc.Logger().Current().Complete("Failed")
 	}
-	e := wc.Logger().Append(protocol.CreateTimelineEntry(wc.Message().JobID, "__fatal", title))
+	timelineEntry := protocol.CreateTimelineEntry(wc.Message().JobID, "__fatal", title)
+	e := wc.Logger().Append(&timelineEntry)
 	e.Start()
 	if wc.Logger().Current() != e {
 		for {
@@ -115,7 +127,7 @@ func (wc *DefaultWorkerContext) FailInitJob(title string, message string) {
 	}
 	wc.Logger().Log(message)
 	e.Complete("Failed")
-	wc.Logger().Logger.Close()
+	_ = wc.Logger().Logger.Close() // Ignore logger close errors
 	wc.Logger().MoveNext()
 	wc.Logger().TimelineRecords.Value[0].Complete("Failed")
 	wc.Logger().Finish()
@@ -164,7 +176,7 @@ func (wc *DefaultWorkerContext) Init() {
 			LiveLogger: &logger.WebsocketLiveloggerWithFallback{
 				JobRequest:    jobreq,
 				Connection:    jobVssConnection,
-				FeedStreamUrl: vssConnectionData["FeedStreamUrl"],
+				FeedStreamURL: vssConnectionData["FeedStreamUrl"],
 				ForceWebsock:  true,
 			},
 		}
@@ -178,11 +190,12 @@ func (wc *DefaultWorkerContext) Init() {
 			LiveLogger: &logger.WebsocketLiveloggerWithFallback{
 				JobRequest:    jobreq,
 				Connection:    jobVssConnection,
-				FeedStreamUrl: vssConnectionData["FeedStreamUrl"],
+				FeedStreamURL: vssConnectionData["FeedStreamUrl"],
 			},
 		}
 	}
-	jobEntry := wc.Logger().Append(protocol.CreateTimelineEntry("", wc.Message().JobName, wc.Message().JobDisplayName))
+	timelineEntry := protocol.CreateTimelineEntry("", wc.Message().JobName, wc.Message().JobDisplayName)
+	jobEntry := wc.Logger().Append(&timelineEntry)
 	jobEntry.ID = wc.Message().JobID
 	jobEntry.Type = "Job"
 	jobEntry.Order = 0

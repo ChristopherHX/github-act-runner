@@ -1,19 +1,17 @@
-package runneradmin
-
-type Authorization struct {
-	AuthorizationURL string `json:"authorization_url"`
-	ServerURL        string `json:"server_url"`
-	ClientID         string `json:"client_id"`
-}
+package protocol
 
 type Runner struct {
-	Name          string        `json:"name"`
-	ID            int32         `json:"id"`
-	Authorization Authorization `json:"authorization"`
+	Name          string `json:"name"`
+	Id            int64  `json:"id"`
+	Authorization struct {
+		AuthorizationURL string `json:"authorization_url"`
+		ServerURL        string `json:"server_url"`
+		ClientId         string `json:"client_id"`
+	} `json:"authorization"`
 }
 
 type RunnerGroup struct {
-	ID        int32  `json:"id,omitempty"`
+	Id        int32  `json:"id,omitempty"`
 	Name      string `json:"name,omitempty"`
 	IsDefault bool   `json:"default,omitempty"`
 	IsHosted  bool   `json:"is_hosted,omitempty"`

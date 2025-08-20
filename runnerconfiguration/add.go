@@ -1,20 +1,30 @@
 package runnerconfiguration
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/xml"
 	"fmt"
 	"os"
 	"runtime"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/ChristopherHX/github-act-runner/common"
 	"github.com/ChristopherHX/github-act-runner/protocol"
-	"github.com/google/uuid"
+)
+
+const (
+	// RSA key generation constants
+	rsaKeyBits         = 2048
+	rsaExponentBytes   = 4
+	defaultLabelsCount = 3
 )
 
 func containsEphemeralConfiguration(settings *RunnerSettings) bool {
@@ -29,26 +39,30 @@ func containsEphemeralConfiguration(settings *RunnerSettings) bool {
 	return false
 }
 
-func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey, auth *protocol.GitHubAuthResult) (*RunnerSettings, error) {
+func (config *ConfigureRunner) Configure(
+	settings *RunnerSettings,
+	survey Survey,
+	auth *protocol.GitHubAuthResult,
+) (*RunnerSettings, error) {
 	instance := &RunnerInstance{
 		RunnerGuard: config.RunnerGuard,
 		WorkFolder:  config.WorkFolder,
 	}
 	if config.Ephemeral && len(settings.Instances) > 0 || containsEphemeralConfiguration(settings) {
-		return nil, fmt.Errorf("ephemeral is not supported for multi runners, runner already configured.")
+		return nil, fmt.Errorf("ephemeral is not supported for multi runners, runner already configured")
 	}
-	if len(config.URL) == 0 {
+	if config.URL == "" {
 		if !config.Unattended {
 			config.URL = survey.GetInput("Please enter your repository, organization or enterprise url:", "")
 		} else {
 			return nil, fmt.Errorf("no url provided")
 		}
 	}
-	if len(config.URL) == 0 {
+	if config.URL == "" {
 		return nil, fmt.Errorf("no url provided")
 	}
 	instance.RegistrationURL = config.URL
-	c := config.GetHttpClient()
+	c := config.GetHTTPClient()
 	res := auth
 	if res == nil {
 		authres, err := config.Authenticate(c, survey)
@@ -65,12 +79,55 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 		Token:     res.Token,
 		Trace:     config.Trace,
 	}
+	if res.UseV2FLow {
+		vssConnection = &protocol.VssConnection{
+			AuthHeader: "RemoteAuth " + config.Token,
+			Trace:      config.Trace,
+			Client:     c,
+		}
+	}
+
+	getRunnerGroups := func() (*protocol.TaskAgentPools, error) {
+		return vssConnection.GetAgentPools()
+	}
+	var apiBuilder *GithubApiUrlBuilder
+	if res.UseV2FLow {
+		var err error
+		apiBuilder, err = NewGithubApiUrlBuilder(config.URL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Url: %v", config.URL)
+		}
+		getRunnerGroups = func() (*protocol.TaskAgentPools, error) {
+			runnerGroupsURL, err := apiBuilder.ScopedApiUrl("actions/runner-groups")
+			if err != nil {
+				return nil, err
+			}
+			runnerGroups := &protocol.RunnerGroupList{}
+			err = vssConnection.RequestWithContext2(context.Background(), "GET", runnerGroupsURL, "", nil, runnerGroups)
+			if err != nil {
+				return nil, err
+			}
+			poolList := &protocol.TaskAgentPools{}
+			poolList.Count = int64(len(runnerGroups.RunnerGroups))
+			for _, val := range runnerGroups.RunnerGroups {
+				poolList.Value = append(poolList.Value, protocol.TaskAgentPool{
+					TaskAgentPoolReference: protocol.TaskAgentPoolReference{
+						ID:         int64(val.Id),
+						Name:       val.Name,
+						IsHosted:   val.IsHosted,
+						IsInternal: val.IsDefault,
+					},
+				})
+			}
+			return poolList, nil
+		}
+	}
 	{
 		taskAgentPool := ""
 		taskAgentPools := []string{}
-		_taskAgentPools, err := vssConnection.GetAgentPools()
+		_taskAgentPools, err := getRunnerGroups()
 		if err != nil {
-			return nil, fmt.Errorf("failed to configure runner: %v\n", err)
+			return nil, fmt.Errorf("failed to configure runner: %w", err)
 		}
 		for _, val := range _taskAgentPools.Value {
 			if !val.IsHosted {
@@ -80,7 +137,7 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 		if len(taskAgentPools) == 0 {
 			return nil, fmt.Errorf("failed to configure runner, no self-hosted runner group available")
 		}
-		if len(config.RunnerGroup) > 0 {
+		if config.RunnerGroup != "" {
 			taskAgentPool = config.RunnerGroup
 		} else {
 			taskAgentPool = taskAgentPools[0]
@@ -95,20 +152,24 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 			}
 		}
 		if vssConnection.PoolID < 0 {
-			return nil, fmt.Errorf("runner Pool %v not found\n", taskAgentPool)
+			return nil, fmt.Errorf("runner Pool %v not found", taskAgentPool)
 		}
 	}
-	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	key, _ := rsa.GenerateKey(rand.Reader, rsaKeyBits)
 	instance.Key = base64.StdEncoding.EncodeToString(x509.MarshalPKCS1PrivateKey(key))
 
 	taskAgent := &protocol.TaskAgent{}
-	bs := make([]byte, 4)
-	ui := uint32(key.E)
+	bs := make([]byte, rsaExponentBytes)
+	ui := uint32(key.E) //nolint:gosec
 	binary.BigEndian.PutUint32(bs, ui)
 	expof := 0
 	for ; expof < 3 && bs[expof] == 0; expof++ {
+		// Skip leading zero bytes
 	}
-	taskAgent.Authorization.PublicKey = protocol.TaskAgentPublicKey{Exponent: base64.StdEncoding.EncodeToString(bs[expof:]), Modulus: base64.StdEncoding.EncodeToString(key.N.Bytes())}
+	taskAgent.Authorization.PublicKey = protocol.TaskAgentPublicKey{
+		Exponent: base64.StdEncoding.EncodeToString(bs[expof:]),
+		Modulus:  base64.StdEncoding.EncodeToString(key.N.Bytes()),
+	}
 	taskAgent.Version = "3.0.0" // version, will not use fips crypto if set to 0.0.0 *
 	taskAgent.OSDescription = "github-act-runner " + runtime.GOOS + "/" + runtime.GOARCH
 	if config.Name != "" {
@@ -120,11 +181,11 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 		}
 	}
 	if !config.Unattended && len(config.Labels) == 0 {
-		if res := survey.GetInput("Please enter custom labels of your new runner (case insensitive, separated by ','):", ""); len(res) > 0 {
+		if res := survey.GetInput("Please enter custom labels of your new runner (case insensitive, separated by ','):", ""); res != "" {
 			config.Labels = strings.Split(res, ",")
 		}
 	}
-	systemLabels := make([]string, 0, 3)
+	systemLabels := make([]string, 0, defaultLabelsCount)
 	if !config.NoDefaultLabels {
 		systemLabels = append(systemLabels, "self-hosted", runtime.GOOS, runtime.GOARCH)
 	}
@@ -144,20 +205,40 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 	taskAgent.Ephemeral = config.Ephemeral
 	taskAgent.DisableUpdate = config.DisableUpdate
 	{
-		err := vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "POST", map[string]string{
-			"poolId": fmt.Sprint(vssConnection.PoolID),
-		}, map[string]string{}, taskAgent, taskAgent)
+		var err error
+		if res.UseV2FLow {
+			err = registerOrReplaceRunnerV2(taskAgent, config, vssConnection, apiBuilder, false)
+		} else {
+			err = vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "POST", map[string]string{
+				"poolId": fmt.Sprint(vssConnection.PoolID),
+			}, map[string]string{}, taskAgent, taskAgent)
+		}
 		if err != nil {
 			if !config.Replace {
-				return nil, fmt.Errorf("failed to create taskAgent: %v\n", err.Error())
+				return nil, fmt.Errorf("failed to create taskAgent: %v", err.Error())
 			}
 			// Try replaceing runner if creation failed
 			taskAgents := &protocol.TaskAgents{}
-			err := vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "GET", map[string]string{
-				"poolId": fmt.Sprint(vssConnection.PoolID),
-			}, map[string]string{}, nil, taskAgents)
+			if res.UseV2FLow {
+				resv2 := &protocol.ListRunnersResponse{}
+				runnersURL, _ := apiBuilder.ScopedApiUrl("actions/runners")
+				err = vssConnection.RequestWithContext2(context.Background(), "GET", runnersURL, "", nil, resv2)
+				if err == nil {
+					for _, runner := range resv2.Runners {
+						taskAgents.Value = append(taskAgents.Value, protocol.TaskAgent{
+							ID:   runner.Id,
+							Name: runner.Name,
+						})
+					}
+					taskAgents.Count = int64(len(taskAgents.Value))
+				}
+			} else {
+				err = vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "GET", map[string]string{
+					"poolId": fmt.Sprint(vssConnection.PoolID),
+				}, map[string]string{}, nil, taskAgents)
+			}
 			if err != nil {
-				return nil, fmt.Errorf("failed to update taskAgent: %v\n", err.Error())
+				return nil, fmt.Errorf("failed to update taskAgent: %v", err.Error())
 			}
 			invalid := true
 			for i := 0; i < len(taskAgents.Value); i++ {
@@ -168,14 +249,18 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 				}
 			}
 			if invalid {
-				return nil, fmt.Errorf("failed to update taskAgent: Failed to find agent")
+				return nil, fmt.Errorf("failed to update taskAgent: failed to find agent")
 			}
-			err = vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "PUT", map[string]string{
-				"poolId":  fmt.Sprint(vssConnection.PoolID),
-				"agentId": fmt.Sprint(taskAgent.ID),
-			}, map[string]string{}, taskAgent, taskAgent)
+			if res.UseV2FLow {
+				err = registerOrReplaceRunnerV2(taskAgent, config, vssConnection, apiBuilder, true)
+			} else {
+				err = vssConnection.Request("e298ef32-5878-4cab-993c-043836571f42", "6.0-preview.2", "PUT", map[string]string{
+					"poolId":  fmt.Sprint(vssConnection.PoolID),
+					"agentId": fmt.Sprint(taskAgent.ID),
+				}, map[string]string{}, taskAgent, taskAgent)
+			}
 			if err != nil {
-				return nil, fmt.Errorf("failed to update taskAgent: %v\n", err.Error())
+				return nil, fmt.Errorf("failed to update taskAgent: %v", err.Error())
 			}
 		}
 	}
@@ -183,6 +268,49 @@ func (config *ConfigureRunner) Configure(settings *RunnerSettings, survey Survey
 	instance.PoolID = vssConnection.PoolID
 	settings.Instances = append(settings.Instances, instance)
 	return settings, nil
+}
+
+type RSAKeyValue struct {
+	Modulus  string
+	Exponent string
+}
+
+func registerOrReplaceRunnerV2(taskAgent *protocol.TaskAgent, config *ConfigureRunner,
+	vssConnection *protocol.VssConnection, apiBuilder *GithubApiUrlBuilder, replace bool,
+) error {
+	runnerResp := &protocol.Runner{}
+	pubKeyXml, err := xml.Marshal(&RSAKeyValue{
+		Modulus:  taskAgent.Authorization.PublicKey.Modulus,
+		Exponent: taskAgent.Authorization.PublicKey.Exponent,
+	})
+	if err != nil {
+		return err
+	}
+	v2Register := map[string]interface{}{
+		"url":              config.URL,
+		"group_id":         vssConnection.PoolID,
+		"name":             config.Name,
+		"version":          taskAgent.Version,
+		"updates_disabled": taskAgent.DisableUpdate,
+		"ephemeral":        taskAgent.Ephemeral,
+		"labels":           taskAgent.Labels,
+		"public_key":       string(pubKeyXml),
+	}
+	if replace {
+		v2Register["runner_id"] = taskAgent.ID
+		v2Register["replace"] = true
+	}
+	err = vssConnection.RequestWithContext2(context.Background(), "POST",
+		apiBuilder.AbsoluteApiUrl("actions/runners/register"), "", v2Register, runnerResp)
+	if err != nil {
+		return err
+	}
+	taskAgent.ID = runnerResp.Id
+	taskAgent.Name = runnerResp.Name
+	taskAgent.Authorization.AuthorizationURL = runnerResp.Authorization.AuthorizationURL
+	taskAgent.Authorization.ClientID = runnerResp.Authorization.ClientId
+	taskAgent.ServerV2URL = runnerResp.Authorization.ServerURL
+	return nil
 }
 
 func (config *ConfigureRunner) ReadFromEnvironment() {
@@ -197,7 +325,7 @@ func (config *ConfigureRunner) ReadFromEnvironment() {
 			config.DisableUpdate = v
 		}
 	}
-	if len(config.Name) == 0 {
+	if config.Name == "" {
 		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_NAME"); ok {
 			config.Name = v
 		}
