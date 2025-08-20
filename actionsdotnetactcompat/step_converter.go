@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/actions-oss/act-cli/pkg/model"	
+	"github.com/actions-oss/act-cli/pkg/model"
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 

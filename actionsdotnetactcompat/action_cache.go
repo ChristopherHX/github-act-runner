@@ -14,8 +14,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/actions-oss/act-cli/pkg/common"
+
+	"github.com/ChristopherHX/github-act-runner/protocol"
 )
 
 type ActionCacheBase struct {
@@ -104,7 +105,7 @@ func fetchAction(ctx context.Context, target string, owner string, name string, 
 		if logger != nil {
 			logger.Infof("Downloading action %v/%v (sha:%v) from %v", owner, name, resolvedSha, tarURL)
 		}
-		req, err := http.NewRequestWithContext(ctx, "GET", tarURL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, tarURL, nil)
 		if err != nil {
 			return "", err
 		}
@@ -118,7 +119,7 @@ func fetchAction(ctx context.Context, target string, owner string, name string, 
 			return "", err
 		}
 		defer rsp.Body.Close()
-		if rsp.StatusCode != 200 {
+		if rsp.StatusCode != http.StatusOK {
 			buf := &bytes.Buffer{}
 			io.Copy(buf, rsp.Body)
 			return "", fmt.Errorf("Failed to download action from %v response %v", tarURL, buf.String())

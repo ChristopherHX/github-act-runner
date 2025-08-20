@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ChristopherHX/github-act-runner/protocol"
 	"github.com/actions-oss/act-cli/pkg/runner"
 	"github.com/google/uuid"
+
+	"github.com/ChristopherHX/github-act-runner/protocol"
 )
 
 type VssActionCache struct {
