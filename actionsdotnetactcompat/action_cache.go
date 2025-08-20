@@ -92,7 +92,7 @@ func fetchAction(ctx context.Context, target string, owner string, name string, 
 	cachedTar := filepath.Join(target, owner+"."+name+"."+resolvedSha+".tar")
 	defer func() {
 		if reterr != nil {
-			os.Remove(cachedTar)
+			_ = os.Remove(cachedTar)
 		}
 	}()
 	if fr, err := os.Open(cachedTar); err == nil {
@@ -105,7 +105,7 @@ func fetchAction(ctx context.Context, target string, owner string, name string, 
 		if logger != nil {
 			logger.Infof("Downloading action %v/%v (sha:%v) from %v", owner, name, resolvedSha, tarURL)
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, tarURL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, tarURL, http.NoBody)
 		if err != nil {
 			return "", err
 		}
@@ -121,8 +121,8 @@ func fetchAction(ctx context.Context, target string, owner string, name string, 
 		defer rsp.Body.Close()
 		if rsp.StatusCode != http.StatusOK {
 			buf := &bytes.Buffer{}
-			io.Copy(buf, rsp.Body)
-			return "", fmt.Errorf("Failed to download action from %v response %v", tarURL, buf.String())
+			_, _ = io.Copy(buf, rsp.Body)
+			return "", fmt.Errorf("failed to download action from %v response %v", tarURL, buf.String())
 		}
 		fo, err := os.Create(cachedTar)
 		if err != nil {
