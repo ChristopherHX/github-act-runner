@@ -2,19 +2,25 @@ package common
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"os"
 )
 
-func WriteJson(path string, value interface{}) error {
+const (
+	// File permissions
+	filePermissions = 0o664
+)
+
+func WriteJSON(path string, value interface{}) error {
 	b, err := json.MarshalIndent(value, "", "    ")
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(path, b, 0777)
+	return os.WriteFile(path, b, filePermissions)
 }
 
-func ReadJson(path string, value interface{}) error {
-	cont, err := ioutil.ReadFile(path)
+func ReadJSON(path string, value interface{}) error {
+	//nolint:gosec // Path is provided by application configuration, not user input
+	cont, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}

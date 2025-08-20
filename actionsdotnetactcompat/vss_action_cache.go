@@ -43,7 +43,7 @@ func (cache *VssActionCache) Fetch(ctx context.Context, cacheDir string, url str
 			shouldDelete = true
 		}
 
-		targetFile, err := fetchAction(ctx, cache.CacheDir, actionurl[0], actionurl[1], resolvedSha, v.TarballUrl, token, cache.HttpClient)
+		targetFile, err := fetchAction(ctx, cache.CacheDir, actionurl[0], actionurl[1], resolvedSha, v.TarballURL, token, cache.HttpClient)
 		if err != nil {
 			return "", err
 		}

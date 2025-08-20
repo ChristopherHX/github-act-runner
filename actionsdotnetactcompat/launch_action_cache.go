@@ -51,7 +51,7 @@ func (cache *LaunchActionCache) Fetch(ctx context.Context, cacheDir string, url 
 			shouldDelete = true
 		}
 
-		targetFile, err := fetchAction(ctx, cache.CacheDir, actionurl[0], actionurl[1], resolvedSha, v.TarUrl, token, cache.HttpClient)
+		targetFile, err := fetchAction(ctx, cache.CacheDir, actionurl[0], actionurl[1], resolvedSha, v.TarURL, token, cache.HttpClient)
 		if err != nil {
 			return "", err
 		}

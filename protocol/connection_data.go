@@ -28,18 +28,18 @@ type ConnectionData struct {
 }
 
 func (vssConnection *VssConnection) GetConnectionData() *ConnectionData {
-	url, err := url.Parse(vssConnection.TenantURL)
+	parsedURL, err := url.Parse(vssConnection.TenantURL)
 	if err != nil {
 		return nil
 	}
-	url.Path = path.Join(url.Path, "_apis/connectionData")
-	q := url.Query()
+	parsedURL.Path = path.Join(parsedURL.Path, "_apis/connectionData")
+	q := parsedURL.Query()
 	q.Add("connectOptions", "1")
 	q.Add("lastChangeId", "-1")
 	q.Add("lastChangeId64", "-1")
-	url.RawQuery = q.Encode()
+	parsedURL.RawQuery = q.Encode()
 	connectionData := &ConnectionData{}
-	err = vssConnection.RequestWithContext2(context.Background(), "GET", url.String(), "1.0", nil, connectionData)
+	err = vssConnection.RequestWithContext2(context.Background(), "GET", parsedURL.String(), "1.0", nil, connectionData)
 	if err != nil {
 		return nil
 	}

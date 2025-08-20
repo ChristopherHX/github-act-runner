@@ -20,8 +20,7 @@ type Issue struct {
 	Data                  map[string]string
 }
 
-type TimelineAttempt struct {
-}
+type TimelineAttempt struct{}
 
 type TimelineRecord struct {
 	ID               string
@@ -67,24 +66,24 @@ type TimelineRecordFeedLinesWrapper struct {
 }
 
 func (rec *TimelineRecord) Start() {
-	time := time.Now().UTC().Format(TimestampOutputFormat)
+	timestamp := time.Now().UTC().Format(TimestampOutputFormat)
 	rec.PercentComplete = 0
 	rec.State = "InProgress"
-	rec.StartTime = time
+	rec.StartTime = timestamp
 	rec.FinishTime = nil
-	rec.LastModified = time
+	rec.LastModified = timestamp
 }
 
 func (rec *TimelineRecord) Complete(res string) {
-	time := time.Now().UTC().Format(TimestampOutputFormat)
+	timestamp := time.Now().UTC().Format(TimestampOutputFormat)
 	rec.PercentComplete = 100
 	rec.State = "Completed"
-	rec.FinishTime = &time
-	rec.LastModified = time
+	rec.FinishTime = &timestamp
+	rec.LastModified = timestamp
 	rec.Result = &res
 }
 
-func CreateTimelineEntry(parent string, refname string, name string) TimelineRecord {
+func CreateTimelineEntry(parent, refname, name string) TimelineRecord {
 	record := TimelineRecord{}
 	record.ID = uuid.New().String()
 	record.RefName = refname

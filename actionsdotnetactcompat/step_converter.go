@@ -4,15 +4,22 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ChristopherHX/github-act-runner/protocol"
-	"github.com/actions-oss/act-cli/pkg/model"
+	"github.com/actions-oss/act-cli/pkg/model"	
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ChristopherHX/github-act-runner/protocol"
+)
+
+const (
+	// Step reference types
+	containerRegistryType = "containerregistry"
 )
 
 func ConvertSteps(jobSteps []protocol.ActionStep) ([]*model.Step, error) {
 	steps := []*model.Step{}
-	for _, step := range jobSteps {
+	for i := range jobSteps {
+		step := &jobSteps[i]
 		st := strings.ToLower(step.Reference.Type)
 		inputs := make(map[interface{}]interface{})
 		if step.Inputs != nil {
@@ -34,26 +41,28 @@ func ConvertSteps(jobSteps []protocol.ActionStep) ([]*model.Step, error) {
 		continueOnError := "false"
 		if step.ContinueOnError != nil {
 			tmpcontinueOnError := step.ContinueOnError.ToRawObject()
-			if b, ok := tmpcontinueOnError.(bool); ok {
-				continueOnError = fmt.Sprint(b)
-			} else if s, ok := tmpcontinueOnError.(string); ok {
-				continueOnError = s
-			} else {
+			switch v := tmpcontinueOnError.(type) {
+			case bool:
+				continueOnError = fmt.Sprint(v)
+			case string:
+				continueOnError = v
+			default:
 				return nil, fmt.Errorf("ContinueOnError: Failed to translate")
 			}
 		}
 		var timeoutMinutes string
 		if step.TimeoutInMinutes != nil {
 			rawTimeout := step.TimeoutInMinutes.ToRawObject()
-			if b, ok := rawTimeout.(float64); ok {
-				timeoutMinutes = fmt.Sprint(b)
-			} else if s, ok := rawTimeout.(string); ok {
-				timeoutMinutes = s
-			} else {
+			switch v := rawTimeout.(type) {
+			case float64:
+				timeoutMinutes = fmt.Sprint(v)
+			case string:
+				timeoutMinutes = v
+			default:
 				return nil, fmt.Errorf("TimeoutInMinutes: Failed to translate")
 			}
 		}
-		var displayName string = ""
+		var displayName string
 		if step.DisplayNameToken != nil {
 			rawDisplayName, ok := step.DisplayNameToken.ToRawObject().(string)
 			if !ok {
@@ -104,15 +113,15 @@ func ConvertSteps(jobSteps []protocol.ActionStep) ([]*model.Step, error) {
 			} else {
 				return nil, fmt.Errorf("missing script")
 			}
-		case "containerregistry", "repository":
+		case containerRegistryType, "repository":
 			uses := ""
-			if st == "containerregistry" {
+			if st == containerRegistryType {
 				uses = "docker://" + step.Reference.Image
-			} else if strings.ToLower(step.Reference.RepositoryType) == "self" {
+			} else if strings.EqualFold(step.Reference.RepositoryType, "self") {
 				uses = step.Reference.Path
 			} else {
 				uses = step.Reference.Name
-				if len(step.Reference.Path) > 0 {
+				if step.Reference.Path != "" {
 					uses = uses + "/" + step.Reference.Path
 				}
 				uses = uses + "@" + step.Reference.Ref
