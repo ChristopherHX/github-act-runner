@@ -5,6 +5,15 @@ import (
 	"fmt"
 )
 
+const (
+	// PipelineContextData types
+	PipelineContextString     = 0
+	PipelineContextArray      = 1
+	PipelineContextDictionary = 2
+	PipelineContextBool       = 3
+	PipelineContextNumber     = 4
+)
+
 type DictionaryContextDataPair struct {
 	Key   string              `json:"k"`
 	Value PipelineContextData `json:"v"`
@@ -24,19 +33,19 @@ func (ctx *PipelineContextData) UnmarshalJSON(data []byte) error {
 		if ctx.BoolValue == nil {
 			ctx = nil
 		} else {
-			var typ int32 = 3
+			var typ int32 = PipelineContextBool
 			ctx.Type = &typ
 		}
 		return nil
 	} else if json.Unmarshal(data, &ctx.NumberValue) == nil {
 		ctx.BoolValue = nil
-		var typ int32 = 4
+		var typ int32 = PipelineContextNumber
 		ctx.Type = &typ
 		return nil
 	} else if json.Unmarshal(data, &ctx.StringValue) == nil {
 		ctx.BoolValue = nil
 		ctx.NumberValue = nil
-		var typ int32
+		var typ int32 = PipelineContextString
 		ctx.Type = &typ
 		return nil
 	} else {
@@ -53,9 +62,9 @@ func (ctx PipelineContextData) ToRawObject() interface{} {
 		return nil
 	}
 	switch *ctx.Type {
-	case 0:
+	case PipelineContextString:
 		return *ctx.StringValue
-	case 1:
+	case PipelineContextArray:
 		a := make([]interface{}, 0)
 		if ctx.ArrayValue != nil {
 			for _, v := range *ctx.ArrayValue {
@@ -63,7 +72,7 @@ func (ctx PipelineContextData) ToRawObject() interface{} {
 			}
 		}
 		return a
-	case 2:
+	case PipelineContextDictionary:
 		m := make(map[string]interface{})
 		if ctx.DictionaryValue != nil {
 			for _, v := range *ctx.DictionaryValue {
@@ -71,66 +80,67 @@ func (ctx PipelineContextData) ToRawObject() interface{} {
 			}
 		}
 		return m
-	case 3:
+	case PipelineContextBool:
 		return *ctx.BoolValue
-	case 4:
+	case PipelineContextNumber:
 		return *ctx.NumberValue
 	}
 	return nil
 }
 
 func ToPipelineContextDataWithError(data interface{}) (PipelineContextData, error) {
-	if b, ok := data.(bool); ok {
-		var typ int32 = 3
+	switch v := data.(type) {
+	case bool:
+		var typ int32 = PipelineContextBool
 		return PipelineContextData{
 			Type:      &typ,
-			BoolValue: &b,
+			BoolValue: &v,
 		}, nil
-	} else if n, ok := data.(float64); ok {
-		var typ int32 = 4
+	case float64:
+		var typ int32 = PipelineContextNumber
 		return PipelineContextData{
 			Type:        &typ,
-			NumberValue: &n,
+			NumberValue: &v,
 		}, nil
-	} else if s, ok := data.(string); ok {
-		var typ int32
+	case string:
+		var typ int32 = PipelineContextString
 		return PipelineContextData{
 			Type:        &typ,
-			StringValue: &s,
+			StringValue: &v,
 		}, nil
-	} else if a, ok := data.([]interface{}); ok {
+	case []interface{}:
 		arr := []PipelineContextData{}
-		for _, v := range a {
-			e, err := ToPipelineContextDataWithError(v)
+		for _, elem := range v {
+			e, err := ToPipelineContextDataWithError(elem)
 			if err != nil {
 				return PipelineContextData{}, err
 			}
 			arr = append(arr, e)
 		}
-		var typ int32 = 1
+		var typ int32 = PipelineContextArray
 		return PipelineContextData{
 			Type:       &typ,
 			ArrayValue: &arr,
 		}, nil
-	} else if o, ok := data.(map[string]interface{}); ok {
+	case map[string]interface{}:
 		obj := []DictionaryContextDataPair{}
-		for k, v := range o {
-			e, err := ToPipelineContextDataWithError(v)
+		for k, val := range v {
+			e, err := ToPipelineContextDataWithError(val)
 			if err != nil {
 				return PipelineContextData{}, err
 			}
 			obj = append(obj, DictionaryContextDataPair{Key: k, Value: e})
 		}
-		var typ int32 = 2
+		var typ int32 = PipelineContextDictionary
 		return PipelineContextData{
 			Type:            &typ,
 			DictionaryValue: &obj,
 		}, nil
-	}
-	if data == nil {
+	case nil:
 		return PipelineContextData{}, nil
+	default:
+		return PipelineContextData{}, fmt.Errorf("unknown type")
 	}
-	return PipelineContextData{}, fmt.Errorf("unknown type")
 }
 
 func ToPipelineContextData(data interface{}) PipelineContextData {

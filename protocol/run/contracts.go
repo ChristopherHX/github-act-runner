@@ -59,7 +59,7 @@ func toLowerStringP(p *string) *string {
 	return &ret
 }
 
-func TimeLineRecordToStepResult(rec protocol.TimelineRecord) StepResult {
+func TimeLineRecordToStepResult(rec *protocol.TimelineRecord) StepResult {
 	annotations := make([]Annotation, len(rec.Issues))
 	for i, issue := range rec.Issues {
 		annotations[i] = IssueToAnnotation(issue)

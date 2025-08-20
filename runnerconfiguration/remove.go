@@ -1,16 +1,17 @@
 package runnerconfiguration
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
 )
 
 func (config *RemoveRunner) Remove(settings *RunnerSettings, survey Survey, auth *protocol.GitHubAuthResult) (*RunnerSettings, error) {
-	c := config.GetHttpClient()
+	c := config.GetHTTPClient()
 	var instancesToRemove []*RunnerInstance
 	for _, i := range settings.Instances {
-		if (len(config.URL) == 0 || i.RegistrationURL == config.URL) || (len(config.Name) == 0 || i.Agent.Name == config.Name) {
+		if (config.URL == "" || i.RegistrationURL == config.URL) || (config.Name == "" || i.Agent.Name == config.Name) {
 			instancesToRemove = append(instancesToRemove, i)
 		}
 	}
@@ -39,18 +40,20 @@ func (config *RemoveRunner) Remove(settings *RunnerSettings, survey Survey, auth
 	regurl := ""
 	needsPat := false
 	for _, i := range instancesToRemove {
-		if len(regurl) > 0 && regurl != i.RegistrationURL {
+		if regurl != "" && regurl != i.RegistrationURL {
 			needsPat = true
 		} else {
 			regurl = i.RegistrationURL
 		}
 	}
-	if needsPat && len(config.Pat) == 0 {
+	if needsPat && config.Pat == "" {
 		if !config.Unattended {
 			config.Pat = survey.GetInput("Please enter your Personal Access token", "")
 		}
-		if len(config.Pat) == 0 {
-			return nil, fmt.Errorf("you have to provide a Personal access token with access to the repositories to remove or use the --url parameter")
+		if config.Pat == "" {
+			return nil, fmt.Errorf(
+				"you have to provide a Personal access token with access to the repositories to remove or use the --url parameter",
+			)
 		}
 	}
 	for i, instance := range instancesToRemove {
@@ -73,16 +76,39 @@ func (config *RemoveRunner) Remove(settings *RunnerSettings, survey Survey, auth
 				res = authres
 			}
 
-			vssConnection := &protocol.VssConnection{
-				Client:    c,
-				TenantURL: res.TenantURL,
-				Token:     res.Token,
-				PoolID:    instance.PoolID,
-				Trace:     config.Trace,
+			if res.UseV2FLow {
+				// This is not based on any code of actions/runner
+				// it uses the pipelines api to remove the runner
+				vssConnection := &protocol.VssConnection{
+					AuthHeader: "RemoteAuth " + config.Token,
+					Trace:      config.Trace,
+					Client:     c,
+				}
+				apiBuilder, err := NewGithubApiUrlBuilder(config.URL)
+				if err != nil {
+					return fmt.Errorf("invalid Url: %v", config.URL)
+				}
+				runnerURL, err := apiBuilder.ScopedApiUrl(fmt.Sprintf("actions/runners/%d", instance.Agent.ID))
+				if err != nil {
+					return fmt.Errorf("failed to remove Runner from server: %w", err)
+				}
+				err = vssConnection.RequestWithContext2(context.Background(), "DELETE", runnerURL, "", nil, nil)
+				if err != nil {
+					return fmt.Errorf("failed to remove Runner from server: %w", err)
+				}
+			} else {
+				vssConnection := &protocol.VssConnection{
+					Client:    c,
+					TenantURL: res.TenantURL,
+					Token:     res.Token,
+					PoolID:    instance.PoolID,
+					Trace:     config.Trace,
+				}
+				if err := vssConnection.DeleteAgent(instance.Agent); err != nil {
+					return fmt.Errorf("failed to remove Runner from server: %w", err)
+				}
 			}
-			if err := vssConnection.DeleteAgent(instance.Agent); err != nil {
-				return fmt.Errorf("failed to remove Runner from server: %v\n", err)
-			}
+
 			return nil
 		}()
 		if result != nil && !config.Force {

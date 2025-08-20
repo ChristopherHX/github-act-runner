@@ -4,7 +4,6 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -26,15 +25,17 @@ type DotnetRsaParameters struct {
 }
 
 type DotnetAgent struct {
-	AgentId       string `json:"AgentId"`
+	AgentID       string `json:"AgentId"`
 	AgentName     string `json:"AgentName"`
 	DisableUpdate string `json:"DisableUpdate"`
 	Ephemeral     string `json:"Ephemeral"`
-	PoolId        string `json:"PoolId"`
+	PoolID        string `json:"PoolId"`
 	PoolName      string `json:"PoolName,omitempty"`
-	ServerUrl     string `json:"ServerUrl"`
+	ServerURL     string `json:"ServerUrl"`
 	WorkFolder    string `json:"WorkFolder"`
-	GitHubUrl     string `json:"GitHubUrl"`
+	GitHubURL     string `json:"GitHubUrl"`
+	UseV2Flow     bool   `json:"UseV2Flow"`
+	ServerURLV2   string `json:"ServerUrlV2"`
 }
 
 type DotnetCredentials struct {
@@ -43,8 +44,8 @@ type DotnetCredentials struct {
 }
 
 type DotnetCredentialsData struct {
-	ClientId         string `json:"ClientId"`
-	AuthorizationUrl string `json:"AuthorizationUrl"`
+	ClientID         string `json:"ClientId"`
+	AuthorizationURL string `json:"AuthorizationUrl"`
 }
 
 func BytesToBigInt(bytes []byte) *big.Int {
@@ -93,11 +94,11 @@ type ConfigFileAccess interface {
 type DefaultConfigFileAccess struct{}
 
 func (config DefaultConfigFileAccess) Read(name string, obj interface{}) error {
-	return common.ReadJson(name, obj)
+	return common.ReadJSON(name, obj)
 }
 
 func (config DefaultConfigFileAccess) Write(name string, obj interface{}) error {
-	return common.WriteJson(name, obj)
+	return common.WriteJSON(name, obj)
 }
 
 type JITConfigFileAccess map[string][]byte
@@ -127,11 +128,11 @@ func ToRunnerInstance(fileAccess ConfigFileAccess) (*runnerconfiguration.RunnerI
 	if err := fileAccess.Read(".credentials_rsaparams", rsaParameters); err != nil {
 		return nil, err
 	}
-	poolID, err := strconv.ParseInt(agent.PoolId, 10, 64)
+	poolID, err := strconv.ParseInt(agent.PoolID, 10, 64)
 	if err != nil {
 		return nil, err
 	}
-	agentID, err := strconv.ParseInt(agent.AgentId, 10, 32)
+	agentID, err := strconv.ParseInt(agent.AgentID, 10, 64)
 	if err != nil {
 		return nil, err
 	}
@@ -140,36 +141,39 @@ func ToRunnerInstance(fileAccess ConfigFileAccess) (*runnerconfiguration.RunnerI
 	return &runnerconfiguration.RunnerInstance{
 		PoolID: poolID,
 		Auth: &protocol.GitHubAuthResult{
-			TenantURL: agent.ServerUrl,
+			TenantURL: agent.ServerURL,
 		},
 		PKey: FromRsaParameters(rsaParameters),
 		Agent: &protocol.TaskAgent{
-			ID:             int(agentID),
+			ID:             agentID,
 			Ephemeral:      ephemeral,
 			Name:           agent.AgentName,
 			MaxParallelism: 1,
 			Authorization: protocol.TaskAgentAuthorization{
-				AuthorizationURL: credentials.Data.AuthorizationUrl,
-				ClientID:         credentials.Data.ClientId,
+				AuthorizationURL: credentials.Data.AuthorizationURL,
+				ClientID:         credentials.Data.ClientID,
 			},
 			DisableUpdate: disableUpdate,
 			Version:       "3.0.0",
+			ServerV2URL:   agent.ServerURLV2,
 		},
 		WorkFolder:      agent.WorkFolder,
-		RegistrationURL: agent.GitHubUrl,
+		RegistrationURL: agent.GitHubURL,
 	}, nil
 }
 
 func FromRunnerInstance(instance *runnerconfiguration.RunnerInstance, fileAccess ConfigFileAccess) error {
 	agent := &DotnetAgent{
-		AgentId:       fmt.Sprint(instance.Agent.ID),
+		AgentID:       fmt.Sprint(instance.Agent.ID),
 		AgentName:     instance.Agent.Name,
 		Ephemeral:     fmt.Sprint(instance.Agent.Ephemeral),
 		DisableUpdate: fmt.Sprint(instance.Agent.DisableUpdate),
-		PoolId:        fmt.Sprint(instance.PoolID),
-		ServerUrl:     instance.Auth.TenantURL,
+		PoolID:        fmt.Sprint(instance.PoolID),
+		ServerURL:     instance.Auth.TenantURL,
 		WorkFolder:    instance.WorkFolder,
-		GitHubUrl:     instance.RegistrationURL,
+		GitHubURL:     instance.RegistrationURL,
+		UseV2Flow:     instance.Auth.UseV2FLow,
+		ServerURLV2:   instance.Agent.ServerV2URL,
 	}
 	if agent.WorkFolder == "" {
 		agent.WorkFolder = "_work"
@@ -177,8 +181,8 @@ func FromRunnerInstance(instance *runnerconfiguration.RunnerInstance, fileAccess
 	credentials := &DotnetCredentials{
 		Scheme: "OAuth",
 		Data: DotnetCredentialsData{
-			ClientId:         instance.Agent.Authorization.ClientID,
-			AuthorizationUrl: instance.Agent.Authorization.AuthorizationURL,
+			ClientID:         instance.Agent.Authorization.ClientID,
+			AuthorizationURL: instance.Agent.Authorization.AuthorizationURL,
 		},
 	}
 	if err := fileAccess.Write(".runner", agent); err != nil {
@@ -187,7 +191,7 @@ func FromRunnerInstance(instance *runnerconfiguration.RunnerInstance, fileAccess
 	if err := fileAccess.Write(".credentials", credentials); err != nil {
 		return err
 	}
-	if err := instance.EnshurePKey(); err != nil {
+	if err := instance.EnsurePKey(); err != nil {
 		return err
 	}
 	if err := fileAccess.Write(".credentials_rsaparams", ToRsaParameters(instance.PKey)); err != nil {
@@ -202,11 +206,10 @@ func ParseJitRunnerConfig(conf string) (*runnerconfiguration.RunnerSettings, err
 		return nil, err
 	}
 	files := map[string][]byte{}
-	if err := json.Unmarshal(rawfiles, &files); err != nil {
-		return nil, err
+	if unmarshalErr := json.Unmarshal(rawfiles, &files); unmarshalErr != nil {
+		return nil, unmarshalErr
 	}
 	ret, err := ToRunnerInstance(JITConfigFileAccess(files))
-	ToXmlString(&ret.PKey.PublicKey)
 	return &runnerconfiguration.RunnerSettings{
 		Instances: []*runnerconfiguration.RunnerInstance{
 			ret,
@@ -224,17 +227,4 @@ func ToJitRunnerConfig(instance *runnerconfiguration.RunnerInstance) (string, er
 		return "", err
 	}
 	return base64.StdEncoding.EncodeToString(rawfiles), nil
-}
-
-type RSAKeyValue struct {
-	Modulus  string
-	Exponent string
-}
-
-func ToXmlString(publicKey *rsa.PublicKey) (string, error) {
-	res, err := xml.Marshal(&RSAKeyValue{
-		Modulus:  base64.StdEncoding.EncodeToString(publicKey.N.Bytes()),
-		Exponent: base64.StdEncoding.EncodeToString(big.NewInt(int64(publicKey.E)).Bytes()),
-	})
-	return string(res), err
 }

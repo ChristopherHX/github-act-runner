@@ -15,9 +15,9 @@ type ActionDownloadInfoResponse struct {
 	Name           string                                `json:"name,omitempty"`
 	ResolvedName   string                                `json:"resolved_name,omitempty"`
 	ResolvedSha    string                                `json:"resolved_sha,omitempty"`
-	TarUrl         string                                `json:"tar_url,omitempty"`
+	TarURL         string                                `json:"tar_url,omitempty"`
 	Version        string                                `json:"version,omitempty"`
-	ZipUrl         string                                `json:"zip_url,omitempty"`
+	ZipURL         string                                `json:"zip_url,omitempty"`
 }
 
 type ActionDownloadAuthenticationResponse struct {

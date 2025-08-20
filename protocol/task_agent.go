@@ -5,13 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/golang-jwt/jwt"
 	"github.com/google/uuid"
+)
+
+const (
+	// JWT token expiration time
+	jwtExpiration = 5 * time.Minute
+
+	// Error message prefix for authorization failures
+	authFailurePrefix = "Failed to Authorize: "
 )
 
 type TaskAgentPublicKey struct {
@@ -35,7 +43,7 @@ type TaskAgent struct {
 	Authorization     TaskAgentAuthorization
 	Labels            []AgentLabel
 	MaxParallelism    int
-	ID                int
+	ID                int64
 	Name              string
 	Version           string
 	OSDescription     string
@@ -45,6 +53,8 @@ type TaskAgent struct {
 	CreatedOn         string
 	Ephemeral         bool `json:",omitempty"`
 	DisableUpdate     bool `json:",omitempty"`
+	// Just a convenient way to store the URL, not part of the spec
+	ServerV2URL string `json:",omitempty"`
 }
 
 type TaskAgents struct {
@@ -62,7 +72,7 @@ func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAut
 		Audience:  taskAgent.Authorization.AuthorizationURL,
 		NotBefore: now.Unix(),
 		IssuedAt:  now.Unix(),
-		ExpiresAt: now.Add(time.Minute * 5).Unix(),
+		ExpiresAt: now.Add(jwtExpiration).Unix(),
 	})
 	stkn, err := token2.SignedString(key)
 	if err != nil {
@@ -74,20 +84,24 @@ func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAut
 	data.Set("client_assertion", stkn)
 	data.Set("grant_type", "client_credentials")
 
-	poolsreq, err := http.NewRequest("POST", taskAgent.Authorization.AuthorizationURL, bytes.NewBufferString(data.Encode()))
+	//nolint:noctx // Legacy function without context - would break API compatibility
+	poolsreq, err := http.NewRequest(http.MethodPost, taskAgent.Authorization.AuthorizationURL, bytes.NewBufferString(data.Encode()))
 	if err != nil {
-		return nil, errors.New("Failed to Authorize: " + err.Error())
+		return nil, errors.New(authFailurePrefix + err.Error())
 	}
 	poolsreq.Header["Content-Type"] = []string{"application/x-www-form-urlencoded; charset=utf-8"}
 	poolsreq.Header["Accept"] = []string{"application/json"}
 	poolsresp, err := c.Do(poolsreq)
 	if err != nil {
-		return nil, errors.New("Failed to Authorize: " + err.Error())
+		return nil, errors.New(authFailurePrefix + err.Error())
 	}
-	defer poolsresp.Body.Close()
-	if poolsresp.StatusCode != 200 {
-		bytes, _ := ioutil.ReadAll(poolsresp.Body)
-		return nil, errors.New("Failed to Authorize, service responded with code " + fmt.Sprint(poolsresp.StatusCode) + ": " + string(bytes))
+	defer func() {
+		_ = poolsresp.Body.Close() // Ignore close error
+	}()
+	if poolsresp.StatusCode != http.StatusOK {
+		responseBytes, _ := io.ReadAll(poolsresp.Body)
+		return nil, errors.New("Failed to Authorize, service responded with code " + fmt.Sprint(poolsresp.StatusCode) +
+			": " + string(responseBytes))
 	}
 	dec := json.NewDecoder(poolsresp.Body)
 	if err := dec.Decode(tokenresp); err != nil {

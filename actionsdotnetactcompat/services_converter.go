@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/actions-oss/act-cli/pkg/model"
+
 	"github.com/ChristopherHX/github-act-runner/protocol"
-	"github.com/nektos/act/pkg/model"
 )
 
 func ConvertServiceContainer(jobServiceContainers *protocol.TemplateToken) (map[string]*model.ContainerSpec, error) {
