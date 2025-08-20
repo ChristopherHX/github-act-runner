@@ -21,7 +21,7 @@ type CompleteJobRequest struct {
 	Outputs        map[string]protocol.VariableValue `json:"outputs,omitempty"`
 	StepResults    []StepResult                      `json:"stepResults,omitempty"`
 	Annotations    []Annotation                      `json:"annotations,omitempty"`
-	BillingOwnerId string                            `json:"billingOwnerId,omitempty"`
+	BillingOwnerID string                            `json:"billingOwnerId,omitempty"`
 }
 
 type RenewJobRequest struct {
