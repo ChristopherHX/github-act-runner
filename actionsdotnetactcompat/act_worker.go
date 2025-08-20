@@ -212,7 +212,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		ctx:    jobExecCtx,
 	}
 	logger.SetFormatter(formatter)
-	logger.Println("Initialize translating the job request to nektos/act")
+	logger.Println("Initialize translating the job request to actions-oss/act-cli (nektos/act)")
 	vssConnection, vssConnectionData, _ := rqt.GetConnection("SystemVssConnection")
 	if jlogger.Connection != nil {
 		vssConnection.Client = jlogger.Connection.Client
@@ -514,7 +514,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	if err := os.MkdirAll(cacheDir, 0777); err != nil {
 		logger.Warn("github-act-runner is be unable to access \"" + cacheDir + "\". You might want set one of the following environment variables XDG_CACHE_HOME, HOME to a user read and writeable location. Details: " + err.Error())
 	}
-	logger.Println("Starting nektos/act")
+	logger.Println("Starting actions-oss/act-cli (nektos/act)")
 	select {
 	case <-jobExecCtx.Done():
 	default:
