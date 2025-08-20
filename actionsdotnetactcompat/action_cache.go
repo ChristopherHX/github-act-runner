@@ -35,21 +35,21 @@ func (cache *ActionCacheBase) GetTarArchive(ctx context.Context, cacheDir string
 	pr, pw := io.Pipe()
 	cleanIncludePrefix := path.Clean(includePrefix)
 	go func() {
-		defer pr.Close()
+		defer func() { _ = pr.Close() }()
 		writer := tar.NewWriter(pw)
-		defer writer.Close()
+		defer func() { _ = writer.Close() }()
 		reader, err := os.Open(cache.mapping[cacheDir+"@"+sha])
 		if err != nil {
 			_ = pw.CloseWithError(err)
 			return
 		}
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 		gzr, err := gzip.NewReader(reader)
 		if err != nil {
 			_ = pw.CloseWithError(err)
 			return
 		}
-		defer gzr.Close()
+		defer func() { _ = gzr.Close() }()
 		treader := tar.NewReader(gzr)
 		for {
 			header, err := treader.Next()
@@ -129,12 +129,12 @@ func fetchAction(ctx context.Context, target string, owner string, name string, 
 			return "", err
 		}
 		defer func() { _ = fo.Close() }()
-		len, err := io.Copy(fo, rsp.Body)
+		l, err := io.Copy(fo, rsp.Body)
 		if err != nil {
 			return "", err
 		}
-		if rsp.ContentLength >= 0 && len != rsp.ContentLength {
-			return "", fmt.Errorf("failed to download tar expected %v, but copied %v", rsp.ContentLength, len)
+		if rsp.ContentLength >= 0 && l != rsp.ContentLength {
+			return "", fmt.Errorf("failed to download tar expected %v, but copied %v", rsp.ContentLength, l)
 		}
 	}
 	return cachedTar, nil
