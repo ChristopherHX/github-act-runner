@@ -19,7 +19,7 @@ type LaunchActionCache struct {
 }
 
 // Fetch implements runner.ActionCache.
-func (cache *LaunchActionCache) Fetch(ctx context.Context, cacheDir string, url string, ref string, token string) (string, error) {
+func (cache *LaunchActionCache) Fetch(ctx context.Context, cacheDir, url, ref, token string) (string, error) {
 	actionList := &launch.ActionReferenceRequestList{}
 	actionurl := strings.Split(url, "/")
 	actionurl = actionurl[len(actionurl)-2:]
@@ -40,7 +40,7 @@ func (cache *LaunchActionCache) Fetch(ctx context.Context, cacheDir string, url 
 		return "", err
 	}
 
-	for _, v := range actionDownloadInfo.Actions {
+	for _, v := range actionDownloadInfo.Actions { //nolint:dupl
 		token := cache.GHToken
 		if v.Authentication != nil && v.Authentication.Token != "" {
 			token = v.Authentication.Token

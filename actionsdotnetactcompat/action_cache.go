@@ -31,7 +31,7 @@ type ActionCacheBase struct {
 }
 
 // GetTarArchive implements runner.ActionCache.
-func (cache *ActionCacheBase) GetTarArchive(ctx context.Context, cacheDir string, sha string, includePrefix string) (io.ReadCloser, error) {
+func (cache *ActionCacheBase) GetTarArchive(ctx context.Context, cacheDir, sha, includePrefix string) (io.ReadCloser, error) {
 	pr, pw := io.Pipe()
 	cleanIncludePrefix := path.Clean(includePrefix)
 	go func() {
@@ -77,7 +77,7 @@ func (cache *ActionCacheBase) GetTarArchive(ctx context.Context, cacheDir string
 				_ = pw.CloseWithError(err)
 				return
 			}
-			_, err = io.Copy(writer, treader)
+			_, err = io.Copy(writer, treader) //nolint:gosec
 			if err != nil {
 				_ = pw.CloseWithError(err)
 				return
@@ -87,7 +87,8 @@ func (cache *ActionCacheBase) GetTarArchive(ctx context.Context, cacheDir string
 	return pr, nil
 }
 
-func fetchAction(ctx context.Context, target string, owner string, name string, resolvedSha string, tarURL string, token string, httpClient *http.Client) (targetFile string, reterr error) {
+func fetchAction(ctx context.Context, target, owner, name, resolvedSha, tarURL, token string, httpClient *http.Client,
+) (targetFile string, reterr error) {
 	logger := common.Logger(ctx)
 	cachedTar := filepath.Join(target, owner+"."+name+"."+resolvedSha+".tar")
 	defer func() {
@@ -95,7 +96,7 @@ func fetchAction(ctx context.Context, target string, owner string, name string, 
 			_ = os.Remove(cachedTar)
 		}
 	}()
-	if fr, err := os.Open(cachedTar); err == nil {
+	if fr, err := os.Open(cachedTar); err == nil { //nolint:gosec
 		defer func() { _ = fr.Close() }()
 		if logger != nil {
 			logger.Infof("Found cache for action %v/%v (sha:%v) from %v", owner, name, resolvedSha, cachedTar)
@@ -124,7 +125,7 @@ func fetchAction(ctx context.Context, target string, owner string, name string, 
 			_, _ = io.Copy(buf, rsp.Body)
 			return "", fmt.Errorf("failed to download action from %v response %v", tarURL, buf.String())
 		}
-		fo, err := os.Create(cachedTar)
+		fo, err := os.Create(cachedTar) //nolint:gosec
 		if err != nil {
 			return "", err
 		}
