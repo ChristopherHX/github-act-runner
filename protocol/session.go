@@ -6,9 +6,6 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
-	"net/url"
-	"strings"
-
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
@@ -17,6 +14,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"net/url"
 	"strings"
 	"time"
 )

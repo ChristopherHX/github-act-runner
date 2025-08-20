@@ -350,7 +350,7 @@ func (vssConnection *VssConnection) CreateSessionExt(ctx context.Context, server
 			return nil, err
 		}
 		if session.BrokerMigrationMessage != nil {
-			return vssConnection.CreateSessionExt(ctx, session.BrokerMigrationMessage.BrokerBaseUrl)
+			return vssConnection.CreateSessionExt(ctx, session.BrokerMigrationMessage.BrokerBaseURL)
 		}
 	}
 

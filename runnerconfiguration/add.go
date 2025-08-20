@@ -275,7 +275,9 @@ type RSAKeyValue struct {
 	Exponent string
 }
 
-func registerOrReplaceRunnerV2(taskAgent *protocol.TaskAgent, config *ConfigureRunner, vssConnection *protocol.VssConnection, apiBuilder *GithubApiUrlBuilder, replace bool) error {
+func registerOrReplaceRunnerV2(taskAgent *protocol.TaskAgent, config *ConfigureRunner,
+	vssConnection *protocol.VssConnection, apiBuilder *GithubApiUrlBuilder, replace bool,
+) error {
 	runnerResp := &protocol.Runner{}
 	pubKeyXml, err := xml.Marshal(&RSAKeyValue{
 		Modulus:  taskAgent.Authorization.PublicKey.Modulus,
@@ -298,7 +300,8 @@ func registerOrReplaceRunnerV2(taskAgent *protocol.TaskAgent, config *ConfigureR
 		v2Register["runner_id"] = taskAgent.ID
 		v2Register["replace"] = true
 	}
-	err = vssConnection.RequestWithContext2(context.Background(), "POST", apiBuilder.AbsoluteApiUrl("actions/runners/register"), "", v2Register, runnerResp)
+	err = vssConnection.RequestWithContext2(context.Background(), "POST",
+		apiBuilder.AbsoluteApiUrl("actions/runners/register"), "", v2Register, runnerResp)
 	if err != nil {
 		return err
 	}

@@ -90,11 +90,11 @@ func (config *RemoveRunner) Remove(settings *RunnerSettings, survey Survey, auth
 				}
 				runnerURL, err := apiBuilder.ScopedApiUrl(fmt.Sprintf("actions/runners/%d", instance.Agent.ID))
 				if err != nil {
-					return fmt.Errorf("failed to remove Runner from server: %v", err)
+					return fmt.Errorf("failed to remove Runner from server: %w", err)
 				}
 				err = vssConnection.RequestWithContext2(context.Background(), "DELETE", runnerURL, "", nil, nil)
 				if err != nil {
-					return fmt.Errorf("failed to remove Runner from server: %v", err)
+					return fmt.Errorf("failed to remove Runner from server: %w", err)
 				}
 			} else {
 				vssConnection := &protocol.VssConnection{
@@ -105,7 +105,7 @@ func (config *RemoveRunner) Remove(settings *RunnerSettings, survey Survey, auth
 					Trace:     config.Trace,
 				}
 				if err := vssConnection.DeleteAgent(instance.Agent); err != nil {
-					return fmt.Errorf("failed to remove Runner from server: %v", err)
+					return fmt.Errorf("failed to remove Runner from server: %w", err)
 				}
 			}
 

@@ -106,8 +106,8 @@ type GithubApiUrlBuilder struct {
 	ApiScope string
 }
 
-func NewGithubApiUrlBuilder(URL string) (*GithubApiUrlBuilder, error) {
-	baseUrl, err := url.Parse(URL)
+func NewGithubApiUrlBuilder(baseURLString string) (*GithubApiUrlBuilder, error) {
+	baseUrl, err := url.Parse(baseURLString)
 	if err != nil {
 		return nil, err
 	}
@@ -123,29 +123,30 @@ func NewGithubApiUrlBuilder(URL string) (*GithubApiUrlBuilder, error) {
 }
 
 func (apiBuilder *GithubApiUrlBuilder) AbsoluteApiUrl(p string) string {
-	url := *apiBuilder.URL
-	url.Path = path.Join(apiBuilder.ApiScope, p)
-	return url.String()
+	apiURL := *apiBuilder.URL
+	apiURL.Path = path.Join(apiBuilder.ApiScope, p)
+	return apiURL.String()
 }
 
 func (apiBuilder *GithubApiUrlBuilder) ScopedApiUrl(p string) (string, error) {
-	url := *apiBuilder.URL
-	paths := strings.Split(strings.TrimPrefix(url.Path, "/"), "/")
+	apiURL := *apiBuilder.URL
+	paths := strings.Split(strings.TrimPrefix(apiURL.Path, "/"), "/")
 	if len(paths) == 1 {
-		url.Path = path.Join(apiBuilder.ApiScope, "orgs", paths[0], p)
-	} else if len(paths) == 2 {
+		apiURL.Path = path.Join(apiBuilder.ApiScope, "orgs", paths[0], p)
+	} else if len(paths) == repositoryPathSegments {
 		scope := "repos"
 		if strings.EqualFold(paths[0], "enterprises") {
 			scope = ""
 		}
-		url.Path = path.Join(apiBuilder.ApiScope, scope, paths[0], paths[1], p)
+		apiURL.Path = path.Join(apiBuilder.ApiScope, scope, paths[0], paths[1], p)
 	} else {
 		return "", fmt.Errorf("unsupported registration url")
 	}
-	return url.String(), nil
+	return apiURL.String(), nil
 }
 
-func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent string, apiEndpoint string, survey Survey) (*protocol.GitHubAuthResult, error) {
+func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent, apiEndpoint string, survey Survey,
+) (*protocol.GitHubAuthResult, error) {
 	if config.URL == "" && !config.Unattended {
 		config.URL = survey.GetInput("Which GitHub Url is associated with this runner (Normally this isn't missing):", "")
 	}
@@ -153,11 +154,11 @@ func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent strin
 	if err != nil {
 		return nil, fmt.Errorf("invalid Url: %v", config.URL)
 	}
-	if len(config.Token) == 0 {
-		if len(config.Pat) > 0 {
-			url, err := apiBuilder.ScopedApiUrl(path.Join("actions/runners", apiEndpoint))
-			if err != nil {
-				return nil, err
+	if config.Token == "" {
+		if config.Pat != "" {
+			apiURL, serr := apiBuilder.ScopedApiUrl(path.Join("actions/runners", apiEndpoint))
+			if serr != nil {
+				return nil, serr
 			}
 			client := &protocol.VssConnection{
 				AuthHeader: fmt.Sprintf("Basic %v", base64.StdEncoding.EncodeToString([]byte("GitHub:"+config.Pat))),
@@ -165,7 +166,7 @@ func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent strin
 				Client:     c,
 			}
 			tokenresp := &protocol.GitHubRunnerRegisterToken{}
-			err = client.RequestWithContext2(context.Background(), "POST", url, "", nil, tokenresp)
+			err = client.RequestWithContext2(context.Background(), "POST", apiURL, "", nil, tokenresp)
 			if err != nil {
 				return nil, fmt.Errorf("failed to retrieve %v token via pat: %v", apiEndpoint, err.Error())
 			}
@@ -178,7 +179,7 @@ func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent strin
 		return nil, fmt.Errorf("no runner registration token provided")
 	}
 
-	finalregisterUrl := apiBuilder.AbsoluteApiUrl("actions/runner-registration")
+	finalregisterURL := apiBuilder.AbsoluteApiUrl("actions/runner-registration")
 
 	client := &protocol.VssConnection{
 		AuthHeader: "RemoteAuth " + config.Token,
