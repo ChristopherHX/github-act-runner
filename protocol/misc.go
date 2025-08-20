@@ -105,7 +105,7 @@ type AgentJobRequestMessage struct {
 	Variables            map[string]VariableValue
 	Steps                []ActionStep
 	FileTable            []string
-	BillingOwnerId       string `json:"billingOwnerId,omitempty"`
+	BillingOwnerID       string `json:"billingOwnerId,omitempty"`
 }
 
 func (jobreq *AgentJobRequestMessage) GetConnection(name string) (*VssConnection, map[string]string, error) {
