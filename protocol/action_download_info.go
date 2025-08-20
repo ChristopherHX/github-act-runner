@@ -19,9 +19,9 @@ type ActionDownloadInfo struct {
 	NameWithOwner         string
 	ResolvedNameWithOwner string
 	ResolvedSha           string
-	TarballUrl            string
+	TarballURL            string
 	Ref                   string
-	ZipballUrl            string
+	ZipballURL            string
 }
 
 type ActionDownloadAuthentication struct {

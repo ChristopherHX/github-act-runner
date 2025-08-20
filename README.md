@@ -131,6 +131,10 @@ go run . run
 - removed openbsd/mips binaries, because this prevents updates to go and dependencies
 - go 1.21 now required
 
+# Breaking changes in 0.11.0
+- based on [actions-oss/act-cli@v0.3.4](https://github.com/actions-oss/act-cli/tree/v0.3.4)
+- go 1.24 now required
+
 # Known Limitations
 - ~~This runner ignores pre and post steps of javascript actions~~ Is now working in 0.6.0
 - ~~[actions/cache](https://github.com/actions/cache) is incompatible and won't be able to **save your cache**~~
@@ -150,10 +154,10 @@ go run . run
 - Job Outputs are sent regardless if they would leak secret data to non secret storage
 - You need to provide the `node` program yourself in all containers / host configurations
 - You need to manually update the runner
-- Most issues of https://github.com/nektos/act/issues applies to this runner as well
+- Most issues of https://github.com/nektos/act/issues and https://github.com/actions-oss/act-cli/issues applies to this runner as well
 
 # How does it work?
-This runner implements the same protocol as the [actions/runner](https://github.com/actions/runner) in a different way, as such it can be used as a self-hosted runner exactly like the official one. To get this working, I initially built an actions service replacement [ChristopherHX/runner.server](https://github.com/ChristopherHX/runner.server) for the official [actions/runner](https://github.com/actions/runner). My own actions service allowed me to implement the base protocol for this runner and debug how the protocol is serializeing and parsing json messages, while still being incompatible with github. After testing against github, the first thing happend was loosing the ability to run any github action workflows on my test repository. My invalid attempts to register a custom runner caused unrecoverable Internal Server Errors on githubs side, I decided to delete this test repository. After some work everything worked and finally it is safe to register this runner against github. To execute steps this runner translates the github actions job request to be compatible with a modified version of [nektos/act](https://github.com/nektos/act) ( [ChristopherHX/act](https://github.com/ChristopherHX/act) ), which adds a local task runner without the need for docker and increased platform support, also the log output of act gets redirected to github for live logs and storing log files.
+This runner implements the same protocol as the [actions/runner](https://github.com/actions/runner) in a different way, as such it can be used as a self-hosted runner exactly like the official one. To get this working, I initially built an actions service replacement [ChristopherHX/runner.server](https://github.com/ChristopherHX/runner.server) for the official [actions/runner](https://github.com/actions/runner). My own actions service allowed me to implement the base protocol for this runner and debug how the protocol is serializeing and parsing json messages, while still being incompatible with github. After testing against github, the first thing happend was loosing the ability to run any github action workflows on my test repository. My invalid attempts to register a custom runner caused unrecoverable Internal Server Errors on githubs side, I decided to delete this test repository. After some work everything worked and finally it is safe to register this runner against github. To execute steps this runner translates the github actions job request to be compatible with a modified version of [nektos/act](https://github.com/nektos/act) ( [actions-oss/act-cli](https://github.com/actions-oss/act-cli) ), which adds a local task runner without the need for docker and increased platform support, also the log output of act gets redirected to github for live logs and storing log files.
 
 # Does this runner work without github?
 Yes, you can use this runner together with [ChristopherHX/runner.server](https://github.com/ChristopherHX/runner.server) locally on your PC without depending on compatibility with github. Also CI tests for this runner are using [ChristopherHX/runner.server](https://github.com/ChristopherHX/runner.server), this avoids requiring a PAT for github to run tests and enshures that you are always able to run it locally without github.

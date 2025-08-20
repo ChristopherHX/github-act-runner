@@ -44,8 +44,8 @@ type DotnetCredentials struct {
 }
 
 type DotnetCredentialsData struct {
-	ClientId         string `json:"ClientId"`
-	AuthorizationUrl string `json:"AuthorizationUrl"`
+	ClientID         string `json:"ClientId"`
+	AuthorizationURL string `json:"AuthorizationUrl"`
 }
 
 func BytesToBigInt(bytes []byte) *big.Int {
@@ -94,11 +94,11 @@ type ConfigFileAccess interface {
 type DefaultConfigFileAccess struct{}
 
 func (config DefaultConfigFileAccess) Read(name string, obj interface{}) error {
-	return common.ReadJson(name, obj)
+	return common.ReadJSON(name, obj)
 }
 
 func (config DefaultConfigFileAccess) Write(name string, obj interface{}) error {
-	return common.WriteJson(name, obj)
+	return common.WriteJSON(name, obj)
 }
 
 type JITConfigFileAccess map[string][]byte
@@ -150,8 +150,8 @@ func ToRunnerInstance(fileAccess ConfigFileAccess) (*runnerconfiguration.RunnerI
 			Name:           agent.AgentName,
 			MaxParallelism: 1,
 			Authorization: protocol.TaskAgentAuthorization{
-				AuthorizationURL: credentials.Data.AuthorizationUrl,
-				ClientID:         credentials.Data.ClientId,
+				AuthorizationURL: credentials.Data.AuthorizationURL,
+				ClientID:         credentials.Data.ClientID,
 			},
 			DisableUpdate: disableUpdate,
 			Version:       "3.0.0",
@@ -181,8 +181,8 @@ func FromRunnerInstance(instance *runnerconfiguration.RunnerInstance, fileAccess
 	credentials := &DotnetCredentials{
 		Scheme: "OAuth",
 		Data: DotnetCredentialsData{
-			ClientId:         instance.Agent.Authorization.ClientID,
-			AuthorizationUrl: instance.Agent.Authorization.AuthorizationURL,
+			ClientID:         instance.Agent.Authorization.ClientID,
+			AuthorizationURL: instance.Agent.Authorization.AuthorizationURL,
 		},
 	}
 	if err := fileAccess.Write(".runner", agent); err != nil {
@@ -206,8 +206,8 @@ func ParseJitRunnerConfig(conf string) (*runnerconfiguration.RunnerSettings, err
 		return nil, err
 	}
 	files := map[string][]byte{}
-	if err := json.Unmarshal(rawfiles, &files); err != nil {
-		return nil, err
+	if unmarshalErr := json.Unmarshal(rawfiles, &files); unmarshalErr != nil {
+		return nil, unmarshalErr
 	}
 	ret, err := ToRunnerInstance(JITConfigFileAccess(files))
 	return &runnerconfiguration.RunnerSettings{

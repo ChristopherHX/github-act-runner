@@ -18,6 +18,13 @@ import (
 	"github.com/ChristopherHX/github-act-runner/protocol"
 )
 
+const (
+	// HTTP client timeout
+	httpClientTimeout = 100 * time.Second
+	// Path segments for repository URL validation
+	repositoryPathSegments = 2
+)
+
 type ConfigureRemoveRunner struct {
 	Client     *http.Client
 	URL        string
@@ -28,16 +35,17 @@ type ConfigureRemoveRunner struct {
 	Trace      bool
 }
 
-func (c *ConfigureRemoveRunner) GetHttpClient() *http.Client {
+func (c *ConfigureRemoveRunner) GetHTTPClient() *http.Client {
 	if c.Client != nil {
 		return c.Client
 	}
 	customTransport := http.DefaultTransport.(*http.Transport).Clone()
 	if v, ok := common.LookupEnvBool("SKIP_TLS_CERT_VALIDATION"); ok && v {
+		//nolint:gosec // Intentionally allows insecure TLS when explicitly configured
 		customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 	c.Client = &http.Client{
-		Timeout:   100 * time.Second,
+		Timeout:   httpClientTimeout,
 		Transport: customTransport,
 	}
 	return c.Client
@@ -139,7 +147,7 @@ func (apiBuilder *GithubApiUrlBuilder) ScopedApiUrl(p string) (string, error) {
 
 func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent string, apiEndpoint string, survey Survey) (*protocol.GitHubAuthResult, error) {
 	if config.URL == "" && !config.Unattended {
-		config.URL = survey.GetInput("Which GitHub Url is assosiated with this runner (Normally this isn't missing):", "")
+		config.URL = survey.GetInput("Which GitHub Url is associated with this runner (Normally this isn't missing):", "")
 	}
 	apiBuilder, err := NewGithubApiUrlBuilder(config.URL)
 	if err != nil {
@@ -166,7 +174,7 @@ func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent strin
 			config.Token = survey.GetInput("Please enter your runner registration token:", "")
 		}
 	}
-	if len(config.Token) == 0 {
+	if config.Token == "" {
 		return nil, fmt.Errorf("no runner registration token provided")
 	}
 
@@ -178,13 +186,12 @@ func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent strin
 		Client:     c,
 	}
 	res := &protocol.GitHubAuthResult{}
-	err = client.RequestWithContext2(context.Background(), "POST", finalregisterUrl, "", &protocol.RunnerAddRemove{
+	err = client.RequestWithContext2(context.Background(), "POST", finalregisterURL, "", &protocol.RunnerAddRemove{
 		URL:         config.URL,
 		RunnerEvent: runnerEvent,
 	}, res)
-
 	if err != nil {
-		return nil, fmt.Errorf("failed to authenticate as Runner Admin: %v", err)
+		return nil, fmt.Errorf("failed to authenticate as Runner Admin: %w", err)
 	}
 	return res, nil
 }
@@ -192,39 +199,40 @@ func gitHubAuth(config *ConfigureRemoveRunner, c *http.Client, runnerEvent strin
 func (config *ConfigureRunner) Authenticate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
 	return gitHubAuth(&config.ConfigureRemoveRunner, c, "register", "registration-token", survey)
 }
+
 func (config *RemoveRunner) Authenticate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
 	return gitHubAuth(&config.ConfigureRemoveRunner, c, "remove", "remove-token", survey)
 }
 
-// Deprecated: Use the Authenticate method.
+// Authenicate is deprecated: Use the Authenticate method.
 func (config *ConfigureRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
 	return config.Authenticate(c, survey)
 }
 
-// Deprecated: Use the Authenticate method.
+// Authenicate is deprecated: Use the Authenticate method.
 func (config *RemoveRunner) Authenicate(c *http.Client, survey Survey) (*protocol.GitHubAuthResult, error) {
 	return config.Authenticate(c, survey)
 }
 
-func (confremove *ConfigureRemoveRunner) ReadFromEnvironment() {
-	if len(confremove.Pat) == 0 {
+func (c *ConfigureRemoveRunner) ReadFromEnvironment() {
+	if c.Pat == "" {
 		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_PAT"); ok {
-			confremove.Pat = v
+			c.Pat = v
 		}
 	}
-	if len(confremove.Token) == 0 {
+	if c.Token == "" {
 		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_TOKEN"); ok {
-			confremove.Token = v
+			c.Token = v
 		}
 	}
-	if !confremove.Unattended {
+	if !c.Unattended {
 		if v, ok := common.LookupEnvBool("ACTIONS_RUNNER_INPUT_UNATTENDED"); ok {
-			confremove.Unattended = v
+			c.Unattended = v
 		}
 	}
-	if len(confremove.URL) == 0 {
+	if c.URL == "" {
 		if v, ok := os.LookupEnv("ACTIONS_RUNNER_INPUT_URL"); ok {
-			confremove.URL = v
+			c.URL = v
 		}
 	}
 }

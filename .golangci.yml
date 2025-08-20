@@ -1,0 +1,131 @@
+version: "2"
+run:
+  go: "1.24"
+linters:
+  enable:
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - copyloopvar
+    - dogsled
+    - dupl
+    - durationcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - gocheckcompilerdirectives
+    - goconst
+    - gocritic
+    - goprintffuncname
+    - gosec
+    - importas
+    - lll
+    - makezero
+    - misspell
+    - mnd
+    - nakedret
+    - nilerr
+    - noctx
+    - nolintlint
+    - prealloc
+    - revive
+    - rowserrcheck
+    - staticcheck
+    - tparallel
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - whitespace
+  settings:
+    dupl:
+      threshold: 100
+    goconst:
+      min-len: 2
+      min-occurrences: 2
+    gocritic:
+      disabled-checks:
+        - dupImport
+        - ifElseChain
+        - octalLiteral
+        - whyNoLint
+        - wrapperFunc
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+    gocyclo:
+      min-complexity: 15
+    govet:
+      enable:
+        - shadow
+    lll:
+      line-length: 140
+    misspell:
+      locale: US
+    revive:
+      confidence: 0.8
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - gocritic
+          - gosec
+          - mnd
+        path: _test\.go
+      - linters:
+          - mnd
+        path: main\.go
+      - linters:
+          - revive
+        path: protocol/
+      - linters:
+          - gosec
+        text: weak cryptographic primitive
+      - linters:
+          - gosec
+        text: Use of weak random number generator
+      - linters:
+          - staticcheck
+        text: at least one file in a package should have a package comment
+      - linters:
+          - staticcheck
+        text: should have a package comment
+      - linters:
+          - revive
+        text: 'package-comments: should have a package comment'
+      - linters:
+          - revive
+        text: exported function .* should have comment or be unexported
+      - linters:
+          - revive
+        text: exported method .* should have comment or be unexported
+      - linters:
+          - revive
+        text: exported type .* should have comment or be unexported
+      - linters:
+          - revive
+        text: exported var .* should have comment or be unexported
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/ChristopherHX/github-act-runner
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
