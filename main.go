@@ -15,9 +15,9 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/actions-oss/act-cli/pkg/container"
 	"github.com/joho/godotenv"
 	"github.com/kardianos/service"
-	"github.com/nektos/act/pkg/container"
 
 	"github.com/ChristopherHX/github-act-runner/actionsdotnetactcompat"
 	"github.com/ChristopherHX/github-act-runner/actionsrunner"

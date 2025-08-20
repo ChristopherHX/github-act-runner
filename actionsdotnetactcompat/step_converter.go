@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/actions-oss/act-cli/pkg/model"
 	"github.com/google/uuid"
-	"github.com/nektos/act/pkg/model"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
