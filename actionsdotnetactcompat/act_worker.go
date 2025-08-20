@@ -421,8 +421,8 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 			runnerConfig.ActionCache = launchCache
 			defer func() {
 				for _, v := range launchCache.delete {
-					if err := os.Remove(v); err != nil {
-						actLogger.Warnf("Unable to remove %v: %v", v, err)
+					if removeErr := os.Remove(v); removeErr != nil {
+						actLogger.Warnf("Unable to remove %v: %v", v, removeErr)
 					}
 				}
 			}()
@@ -434,8 +434,8 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		runnerConfig.ActionCache = vssCache
 		defer func() {
 			for _, v := range vssCache.delete {
-				if err := os.Remove(v); err != nil {
-					actLogger.Warnf("Unable to remove %v: %v", v, err)
+				if removeErr := os.Remove(v); removeErr != nil {
+					actLogger.Warnf("Unable to remove %v: %v", v, removeErr)
 				}
 			}
 		}()

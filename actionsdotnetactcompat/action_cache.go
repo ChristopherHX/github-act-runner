@@ -96,7 +96,7 @@ func fetchAction(ctx context.Context, target string, owner string, name string, 
 		}
 	}()
 	if fr, err := os.Open(cachedTar); err == nil {
-		defer fr.Close()
+		defer func() { _ = fr.Close() }()
 		if logger != nil {
 			logger.Infof("Found cache for action %v/%v (sha:%v) from %v", owner, name, resolvedSha, cachedTar)
 		}
@@ -118,7 +118,7 @@ func fetchAction(ctx context.Context, target string, owner string, name string, 
 		if err != nil {
 			return "", err
 		}
-		defer rsp.Body.Close()
+		defer func() { _ = rsp.Body.Close() }()
 		if rsp.StatusCode != http.StatusOK {
 			buf := &bytes.Buffer{}
 			_, _ = io.Copy(buf, rsp.Body)
@@ -128,7 +128,7 @@ func fetchAction(ctx context.Context, target string, owner string, name string, 
 		if err != nil {
 			return "", err
 		}
-		defer fo.Close()
+		defer func() { _ = fo.Close() }()
 		len, err := io.Copy(fo, rsp.Body)
 		if err != nil {
 			return "", err
