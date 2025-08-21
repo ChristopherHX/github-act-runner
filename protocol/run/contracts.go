@@ -14,6 +14,11 @@ type AcquireJobRequest struct {
 	BillingOwnerID string `json:"billingOwnerId,omitempty"`
 }
 
+type Telemetry struct {
+	Message string `json:"message,omitempty"`
+	Type    string `json:"type,omitempty"`
+}
+
 type CompleteJobRequest struct {
 	PlanID         string                            `json:"planId,omitempty"`
 	JobID          string                            `json:"jobId,omitempty"`
@@ -21,6 +26,8 @@ type CompleteJobRequest struct {
 	Outputs        map[string]protocol.VariableValue `json:"outputs,omitempty"`
 	StepResults    []StepResult                      `json:"stepResults,omitempty"`
 	Annotations    []Annotation                      `json:"annotations,omitempty"`
+	Telemetry      []Telemetry                       `json:"telemetry,omitempty"`
+	EnvironmentURL string                            `json:"environmentUrl,omitempty"`
 	BillingOwnerID string                            `json:"billingOwnerId,omitempty"`
 }
 
@@ -36,6 +43,7 @@ type StepResult struct {
 	ExternalID        string       `json:"external_id,omitempty"`
 	Number            int          `json:"number,omitempty"`
 	Name              string       `json:"name,omitempty"`
+	ActionName        string       `json:"action_name,omitempty"`
 	Status            string       `json:"status,omitempty"`
 	Conclusion        *string      `json:"conclusion,omitempty"`
 	StartedAt         string       `json:"started_at,omitempty"`
@@ -77,6 +85,7 @@ func IssueToAnnotation(issue protocol.Issue) Annotation {
 	columnNumber := IssueGetAnnotationNumber(issue, "col", 0)
 	endColumnNumber := IssueGetAnnotationNumber(issue, "endColumn", columnNumber)
 	logLineNumber := IssueGetAnnotationNumber(issue, "logLineNumber", 0)
+	stepNumber := IssueGetAnnotationNumber(issue, "stepNumber", 0)
 	if path == "" && lineNumber == 0 && logLineNumber != 0 {
 		lineNumber = logLineNumber
 		endLineNumber = logLineNumber
@@ -89,6 +98,7 @@ func IssueToAnnotation(issue protocol.Issue) Annotation {
 		EndLine:     endLineNumber,
 		StartColumn: columnNumber,
 		EndColumn:   endColumnNumber,
+		StepNumber:  stepNumber,
 	}
 }
 
