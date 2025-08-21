@@ -9,8 +9,9 @@ import (
 )
 
 type AcquireJobRequest struct {
-	StreamID     string `json:"streamId,omitempty"` // Deprecated: https://github.com/actions/runner/pull/2547
-	JobMessageID string `json:"jobMessageId"`
+	StreamID       string `json:"streamId,omitempty"` // Deprecated: https://github.com/actions/runner/pull/2547
+	JobMessageID   string `json:"jobMessageId"`
+	BillingOwnerID string `json:"billingOwnerId,omitempty"`
 }
 
 type Telemetry struct {
@@ -27,6 +28,7 @@ type CompleteJobRequest struct {
 	Annotations    []Annotation                      `json:"annotations,omitempty"`
 	Telemetry      []Telemetry                       `json:"telemetry,omitempty"`
 	EnvironmentURL string                            `json:"environmentUrl,omitempty"`
+	BillingOwnerID string                            `json:"billingOwnerId,omitempty"`
 }
 
 type RenewJobRequest struct {
