@@ -528,27 +528,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 		con := *vssConnection
 		go func() {
 			for {
-				var renewErr error
-				if runServiceURL != "" {
-					jobVssConnection, _, _ := jobreq.GetConnection("SystemVssConnection")
-					jobVssConnection.Trace = con.Trace
-					renewjobURL, _ := url.Parse(runServiceURL)
-					renewjobURL.Path = path.Join(renewjobURL.Path, "renewjob")
-					jobVssConnection.TenantURL = runServiceURL
-					payload := &runservice.RenewJobRequest{
-						PlanID: jobreq.Plan.PlanID,
-						JobID:  jobreq.JobID,
-					}
-					resp := &runservice.RenewJobResponse{}
-					renewErr = jobVssConnection.RequestWithContext2(jobctx, "POST", renewjobURL.String(), "", payload, &resp)
-				} else {
-					renewErr = con.RequestWithContext(jobctx, "fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
-						"poolId":    fmt.Sprint(instance.PoolID),
-						"requestId": fmt.Sprint(jobreq.RequestID),
-					}, map[string]string{
-						"lockToken": "00000000-0000-0000-0000-000000000000",
-					}, &protocol.RenewAgent{RequestID: jobreq.RequestID}, nil)
-				}
+				renewErr := renewJob(jobctx, runServiceURL, jobreq, con, instance)
 				if renewErr != nil {
 					if errors.Is(renewErr, context.Canceled) {
 						return
@@ -633,4 +613,32 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 			plogger.Printf("Finished Job '%v'\n", jobreq.JobDisplayName)
 		}
 	}()
+}
+
+func renewJob(jobctx context.Context, runServiceURL string, jobreq *protocol.AgentJobRequestMessage, con protocol.VssConnection, instance *runnerconfiguration.RunnerInstance) error {
+	if runServiceURL != "" {
+		jobVssConnection, _, conErr := jobreq.GetConnection("SystemVssConnection")
+		if conErr != nil {
+			return conErr
+		}
+		jobVssConnection.Trace = con.Trace
+		renewjobURL, urlErr := url.Parse(runServiceURL)
+		if urlErr != nil {
+			return urlErr
+		}
+		renewjobURL.Path = path.Join(renewjobURL.Path, "renewjob")
+		jobVssConnection.TenantURL = runServiceURL
+		payload := &runservice.RenewJobRequest{
+			PlanID: jobreq.Plan.PlanID,
+			JobID:  jobreq.JobID,
+		}
+		resp := &runservice.RenewJobResponse{}
+		return jobVssConnection.RequestWithContext2(jobctx, "POST", renewjobURL.String(), "", payload, &resp)
+	}
+	return con.RequestWithContext(jobctx, "fc825784-c92a-4299-9221-998a02d1b54f", "5.1-preview", "PATCH", map[string]string{
+		"poolId":    fmt.Sprint(instance.PoolID),
+		"requestId": fmt.Sprint(jobreq.RequestID),
+	}, map[string]string{
+		"lockToken": "00000000-0000-0000-0000-000000000000",
+	}, &protocol.RenewAgent{RequestID: jobreq.RequestID}, nil)
 }
