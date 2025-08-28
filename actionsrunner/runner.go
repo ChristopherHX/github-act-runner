@@ -179,7 +179,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx, corectx cont
 				jobrun := &JobRun{}
 				if runnerenv.ReadJSON("jobrun.json", jobrun) == nil &&
 					((jobrun.RegistrationURL == instance.RegistrationURL && jobrun.Name == instance.Agent.Name) ||
-						(len(settings.Instances) == 1)) {
+						(len(settings.Instances) == 1) && jobrun.Plan != nil && jobrun.RunServiceURL == "") {
 					result := "Failed"
 					finish := &protocol.JobEvent{
 						Name:      "JobCompleted",
