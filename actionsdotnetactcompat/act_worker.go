@@ -161,7 +161,11 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	if f.rqt.MaskHints != nil {
 		for _, v := range f.rqt.MaskHints {
 			if strings.EqualFold(v.Type, "regex") {
-				r, _ := regexp.Compile(v.Value)
+				r, err := regexp.Compile(v.Value)
+				if err != nil {
+					// TODO precompile regex and log errors
+					continue
+				}
 				msg = r.ReplaceAllString(msg, "***")
 			}
 		}
@@ -244,7 +248,11 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 	}
 	actLogger.SetFormatter(formatter)
 	actLogger.Println("Initialize translating the job request to actions-oss/act-cli (nektos/act)")
-	vssConnection, vssConnectionData, _ := rqt.GetConnection("SystemVssConnection")
+	vssConnection, vssConnectionData, conErr := rqt.GetConnection("SystemVssConnection")
+	if conErr != nil {
+		wc.FailInitJob("Failed to initialize Job", conErr.Error())
+		return
+	}
 	if jlogger.Connection != nil {
 		vssConnection.Client = jlogger.Connection.Client
 		vssConnection.Trace = jlogger.Connection.Trace
@@ -334,8 +342,10 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		return
 	}
 	var payload string
-	{
-		e, _ := json.Marshal(githubCtxMap["event"])
+	if e, eventErr := json.Marshal(githubCtxMap["event"]); eventErr != nil {
+		failInitJob(fmt.Sprintf("cannot convert github.event to json: %s", eventErr.Error()))
+		return
+	} else {
 		payload = string(e)
 	}
 	unixHostPrefix := "unix://"
