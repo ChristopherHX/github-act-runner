@@ -342,8 +342,8 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		return
 	}
 	var payload string
-	if e, err := json.Marshal(githubCtxMap["event"]); err != nil {
-		failInitJob(fmt.Sprintf("cannot convert github.event to json: %w", err))
+	if e, eventErr := json.Marshal(githubCtxMap["event"]); eventErr != nil {
+		failInitJob(fmt.Sprintf("cannot convert github.event to json: %w", eventErr))
 		return
 	} else {
 		payload = string(e)
