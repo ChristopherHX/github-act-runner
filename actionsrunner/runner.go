@@ -528,7 +528,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 		con := *vssConnection
 		go func() {
 			for {
-				renewErr := renewJob(jobctx, runServiceURL, jobreq, con, instance)
+				renewErr := renewJob(jobctx, runServiceURL, jobreq, &con, instance)
 				if renewErr != nil {
 					if errors.Is(renewErr, context.Canceled) {
 						return
@@ -615,7 +615,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 	}()
 }
 
-func renewJob(jobctx context.Context, runServiceURL string, jobreq *protocol.AgentJobRequestMessage, con protocol.VssConnection, instance *runnerconfiguration.RunnerInstance) error {
+func renewJob(jobctx context.Context, runServiceURL string, jobreq *protocol.AgentJobRequestMessage, con *protocol.VssConnection, instance *runnerconfiguration.RunnerInstance) error {
 	if runServiceURL != "" {
 		jobVssConnection, _, conErr := jobreq.GetConnection("SystemVssConnection")
 		if conErr != nil {
