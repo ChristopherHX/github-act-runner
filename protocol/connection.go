@@ -242,6 +242,7 @@ func (vssConnection *VssConnection) requestWithContextNoAuth(
 			header.Set(acceptHeader, "application/json")
 		}
 	}
+	header["User-Agent"] = []string{"github-act-runner/v0.11.0"}
 	if apiversion != "" {
 		// vssservice does only accept contenttype in a single line
 		if len(header[contentTypeHeader]) > 0 {
