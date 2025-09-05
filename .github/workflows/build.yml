@@ -15,7 +15,7 @@ on:
         type: boolean
   
 env:
-  RUNNER_DEV_VERSION: "0.9.x"
+  RUNNER_DEV_VERSION: "0.11.x"
   RUNNER_SERVER_VERSION: "3.11.16"
 jobs:
   build:
@@ -28,7 +28,7 @@ jobs:
       # 
       fail-fast: false
       matrix:
-        include:
+        include: &buildVariants
         # go tool dist list -json to get the source
         - {GOOS: android,   GOARCH: 386,      TARGET: i686-linux-android       }
         - {GOOS: android,   GOARCH: amd64,    TARGET: x86_64-linux-android     }
@@ -75,10 +75,12 @@ jobs:
     env:
       CGO_ENABLED: 0 # Only android should build with cgo
     steps:
-    - uses: actions/checkout@v4
+    - &checkout
+      uses: actions/checkout@v4
       with:
         submodules: recursive
-    - name: Setup Go
+    - &setupgo
+      name: Setup Go
       uses: actions/setup-go@v5
       with:
         go-version: "${{ matrix.GOVERSION || vars.GOVERSION || '^1.16.0' }}"
@@ -148,6 +150,38 @@ jobs:
         name: bundle-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}
         path: |
           binary-${{matrix.GOOS}}-${{matrix.GOARCH}}${{matrix.GOARM}}.*
+  create-vendor-archive:
+    name: Create Archive with all dependencies
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+        - buildVariants: *buildVariants
+    steps:
+    - *checkout
+    - *setupgo
+    - name: Run go mod vendor for each target
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const targets = ${{ tojson(matrix.buildVariants) }};
+          for (const env of targets) {
+            const envVars = {
+              ...process.env,
+              ...env
+            };
+            await exec.exec(`go`, ['env'], { env: envVars });
+            await exec.exec(`go`, ['mod', 'vendor'], { env: envVars });
+          }
+    - name: Package
+      run: |
+        zip -r github-act-runner-full-src.zip . -x ".git/*" github-act-runner-full-src.zip github-act-runner-full-src.tar.gz
+        tar --exclude=.git --exclude=github-act-runner-full-src.zip --exclude=github-act-runner-full-src.tar.gz -czf github-act-runner-full-src.tar.gz .
+    - uses: actions/upload-artifact@v4
+      with:
+        name: vendor
+        path: |
+          github-act-runner-full-src.*
 
 #######################################
 ########## publish to github ##########
@@ -155,7 +189,9 @@ jobs:
   publish-to-github:
     name: deploy to github
     runs-on: ubuntu-latest
-    needs: build
+    needs:
+    - build
+    - create-vendor-archive
     if: ${{ github.event.inputs.skip-packaging != 'true' && github.event.inputs.version }}
     continue-on-error: true
     steps:
