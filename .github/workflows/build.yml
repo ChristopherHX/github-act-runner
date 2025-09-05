@@ -168,6 +168,7 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: v${{ github.event.inputs.version }}
         commit: ${{ github.sha }}
+        immutableCreate: true # Do not publish before uploading everything
         body: |
           # Changes
           ${{ fromJSON(github.event.inputs.changelog) || 'No changelog provided' }}
