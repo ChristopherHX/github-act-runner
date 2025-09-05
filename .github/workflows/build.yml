@@ -177,6 +177,23 @@ jobs:
       run: |
         zip -r github-act-runner-full-src.zip . -x ".git/*" github-act-runner-full-src.zip github-act-runner-full-src.tar.gz
         tar --exclude=.git --exclude=github-act-runner-full-src.zip --exclude=github-act-runner-full-src.tar.gz -czf github-act-runner-full-src.tar.gz .
+    - name: Create Signed Provenance
+      uses: actions/attest-build-provenance@v1
+      id: attest
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.skip-packaging != 'true' }}
+      with:
+        subject-path: "github-act-runner-full-src.*"
+    - name: Copy Signed Provenance to well known filepath
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.skip-packaging != 'true' }}
+      run: |
+        cp "$BUNDLE_PATH" github-act-runner-full-src.sigstore.json
+      env:
+        BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}    
+    - name: Create Package Checksums
+      if: ${{ github.event.inputs.skip-packaging != 'true' }}
+      run: |
+        sha512sum github-act-runner-full-src.zip > github-act-runner-full-src.zip.sha512
+        sha512sum github-act-runner-full-src.tar.gz > github-act-runner-full-src.tar.gz.sha512
     - uses: actions/upload-artifact@v4
       with:
         name: vendor
