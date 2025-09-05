@@ -176,7 +176,7 @@ jobs:
     - name: Package
       run: |
         zip -r github-act-runner-full-src.zip . -x ".git/*" github-act-runner-full-src.zip github-act-runner-full-src.tar.gz
-        tar --exclude=.git --exclude=github-act-runner-full-src.zip --exclude=github-act-runner-full-src.tar.gz -czf github-act-runner-full-src.tar.gz .
+        tar --exclude=.git --exclude=github-act-runner-full-src.zip --exclude=github-act-runner-full-src.tar.gz -czvf github-act-runner-full-src.tar.gz .
     - name: Create Signed Provenance
       uses: actions/attest-build-provenance@v1
       id: attest
