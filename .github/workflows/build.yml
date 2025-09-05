@@ -75,10 +75,7 @@ jobs:
     env:
       CGO_ENABLED: 0 # Only android should build with cgo
     steps:
-    - &checkout
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
+    - uses: &checkout actions/checkout@v4
     - &setupgo
       name: Setup Go
       uses: actions/setup-go@v5
@@ -158,7 +155,9 @@ jobs:
         include:
         - buildVariants: *buildVariants
     steps:
-    - *checkout
+    - uses: *checkout
+      with:
+        path: github-act-runner-full-src
     - *setupgo
     - name: Run go mod vendor for each target
       uses: actions/github-script@v7
@@ -170,13 +169,14 @@ jobs:
               ...process.env,
               ...env
             };
-            await exec.exec(`go`, ['env'], { env: envVars });
-            await exec.exec(`go`, ['mod', 'vendor'], { env: envVars });
+            await exec.exec(`go`, ['env'], { env: envVars, cwd: './github-act-runner-full-src' });
+            await exec.exec(`go`, ['mod', 'vendor'], { env: envVars, cwd: './github-act-runner-full-src' });
           }
     - name: Package
       run: |
-        zip -r github-act-runner-full-src.zip . -x ".git/*" github-act-runner-full-src.zip github-act-runner-full-src.tar.gz
-        tar --warning=no-file-changed --exclude=.git --exclude=github-act-runner-full-src.zip --exclude=github-act-runner-full-src.tar.gz -czvf github-act-runner-full-src.tar.gz .
+        zip -r ../github-act-runner-full-src.zip . -x ".git/*"
+        tar --exclude=.git -czvf ../github-act-runner-full-src.tar.gz .
+      working-directory: github-act-runner-full-src
     - name: Create Signed Provenance
       uses: actions/attest-build-provenance@v1
       id: attest
