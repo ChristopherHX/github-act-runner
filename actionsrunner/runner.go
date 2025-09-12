@@ -471,6 +471,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 		}
 		jobreq := &protocol.AgentJobRequestMessage{}
 		var runServiceURL string
+		ok := false
 		if strings.EqualFold(message.MessageType, "RunnerJobRequest") {
 			plogger.Printf("Warning: TaskAgentMessage.MessageType is %v, which has not been properly tested "+
 				"due to missing access to test servers of the new protocol before rollout. "+
@@ -478,7 +479,7 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 				message.MessageType)
 			rjrr := &RunnerJobRequestRef{}
 			if unmarshalErr := json.Unmarshal(src, rjrr); unmarshalErr != nil {
-				fmt.Printf("fail to unmashal job request: %v", unmarshalErr)
+				fmt.Printf("fail to unmarshal job request: %v", unmarshalErr)
 			}
 			for retries := 0; retries < 5; retries++ {
 				var requestErr error
@@ -502,16 +503,25 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 				}
 				if requestErr == nil {
 					if unmarshalErr := json.Unmarshal(src, jobreq); unmarshalErr != nil {
-						fmt.Printf("fail to unmarshall job request: %v", unmarshalErr)
+						fmt.Printf("fail to unmarshal job request: %v", unmarshalErr)
+					} else {
+						ok = true
 					}
 					break
+				} else if strings.Contains(requestErr.Error(), "job assignment is invalid") {
+					return
 				}
 				<-time.After(time.Second * 5 * time.Duration(retries+1))
 			}
 		} else {
 			if unmarshalErr := json.Unmarshal(src, jobreq); unmarshalErr != nil {
-				fmt.Printf("fail to unmarshall job request: %v", unmarshalErr)
+				fmt.Printf("fail to unmarshal job request: %v", unmarshalErr)
+			} else {
+				ok = true
 			}
+		}
+		if !ok {
+			return
 		}
 		jobrun := &JobRun{
 			RequestID:       jobreq.RequestID,

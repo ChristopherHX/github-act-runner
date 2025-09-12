@@ -226,8 +226,29 @@ func (session *AgentMessageConnection) GetNextMessage(ctx context.Context) (*Tas
 
 func (session *AgentMessageConnection) DeleteMessage(ctx context.Context, message *TaskAgentMessage) error {
 	if session.ServerV2URL != "" {
-		// V2 no support for deleting messages
-		return nil
+		if !strings.EqualFold(message.MessageType, "RunnerJobRequest") {
+			return nil
+		}
+		type RunnerJobRequestRef struct {
+			ID              string `json:"id"`
+			RunnerRequestID string `json:"runner_request_id"`
+			RunServiceURL   string `json:"run_service_url"`
+			BillingOwnerID  string `json:"billing_owner_id,omitempty"`
+		}
+		ref := &RunnerJobRequestRef{}
+		err := json.Unmarshal([]byte(message.Body), ref)
+		if err != nil {
+			return err
+		}
+		query := url.Values{}
+		query.Set("sessionId", session.TaskAgentSession.SessionID)
+		query.Set("runnerVersion", "3.0.0")
+		query.Set("status", session.Status)
+		query.Set("disableUpdate", fmt.Sprint(session.TaskAgentSession.Agent.DisableUpdate))
+
+		return session.VssConnection.RequestWithContext2(ctx, "POST", session.ServerV2URL+"/acknowledge?"+query.Encode(), "", &map[string]string{
+			"runnerRequestId": ref.RunnerRequestID,
+		}, nil)
 	}
 	return session.VssConnection.RequestWithContext(ctx, "c3a054f6-7a8a-49c0-944e-3a8e5d7adfd7", "5.1-preview", "DELETE", map[string]string{
 		"poolId":    fmt.Sprint(session.VssConnection.PoolID),
