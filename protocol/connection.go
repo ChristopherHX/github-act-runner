@@ -357,16 +357,32 @@ func (vssConnection *VssConnection) CreateSessionExt(ctx context.Context, server
 
 	con := &AgentMessageConnection{VssConnection: vssConnection, TaskAgentSession: session}
 	con.Status = statusOnline
+	con.ServerV2URL = serverV2URL
 	return con, nil
 }
 
 func (vssConnection *VssConnection) CreateSession(ctx context.Context) (*AgentMessageConnection, error) {
-	return vssConnection.CreateSessionExt(ctx, vssConnection.TaskAgent.ServerV2URL)
+	useV2Flow, hasUseV2Flow := vssConnection.TaskAgent.Properties.LookupBool("UseV2Flow")
+	serverV2URL, hasServerV2URL := vssConnection.TaskAgent.Properties.LookupString("ServerUrlV2")
+	if !useV2Flow || !hasUseV2Flow || !hasServerV2URL {
+		serverV2URL = ""
+	} else {
+		serverV2URL = strings.TrimSuffix(serverV2URL, "/")
+	}
+	return vssConnection.CreateSessionExt(ctx, serverV2URL)
 }
 
 func (vssConnection *VssConnection) LoadSession(ctx context.Context, session *TaskAgentSession) (*AgentMessageConnection, error) {
 	con := &AgentMessageConnection{VssConnection: vssConnection, TaskAgentSession: session}
 	con.Status = statusOnline
+	useV2Flow, hasUseV2Flow := vssConnection.TaskAgent.Properties.LookupBool("UseV2Flow")
+	serverV2URL, hasServerV2URL := vssConnection.TaskAgent.Properties.LookupString("ServerUrlV2")
+	if !useV2Flow || !hasUseV2Flow || !hasServerV2URL {
+		serverV2URL = ""
+	} else {
+		serverV2URL = strings.TrimSuffix(serverV2URL, "/")
+	}
+	con.ServerV2URL = serverV2URL
 	return con, nil
 }
 

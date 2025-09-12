@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt"
@@ -39,6 +40,57 @@ type AgentLabel struct {
 	Type string
 }
 
+type PropertyValue struct {
+	Type  string      `json:"$type"`
+	Value interface{} `json:"$value"`
+}
+
+func (v *PropertyValue) UnmarshalJSON(data []byte) error {
+	var b bool
+	if json.Unmarshal(data, &b) == nil {
+		v.Type = "System.Boolean"
+		v.Value = b
+		return nil
+	}
+	var raw string
+	if json.Unmarshal(data, &raw) == nil {
+		v.Type = "System.String"
+		v.Value = raw
+		return nil
+	}
+	type PropertyValueRaw PropertyValue
+	// Best Effort, drop errors
+	_ = json.Unmarshal(data, (*PropertyValueRaw)(v))
+	return nil
+}
+
+type PropertiesCollection map[string]PropertyValue
+
+func (c *PropertiesCollection) Lookup(name, ty string) (interface{}, bool) {
+	for k, v := range *c {
+		if strings.EqualFold(k, name) && strings.EqualFold(v.Type, ty) {
+			return v.Value, true
+		}
+	}
+	return nil, false
+}
+
+func (c *PropertiesCollection) LookupBool(name string) (value, ok bool) {
+	if v, ok := c.Lookup(name, "System.Boolean"); ok && v != nil {
+		b, isBool := v.(bool)
+		return b, isBool
+	}
+	return false, false
+}
+
+func (c *PropertiesCollection) LookupString(name string) (string, bool) {
+	if v, ok := c.Lookup(name, "System.String"); ok && v != nil {
+		b, isString := v.(string)
+		return b, isString
+	}
+	return "", false
+}
+
 type TaskAgent struct {
 	Authorization     TaskAgentAuthorization
 	Labels            []AgentLabel
@@ -53,8 +105,7 @@ type TaskAgent struct {
 	CreatedOn         string
 	Ephemeral         bool `json:",omitempty"`
 	DisableUpdate     bool `json:",omitempty"`
-	// Just a convenient way to store the URL, not part of the spec
-	ServerV2URL string `json:",omitempty"`
+	Properties        PropertiesCollection
 }
 
 type TaskAgents struct {
