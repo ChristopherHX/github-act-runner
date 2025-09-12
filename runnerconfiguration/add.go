@@ -81,7 +81,7 @@ func (config *ConfigureRunner) Configure(
 	}
 	if res.UseV2FLow {
 		vssConnection = &protocol.VssConnection{
-			AuthHeader: "RemoteAuth " + config.Token,
+			AuthHeader: "Bearer " + res.Token,
 			Trace:      config.Trace,
 			Client:     c,
 		}
@@ -309,7 +309,6 @@ func registerOrReplaceRunnerV2(taskAgent *protocol.TaskAgent, config *ConfigureR
 	taskAgent.Name = runnerResp.Name
 	taskAgent.Authorization.AuthorizationURL = runnerResp.Authorization.AuthorizationURL
 	taskAgent.Authorization.ClientID = runnerResp.Authorization.ClientId
-	taskAgent.ServerV2URL = runnerResp.Authorization.ServerURL
 	return nil
 }
 

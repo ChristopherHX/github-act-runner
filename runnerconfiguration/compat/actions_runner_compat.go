@@ -25,17 +25,18 @@ type DotnetRsaParameters struct {
 }
 
 type DotnetAgent struct {
-	AgentID       string `json:"AgentId"`
-	AgentName     string `json:"AgentName"`
-	DisableUpdate string `json:"DisableUpdate"`
-	Ephemeral     string `json:"Ephemeral"`
-	PoolID        string `json:"PoolId"`
-	PoolName      string `json:"PoolName,omitempty"`
-	ServerURL     string `json:"ServerUrl"`
-	WorkFolder    string `json:"WorkFolder"`
-	GitHubURL     string `json:"GitHubUrl"`
-	UseV2Flow     bool   `json:"UseV2Flow"`
-	ServerURLV2   string `json:"ServerUrlV2"`
+	AgentID            string `json:"AgentId"`
+	AgentName          string `json:"AgentName"`
+	DisableUpdate      string `json:"DisableUpdate"`
+	Ephemeral          string `json:"Ephemeral"`
+	PoolID             string `json:"PoolId"`
+	PoolName           string `json:"PoolName,omitempty"`
+	ServerURL          string `json:"ServerUrl"`
+	WorkFolder         string `json:"WorkFolder"`
+	GitHubURL          string `json:"GitHubUrl"`
+	UseV2Flow          bool   `json:"UseV2Flow"`
+	ServerURLV2        string `json:"ServerUrlV2"`
+	UseRunnerAdminFlow bool   `json:"UseRunnerAdminFlow,omitempty"`
 }
 
 type DotnetCredentials struct {
@@ -138,10 +139,32 @@ func ToRunnerInstance(fileAccess ConfigFileAccess) (*runnerconfiguration.RunnerI
 	}
 	ephemeral, _ := strconv.ParseBool(agent.Ephemeral)
 	disableUpdate, _ := strconv.ParseBool(agent.DisableUpdate)
+
+	props := protocol.PropertiesCollection{}
+	if agent.ServerURL != "" {
+		props["ServerUrl"] = protocol.PropertyValue{
+			Type:  "System.String",
+			Value: agent.ServerURL,
+		}
+	}
+	if agent.ServerURLV2 != "" {
+		props["ServerUrlV2"] = protocol.PropertyValue{
+			Type:  "System.String",
+			Value: agent.ServerURLV2,
+		}
+	}
+	if agent.UseV2Flow {
+		props["UseV2Flow"] = protocol.PropertyValue{
+			Type:  "System.Boolean",
+			Value: agent.UseV2Flow,
+		}
+	}
+
 	return &runnerconfiguration.RunnerInstance{
 		PoolID: poolID,
 		Auth: &protocol.GitHubAuthResult{
 			TenantURL: agent.ServerURL,
+			UseV2FLow: agent.UseRunnerAdminFlow,
 		},
 		PKey: FromRsaParameters(rsaParameters),
 		Agent: &protocol.TaskAgent{
@@ -155,7 +178,7 @@ func ToRunnerInstance(fileAccess ConfigFileAccess) (*runnerconfiguration.RunnerI
 			},
 			DisableUpdate: disableUpdate,
 			Version:       "3.0.0",
-			ServerV2URL:   agent.ServerURLV2,
+			Properties:    props,
 		},
 		WorkFolder:      agent.WorkFolder,
 		RegistrationURL: agent.GitHubURL,
@@ -163,17 +186,24 @@ func ToRunnerInstance(fileAccess ConfigFileAccess) (*runnerconfiguration.RunnerI
 }
 
 func FromRunnerInstance(instance *runnerconfiguration.RunnerInstance, fileAccess ConfigFileAccess) error {
+	useV2Flow, _ := instance.Agent.Properties.LookupBool("UseV2Flow")
+	serverURL, ok := instance.Agent.Properties.LookupString("ServerUrl")
+	if serverURL == "" || !ok {
+		serverURL = instance.Auth.TenantURL
+	}
+	serverV2URL, _ := instance.Agent.Properties.LookupString("ServerUrlV2")
 	agent := &DotnetAgent{
-		AgentID:       fmt.Sprint(instance.Agent.ID),
-		AgentName:     instance.Agent.Name,
-		Ephemeral:     fmt.Sprint(instance.Agent.Ephemeral),
-		DisableUpdate: fmt.Sprint(instance.Agent.DisableUpdate),
-		PoolID:        fmt.Sprint(instance.PoolID),
-		ServerURL:     instance.Auth.TenantURL,
-		WorkFolder:    instance.WorkFolder,
-		GitHubURL:     instance.RegistrationURL,
-		UseV2Flow:     instance.Auth.UseV2FLow,
-		ServerURLV2:   instance.Agent.ServerV2URL,
+		AgentID:            fmt.Sprint(instance.Agent.ID),
+		AgentName:          instance.Agent.Name,
+		Ephemeral:          fmt.Sprint(instance.Agent.Ephemeral),
+		DisableUpdate:      fmt.Sprint(instance.Agent.DisableUpdate),
+		PoolID:             fmt.Sprint(instance.PoolID),
+		ServerURL:          serverURL,
+		WorkFolder:         instance.WorkFolder,
+		GitHubURL:          instance.RegistrationURL,
+		UseV2Flow:          useV2Flow,
+		ServerURLV2:        serverV2URL,
+		UseRunnerAdminFlow: instance.Auth.UseV2FLow,
 	}
 	if agent.WorkFolder == "" {
 		agent.WorkFolder = "_work"
