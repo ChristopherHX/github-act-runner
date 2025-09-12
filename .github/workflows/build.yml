@@ -13,13 +13,15 @@ on:
       skip-packaging:
         description: 'Skip packaging'
         type: boolean
-  
+
+run-name: ${{ github.event_name == 'workflow_dispatch' && (inputs.version && format('Publish version:{0} sha:{1}', inputs.version, github.sha) || format('CI sha:{0}', github.sha)) || '' }}
+
 env:
   RUNNER_DEV_VERSION: "0.11.x"
   RUNNER_SERVER_VERSION: "3.11.16"
 jobs:
   build:
-    permissions:
+    permissions: &permissions
       id-token: write
       attestations: write
       contents: read
@@ -150,6 +152,7 @@ jobs:
   create-vendor-archive:
     name: Create Archive with all dependencies
     runs-on: ubuntu-latest
+    permissions: *permissions
     strategy:
       matrix:
         include:
