@@ -45,8 +45,9 @@ type DotnetCredentials struct {
 }
 
 type DotnetCredentialsData struct {
-	ClientID         string `json:"ClientId"`
-	AuthorizationURL string `json:"AuthorizationUrl"`
+	ClientID                string `json:"ClientId"`
+	AuthorizationURL        string `json:"AuthorizationUrl"`
+	RequireFipsCryptography bool   `json:"RequireFipsCryptography"`
 }
 
 func BytesToBigInt(bytes []byte) *big.Int {
@@ -159,6 +160,12 @@ func ToRunnerInstance(fileAccess ConfigFileAccess) (*runnerconfiguration.RunnerI
 			Value: agent.UseV2Flow,
 		}
 	}
+	if credentials.Data.RequireFipsCryptography {
+		props["RequireFipsCryptography"] = protocol.PropertyValue{
+			Type:  "System.Boolean",
+			Value: credentials.Data.RequireFipsCryptography,
+		}
+	}
 
 	return &runnerconfiguration.RunnerInstance{
 		PoolID: poolID,
@@ -208,11 +215,15 @@ func FromRunnerInstance(instance *runnerconfiguration.RunnerInstance, fileAccess
 	if agent.WorkFolder == "" {
 		agent.WorkFolder = "_work"
 	}
+	requireFipsCryptography, hasRequireFipsCryptography := instance.Agent.Properties.LookupBool("RequireFipsCryptography")
 	credentials := &DotnetCredentials{
 		Scheme: "OAuth",
 		Data: DotnetCredentialsData{
 			ClientID:         instance.Agent.Authorization.ClientID,
 			AuthorizationURL: instance.Agent.Authorization.AuthorizationURL,
+			// serverV2URL != "" means recent GitHub Server that requires recent actions/runner
+			// that has received this bugfix https://github.com/actions/runner/pull/3789
+			RequireFipsCryptography: requireFipsCryptography && hasRequireFipsCryptography || serverV2URL != "",
 		},
 	}
 	if err := fileAccess.Write(".runner", agent); err != nil {

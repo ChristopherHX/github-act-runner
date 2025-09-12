@@ -116,7 +116,13 @@ type TaskAgents struct {
 func (taskAgent *TaskAgent) Authorize(c *http.Client, key interface{}) (*VssOAuthTokenResponse, error) {
 	tokenresp := &VssOAuthTokenResponse{}
 	now := time.Now().UTC().Add(-30 * time.Second)
-	token2 := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.StandardClaims{
+	var method jwt.SigningMethod = jwt.SigningMethodRS256
+	requireFipsCryptography, hasRequireFipsCryptography := taskAgent.Properties.LookupBool("RequireFipsCryptography")
+	serverV2URL, _ := taskAgent.Properties.LookupString("ServerUrlV2")
+	if requireFipsCryptography && hasRequireFipsCryptography || serverV2URL != "" {
+		method = jwt.SigningMethodPS256
+	}
+	token2 := jwt.NewWithClaims(method, jwt.StandardClaims{
 		Subject:   taskAgent.Authorization.ClientID,
 		Issuer:    taskAgent.Authorization.ClientID,
 		Id:        uuid.New().String(),
