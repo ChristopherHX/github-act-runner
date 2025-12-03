@@ -189,7 +189,7 @@ func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *protocol.Timelin
 type BufferedLiveLogger struct {
 	LiveLogger
 	logchan     chan *protocol.TimelineRecordFeedLinesWrapper
-	logfinished chan struct{} 
+	logfinished chan struct{}
 }
 
 func (logger *BufferedLiveLogger) sendLogs(logchan chan *protocol.TimelineRecordFeedLinesWrapper, logfinished chan struct{}) {
