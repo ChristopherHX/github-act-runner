@@ -1,5 +1,4 @@
 //go:build linux || darwin || windows || openbsd || netbsd || freebsd
-// +build linux darwin windows openbsd netbsd freebsd
 
 package main
 
