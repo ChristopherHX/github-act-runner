@@ -27,13 +27,23 @@ func TestUnmarshalConfig(t *testing.T) {
 			expected: DotnetAgent{UseV2Flow: DotnetBoolean(false)},
 		},
 		{
-			name:     "Boolean true with quotes",
+			name:     "Boolean True with quotes",
 			jsonData: `{"UseV2Flow": "True"}`,
 			expected: DotnetAgent{UseV2Flow: DotnetBoolean(true)},
 		},
 		{
-			name:     "Boolean false with quotes",
+			name:     "Boolean False with quotes",
 			jsonData: `{"UseV2Flow": "False"}`,
+			expected: DotnetAgent{UseV2Flow: DotnetBoolean(false)},
+		},
+		{
+			name:     "Boolean true with quotes",
+			jsonData: `{"UseV2Flow": "true"}`,
+			expected: DotnetAgent{UseV2Flow: DotnetBoolean(true)},
+		},
+		{
+			name:     "Boolean false with quotes",
+			jsonData: `{"UseV2Flow": "false"}`,
 			expected: DotnetAgent{UseV2Flow: DotnetBoolean(false)},
 		},
 	}

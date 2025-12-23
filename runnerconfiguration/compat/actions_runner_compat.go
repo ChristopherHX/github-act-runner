@@ -235,7 +235,7 @@ func FromRunnerInstance(instance *runnerconfiguration.RunnerInstance, fileAccess
 			AuthorizationURL: instance.Agent.Authorization.AuthorizationURL,
 			// serverV2URL != "" means recent GitHub Server that requires recent actions/runner
 			// that has received this bugfix https://github.com/actions/runner/pull/3789
-			RequireFipsCryptography: requireFipsCryptography && hasRequireFipsCryptography || serverV2URL != "",
+			RequireFipsCryptography: DotnetBoolean(requireFipsCryptography && hasRequireFipsCryptography || serverV2URL != ""),
 		},
 	}
 	if err := fileAccess.Write(".runner", agent); err != nil {
