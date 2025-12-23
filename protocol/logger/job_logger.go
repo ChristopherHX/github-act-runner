@@ -79,17 +79,25 @@ func (logger *WebsocketLivelogger) Connect() error {
 	ctx, cancel := context.WithTimeout(context.Background(), websocketDialTimeout)
 	defer cancel()
 	//nolint:bodyclose // websocket.Dial doesn't return an HTTP response body to close
-	logger.ws, _, err = websocket.Dial(ctx, feedStreamURL.String(), &websocket.DialOptions{
+	ws, _, err := websocket.Dial(ctx, feedStreamURL.String(), &websocket.DialOptions{
 		HTTPClient: logger.Connection.HTTPClient(),
 		HTTPHeader: http.Header{
 			"Authorization": []string{"Bearer " + logger.Connection.Token},
 			"User-Agent":    []string{"github-act-runner/1.0.0"},
 		},
 	})
+	// While reconnecting never assign this to null
+	if ws != nil {
+		logger.ws = ws
+	}
 	return err
 }
 
 func (logger *WebsocketLivelogger) SendLog(lines *protocol.TimelineRecordFeedLinesWrapper) error {
+	// Do not try to send if something is wrong
+	if logger.ws == nil {
+		return fmt.Errorf("missing websocket connection")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), websocketMessageTimeout)
 	defer cancel()
 	return wsjson.Write(ctx, logger.ws, lines)
