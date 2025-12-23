@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"strconv"
+	"strings"
 
 	"github.com/ChristopherHX/github-act-runner/common"
 	"github.com/ChristopherHX/github-act-runner/protocol"
@@ -24,19 +25,30 @@ type DotnetRsaParameters struct {
 	Q        []byte `json:"q"`
 }
 
+type DotnetBoolean bool
+
+func (b *DotnetBoolean) UnmarshalJSON(data []byte) error {
+	var v bool
+	if err := json.Unmarshal([]byte(strings.Trim(strings.ToLower(string(data)), "\"")), &v); err != nil {
+		return err
+	}
+	*b = DotnetBoolean(v)
+	return nil
+}
+
 type DotnetAgent struct {
-	AgentID            string `json:"AgentId"`
-	AgentName          string `json:"AgentName"`
-	DisableUpdate      string `json:"DisableUpdate"`
-	Ephemeral          string `json:"Ephemeral"`
-	PoolID             string `json:"PoolId"`
-	PoolName           string `json:"PoolName,omitempty"`
-	ServerURL          string `json:"ServerUrl"`
-	WorkFolder         string `json:"WorkFolder"`
-	GitHubURL          string `json:"GitHubUrl"`
-	UseV2Flow          bool   `json:"UseV2Flow"`
-	ServerURLV2        string `json:"ServerUrlV2"`
-	UseRunnerAdminFlow bool   `json:"UseRunnerAdminFlow,omitempty"`
+	AgentID            string        `json:"AgentId"`
+	AgentName          string        `json:"AgentName"`
+	DisableUpdate      string        `json:"DisableUpdate"`
+	Ephemeral          string        `json:"Ephemeral"`
+	PoolID             string        `json:"PoolId"`
+	PoolName           string        `json:"PoolName,omitempty"`
+	ServerURL          string        `json:"ServerUrl"`
+	WorkFolder         string        `json:"WorkFolder"`
+	GitHubURL          string        `json:"GitHubUrl"`
+	UseV2Flow          DotnetBoolean `json:"UseV2Flow"`
+	ServerURLV2        string        `json:"ServerUrlV2"`
+	UseRunnerAdminFlow DotnetBoolean `json:"UseRunnerAdminFlow,omitempty"`
 }
 
 type DotnetCredentials struct {
@@ -45,9 +57,9 @@ type DotnetCredentials struct {
 }
 
 type DotnetCredentialsData struct {
-	ClientID                string `json:"ClientId"`
-	AuthorizationURL        string `json:"AuthorizationUrl"`
-	RequireFipsCryptography bool   `json:"RequireFipsCryptography"`
+	ClientID                string        `json:"ClientId"`
+	AuthorizationURL        string        `json:"AuthorizationUrl"`
+	RequireFipsCryptography DotnetBoolean `json:"RequireFipsCryptography"`
 }
 
 func BytesToBigInt(bytes []byte) *big.Int {
@@ -171,7 +183,7 @@ func ToRunnerInstance(fileAccess ConfigFileAccess) (*runnerconfiguration.RunnerI
 		PoolID: poolID,
 		Auth: &protocol.GitHubAuthResult{
 			TenantURL: agent.ServerURL,
-			UseV2FLow: agent.UseRunnerAdminFlow,
+			UseV2FLow: bool(agent.UseRunnerAdminFlow),
 		},
 		PKey: FromRsaParameters(rsaParameters),
 		Agent: &protocol.TaskAgent{
@@ -208,9 +220,9 @@ func FromRunnerInstance(instance *runnerconfiguration.RunnerInstance, fileAccess
 		ServerURL:          serverURL,
 		WorkFolder:         instance.WorkFolder,
 		GitHubURL:          instance.RegistrationURL,
-		UseV2Flow:          useV2Flow,
+		UseV2Flow:          DotnetBoolean(useV2Flow),
 		ServerURLV2:        serverV2URL,
-		UseRunnerAdminFlow: instance.Auth.UseV2FLow,
+		UseRunnerAdminFlow: DotnetBoolean(instance.Auth.UseV2FLow),
 	}
 	if agent.WorkFolder == "" {
 		agent.WorkFolder = "_work"
