@@ -8,5 +8,8 @@ jobs:
     runs-on: [self-hosted]
     container: ubuntu:latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/github-script@v7
+      with:
+        script: |
+          console.log('Hello from NodeJS Actions in a container!');
     - run: echo Hello World
