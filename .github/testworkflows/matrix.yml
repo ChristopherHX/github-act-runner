@@ -11,4 +11,5 @@ jobs:
       with:
         script: |
           console.log('Hello from NodeJS Actions!');
+        github-token: none
     - run: echo Hello World

@@ -12,4 +12,5 @@ jobs:
       with:
         script: |
           console.log('Hello from NodeJS Actions in a container!');
+        github-token: none
     - run: echo Hello World
