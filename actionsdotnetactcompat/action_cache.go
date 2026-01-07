@@ -35,7 +35,7 @@ func (cache *ActionCacheBase) GetTarArchive(ctx context.Context, cacheDir, sha, 
 	pr, pw := io.Pipe()
 	cleanIncludePrefix := path.Clean(includePrefix)
 	go func() {
-		defer func() { _ = pr.Close() }()
+		defer func() { _ = pw.Close() }()
 		writer := tar.NewWriter(pw)
 		defer func() { _ = writer.Close() }()
 		reader, err := os.Open(cache.mapping[cacheDir+"@"+sha])
