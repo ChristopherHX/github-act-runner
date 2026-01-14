@@ -49,7 +49,7 @@ sudo apt install github-act-runner
 
 ### Add new runner
 ```console
-github-act-runner new --url <url> --name <runner-name> --labels <labels> --token <runner-registration-token>
+github-act-runner configure --url <url> --name <runner-name> --labels <labels> --token <runner-registration-token>
 ```
 where
 - `<url>` - github repository (e.g. `https://github.com/user/repo`), organization (e.g. `https://github.com/organization`) or enterprise URL
