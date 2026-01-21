@@ -305,7 +305,7 @@ func main() {
 	cmdConfigure.Flags().BoolVar(&config.NoDefaultLabels, "no-default-labels", false,
 		"do not automatically add the following system labels: self-hosted, "+runtime.GOOS+" and "+runtime.GOARCH)
 	cmdConfigure.Flags().StringSliceVar(&config.SystemLabels, "system-labels", []string{}, "custom system labels for your new runner")
-	cmdConfigure.Flags().StringVar(&config.Token, "runnergroup", "", "name of the runner group to use will ask if more than one is available")
+	cmdConfigure.Flags().StringVar(&config.RunnerGroup, "runnergroup", "", "name of the runner group to use will ask if more than one is available")
 	cmdConfigure.Flags().BoolVar(&config.Unattended, "unattended", false, "suppress shell prompts during configure")
 	cmdConfigure.Flags().BoolVar(&config.Trace, "trace", false, "trace http communication with the github action service")
 	cmdConfigure.Flags().BoolVar(&config.Ephemeral, "ephemeral", false,
