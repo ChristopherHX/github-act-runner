@@ -293,7 +293,6 @@ func (logger *BufferedLiveLogger) sendLogs(logchan chan *protocol.TimelineRecord
 func (logger *BufferedLiveLogger) Close() error {
 	if data := logger.data.Swap(nil); data != nil {
 		close(data.logchan)
-		data.logchan = nil
 		<-data.logfinished
 	}
 	return nil
@@ -310,6 +309,7 @@ func (logger *BufferedLiveLogger) SendLog(wrapper *protocol.TimelineRecordFeedLi
 			logfinished: logfinished,
 		}
 		if logger.data.CompareAndSwap(data, &ndata) {
+			ndata.logchan <- wrapper
 			go logger.sendLogs(logchan, logfinished)
 		} else {
 			close(ndata.logchan)
