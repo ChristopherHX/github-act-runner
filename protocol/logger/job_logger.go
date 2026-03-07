@@ -87,11 +87,11 @@ func (logger *WebsocketLivelogger) Connect() error {
 		},
 	})
 	// While reconnecting never assign this to null
-	if ws != nil {
-		err := logger.replace(ws)
-		if err != nil && logger.Connection.Trace {
+	if ws != nil && err == nil {
+		if err = logger.replace(ws); err != nil && logger.Connection.Trace {
 			fmt.Printf("Failed to close old websocket connection %s\n", err.Error())
 		}
+		err = nil
 	}
 	return err
 }
@@ -153,8 +153,7 @@ func (logger *WebsocketLiveloggerWithFallback) Initialize() {
 	logger.initialize()
 }
 
-type errorLogger struct {
-}
+type errorLogger struct{}
 
 // Close implements [LiveLogger].
 func (e *errorLogger) Close() error {
@@ -163,7 +162,7 @@ func (e *errorLogger) Close() error {
 
 // SendLog implements [LiveLogger].
 func (e *errorLogger) SendLog(lines *protocol.TimelineRecordFeedLinesWrapper) error {
-	return errors.New("Missing Logger Connection")
+	return errors.New("missing Logger Connection")
 }
 
 func makePointer[T any](p T) *T {
