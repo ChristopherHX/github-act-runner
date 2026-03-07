@@ -215,7 +215,9 @@ func (svc *RunRunnerSvc) Start(s service.Service) error {
 		runner.Terminal = terminal
 	}
 
+	//nolint:gosec
 	ctx, cancel := context.WithCancel(context.Background())
+	//nolint:gosec
 	listenerctx, cancelListener := context.WithCancel(context.Background())
 	svc.stop = func() {
 		cancelListener()
@@ -400,6 +402,7 @@ func main() {
 		Args:  cobra.MaximumNArgs(0),
 		Run: func(_ *cobra.Command, _ []string) {
 			ccontext, cancelccontext := context.WithCancel(context.Background())
+			defer cancelccontext()
 			go func() {
 				execcontext, cancelExec := context.WithCancel(context.Background())
 				defer cancelExec()

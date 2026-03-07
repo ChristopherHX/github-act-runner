@@ -412,8 +412,8 @@ func (converter *TemplateTokenConverter) FromYamlNode(node *yaml.Node) (ret *Tem
 		if ret != nil && (node.Column != 0 || node.Line != 0) {
 			// Check for integer overflow before conversion
 			if node.Column <= math.MaxInt32 && node.Line <= math.MaxInt32 && node.Column >= math.MinInt32 && node.Line >= math.MinInt32 {
-				column := int32(node.Column) //nolint:gosec // bounds checked above
-				line := int32(node.Line)     //nolint:gosec // bounds checked above
+				column := int32(node.Column)
+				line := int32(node.Line)
 				ret.Column = &column
 				ret.Line = &line
 			}

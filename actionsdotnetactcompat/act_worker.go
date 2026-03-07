@@ -550,7 +550,7 @@ func ExecWorker(rqt *protocol.AgentJobRequestMessage, wc actionsrunner.WorkerCon
 		if order > math.MaxInt32 { // int32 max value
 			order = math.MaxInt32
 		}
-		jlogger.Append(&rec).Order = int32(order) //nolint:gosec // bounds checked above
+		jlogger.Append(&rec).Order = int32(order)
 	}
 
 	logrus.SetLevel(actLogger.GetLevel())

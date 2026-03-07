@@ -150,6 +150,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx, corectx cont
 		// No retry on Fatal failures, like runner was removed or we received multiple jobs
 		fatalFailure := false
 		for _, instance := range settings.Instances {
+			//nolint:gosec
 			go func(instance *runnerconfiguration.RunnerInstance) (exitcode int) {
 				defer wg.Done()
 				defer func() {
