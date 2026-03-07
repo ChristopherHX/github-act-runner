@@ -168,6 +168,7 @@ func (e *errorLogger) SendLog(lines *protocol.TimelineRecordFeedLinesWrapper) er
 func makePointer[T any](p T) *T {
 	return &p
 }
+
 func getPointer[T any](p *T) T {
 	if p == nil {
 		var zero T
