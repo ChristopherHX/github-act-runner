@@ -150,6 +150,7 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx, corectx cont
 		// No retry on Fatal failures, like runner was removed or we received multiple jobs
 		fatalFailure := false
 		for _, instance := range settings.Instances {
+			//nolint:gosec
 			go func(instance *runnerconfiguration.RunnerInstance) (exitcode int) {
 				defer wg.Done()
 				defer func() {
@@ -373,7 +374,8 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx, corectx cont
 									jobCompletedWG.Done()
 								}()
 								runJob(runnerenv, &joblock, vssConnection, run, cancel, cancelJob, finishJob, jobExecCtx, jobctx, session, *message, instance)
-								{
+								for jobExecCtx.Err() == nil {
+									runnerenv.Printf("Fetch next (Cancellation) Message\n")
 									session.Status = "Busy"
 									var err error
 									message, err = session.GetNextMessage(jobExecCtx)
@@ -395,10 +397,10 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx, corectx cont
 										} else {
 											runnerenv.Printf("Received message, while still executing a job, of type: %v\n", message.MessageType)
 										}
-										runnerenv.Printf("Wait for worker to finish current job\n")
-										<-jobctx.Done()
 									}
 								}
+								runnerenv.Printf("Wait for worker to finish current job\n")
+								<-jobctx.Done()
 							}
 							// Skip deleting session for ephemeral, since the official actions service throws access denied
 							if !run.Once || isEphemeral {
