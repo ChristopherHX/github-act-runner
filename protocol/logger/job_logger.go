@@ -236,8 +236,9 @@ func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *protocol.Timelin
 }
 
 type internalBufferedLiveLoggerData struct {
-	logchan     chan *protocol.TimelineRecordFeedLinesWrapper
-	logfinished chan struct{}
+	logchan      chan *protocol.TimelineRecordFeedLinesWrapper
+	logfinished  chan struct{}
+	shutdownChan chan struct{}
 }
 
 type BufferedLiveLogger struct {
@@ -245,55 +246,64 @@ type BufferedLiveLogger struct {
 	data atomic.Pointer[internalBufferedLiveLoggerData]
 }
 
-func (logger *BufferedLiveLogger) sendLogs(logchan chan *protocol.TimelineRecordFeedLinesWrapper, logfinished chan struct{}) {
+func (logger *BufferedLiveLogger) sendLogs(logchan chan *protocol.TimelineRecordFeedLinesWrapper, shutdownChan chan struct{}, logfinished chan struct{}) {
 	defer close(logfinished)
 	for {
-		lines, ok := <-logchan
-		if !ok {
-			return
+		var lines *protocol.TimelineRecordFeedLinesWrapper
+		select {
+		case lines = <-logchan:
+		case <-shutdownChan:
+			// Drain any remaining buffered messages before exiting.
+			for {
+				select {
+				case line := <-logchan:
+					_ = logger.LiveLogger.SendLog(line)
+				default:
+					return
+				}
+			}
 		}
 		st := time.Now()
 		lp := st
-		logsexit := false
+	batch:
 		for {
-			b := false
 			div := lp.Sub(st)
 			if div > time.Second {
 				break
 			}
 			select {
-			case line, ok := <-logchan:
-				if ok {
-					if line.StepID == lines.StepID {
-						lines.Count += line.Count
-						lines.Value = append(lines.Value, line.Value...)
-					} else {
-						_ = logger.LiveLogger.SendLog(lines)
-						lines = line
-						st = time.Now()
-					}
+			case line := <-logchan:
+				if line.StepID == lines.StepID {
+					lines.Count += line.Count
+					lines.Value = append(lines.Value, line.Value...)
 				} else {
-					b = true
+					_ = logger.LiveLogger.SendLog(lines)
+					lines = line
+					st = time.Now()
+				}
+			case <-shutdownChan:
+				_ = logger.LiveLogger.SendLog(lines)
+				// Drain any remaining buffered messages before exiting.
+				for {
+					select {
+					case line := <-logchan:
+						_ = logger.LiveLogger.SendLog(line)
+					default:
+						return
+					}
 				}
 			case <-time.After(time.Second - div):
-				b = true
-			}
-			if b {
-				break
+				break batch
 			}
 			lp = time.Now()
 		}
 		_ = logger.LiveLogger.SendLog(lines)
-		if logsexit {
-			return
-		}
 	}
 }
 
 func (logger *BufferedLiveLogger) Close() error {
 	if data := logger.data.Swap(nil); data != nil {
-		close(data.logchan)
-		data.logchan = nil
+		close(data.shutdownChan)
 		<-data.logfinished
 	}
 	return nil
@@ -301,18 +311,24 @@ func (logger *BufferedLiveLogger) Close() error {
 
 func (logger *BufferedLiveLogger) SendLog(wrapper *protocol.TimelineRecordFeedLinesWrapper) error {
 	if data := logger.data.Load(); data != nil {
-		data.logchan <- wrapper
+		select {
+		case data.logchan <- wrapper:
+		case <-data.shutdownChan:
+		}
 	} else {
 		logchan := make(chan *protocol.TimelineRecordFeedLinesWrapper, websocketPingSize)
 		logfinished := make(chan struct{})
+		shutdownChan := make(chan struct{})
 		ndata := internalBufferedLiveLoggerData{
-			logchan:     logchan,
-			logfinished: logfinished,
+			logchan:      logchan,
+			logfinished:  logfinished,
+			shutdownChan: shutdownChan,
 		}
 		if logger.data.CompareAndSwap(data, &ndata) {
-			go logger.sendLogs(logchan, logfinished)
+			go logger.sendLogs(logchan, shutdownChan, logfinished)
+			logchan <- wrapper
 		} else {
-			close(ndata.logchan)
+			close(ndata.shutdownChan)
 			close(ndata.logfinished)
 			return logger.SendLog(wrapper)
 		}
