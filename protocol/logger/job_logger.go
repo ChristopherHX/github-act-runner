@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"nhooyr.io/websocket"
@@ -50,24 +51,23 @@ func (logger *VssLiveLogger) SendLog(wrapper *protocol.TimelineRecordFeedLinesWr
 type WebsocketLivelogger struct {
 	JobRequest    *protocol.AgentJobRequestMessage
 	Connection    *protocol.VssConnection
-	ws            *websocket.Conn
+	ws            atomic.Pointer[websocket.Conn]
 	FeedStreamURL string
 }
 
 func (logger *WebsocketLivelogger) Close() error {
-	if logger.ws != nil {
-		err := logger.ws.Close(websocket.StatusGoingAway, "Bye!")
-		logger.ws = nil
+	return logger.replace(nil)
+}
+
+func (logger *WebsocketLivelogger) replace(n *websocket.Conn) error {
+	if ws := logger.ws.Swap(n); ws != nil {
+		err := ws.Close(websocket.StatusGoingAway, "Bye!")
 		return err
 	}
 	return nil
 }
 
 func (logger *WebsocketLivelogger) Connect() error {
-	err := logger.Close()
-	if err != nil && logger.Connection.Trace {
-		fmt.Printf("Failed to close old websocket connection %s\n", err.Error())
-	}
 	if logger.Connection.Trace {
 		fmt.Printf("Try to connect to websocket %s\n", logger.FeedStreamURL)
 	}
@@ -88,39 +88,47 @@ func (logger *WebsocketLivelogger) Connect() error {
 	})
 	// While reconnecting never assign this to null
 	if ws != nil {
-		logger.ws = ws
+		err := logger.replace(ws)
+		if err != nil && logger.Connection.Trace {
+			fmt.Printf("Failed to close old websocket connection %s\n", err.Error())
+		}
 	}
 	return err
 }
 
 func (logger *WebsocketLivelogger) SendLog(lines *protocol.TimelineRecordFeedLinesWrapper) error {
 	// Do not try to send if something is wrong
-	if logger.ws == nil {
+	ws := logger.ws.Load()
+	if ws == nil {
 		return fmt.Errorf("missing websocket connection")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), websocketMessageTimeout)
 	defer cancel()
-	return wsjson.Write(ctx, logger.ws, lines)
+	return wsjson.Write(ctx, ws, lines)
 }
 
 type WebsocketLiveloggerWithFallback struct {
 	JobRequest    *protocol.AgentJobRequestMessage
 	Connection    *protocol.VssConnection
-	currentLogger LiveLogger
+	currentLogger atomic.Pointer[LiveLogger]
 	FeedStreamURL string
 	ForceWebsock  bool
 }
 
-func (logger *WebsocketLiveloggerWithFallback) InitializeVssLogger() {
-	_ = logger.Close() // Ignore error for cleanup
-	logger.currentLogger = &VssLiveLogger{
+func (logger *WebsocketLiveloggerWithFallback) initializeVssLogger() LiveLogger {
+	l := &VssLiveLogger{
 		JobRequest: logger.JobRequest,
 		Connection: logger.Connection,
 	}
+	_ = logger.replace(l) // Ignore error for cleanup
+	return l
 }
 
-func (logger *WebsocketLiveloggerWithFallback) Initialize() {
-	_ = logger.Close() // Ignore error for cleanup
+func (logger *WebsocketLiveloggerWithFallback) InitializeVssLogger() {
+	logger.initializeVssLogger()
+}
+
+func (logger *WebsocketLiveloggerWithFallback) initialize() LiveLogger {
 	if logger.FeedStreamURL != "" {
 		wslogger := &WebsocketLivelogger{
 			JobRequest:    logger.JobRequest,
@@ -129,54 +137,95 @@ func (logger *WebsocketLiveloggerWithFallback) Initialize() {
 		}
 		err := wslogger.Connect()
 		if err == nil {
-			logger.currentLogger = wslogger
-			return
+			_ = logger.replace(wslogger) // Ignore error for cleanup
+			return wslogger
 		} else if logger.Connection.Trace {
 			fmt.Printf("Failed to connect to websocket %s, fallback to vsslogger\n", err.Error())
 		}
 	}
 	if !logger.ForceWebsock {
-		logger.InitializeVssLogger()
-	}
-}
-
-func (logger *WebsocketLiveloggerWithFallback) Close() error {
-	if logger.currentLogger != nil {
-		err := logger.currentLogger.Close()
-		logger.currentLogger = nil
-		return err
+		return logger.initializeVssLogger()
 	}
 	return nil
 }
 
-func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *protocol.TimelineRecordFeedLinesWrapper) error {
-	if logger.currentLogger == nil {
-		logger.Initialize()
+func (logger *WebsocketLiveloggerWithFallback) Initialize() {
+	logger.initialize()
+}
+
+type errorLogger struct {
+}
+
+// Close implements [LiveLogger].
+func (e *errorLogger) Close() error {
+	return nil
+}
+
+// SendLog implements [LiveLogger].
+func (e *errorLogger) SendLog(lines *protocol.TimelineRecordFeedLinesWrapper) error {
+	return errors.New("Missing Logger Connection")
+}
+
+func makePointer[T any](p T) *T {
+	return &p
+}
+func getPointer[T any](p *T) T {
+	if p == nil {
+		var zero T
+		return zero
 	}
-	err := logger.currentLogger.SendLog(wrapper)
+	return *p
+}
+
+func (logger *WebsocketLiveloggerWithFallback) replace(n LiveLogger) error {
+	if currentLogger := logger.currentLogger.Swap(makePointer(n)); getPointer(currentLogger) != nil {
+		return (*currentLogger).Close()
+	}
+	return nil
+}
+
+func (logger *WebsocketLiveloggerWithFallback) Close() error {
+	return logger.replace(&errorLogger{})
+}
+
+func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *protocol.TimelineRecordFeedLinesWrapper) error {
+	currentLogger := getPointer(logger.currentLogger.Load())
+	if currentLogger == nil {
+		currentLogger = logger.initialize()
+		if currentLogger == nil {
+			return errors.New("SendLog failure")
+		}
+	}
+	err := currentLogger.SendLog(wrapper)
 	if err != nil {
 		if logger.Connection.Trace {
 			fmt.Printf("Failed to send webconsole log %s\n", err.Error())
 		}
-		if wslogger, err := logger.currentLogger.(*WebsocketLivelogger); err {
+		if wslogger, err := currentLogger.(*WebsocketLivelogger); err {
 			if err := wslogger.Connect(); err != nil {
 				if !logger.ForceWebsock {
 					if logger.Connection.Trace {
 						fmt.Printf("Failed to reconnect to websocket %s, fallback to vsslogger\n", err.Error())
 					}
-					logger.InitializeVssLogger()
-					return logger.currentLogger.SendLog(wrapper)
+					currentLogger = logger.initializeVssLogger()
+					if currentLogger == nil {
+						return errors.New("SendLog failure")
+					}
+					return currentLogger.SendLog(wrapper)
 				}
 				return err
 			}
-			err := logger.currentLogger.SendLog(wrapper)
+			err := currentLogger.SendLog(wrapper)
 			if err != nil {
 				if !logger.ForceWebsock {
 					if logger.Connection.Trace {
 						fmt.Printf("Failed to send webconsole log %s, fallback to vsslogger\n", err.Error())
 					}
-					logger.InitializeVssLogger()
-					return logger.currentLogger.SendLog(wrapper)
+					currentLogger = logger.initializeVssLogger()
+					if currentLogger == nil {
+						return errors.New("SendLog failure")
+					}
+					return currentLogger.SendLog(wrapper)
 				}
 				return err
 			}
@@ -186,10 +235,14 @@ func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *protocol.Timelin
 	return err
 }
 
-type BufferedLiveLogger struct {
-	LiveLogger
+type internalBufferedLiveLoggerData struct {
 	logchan     chan *protocol.TimelineRecordFeedLinesWrapper
 	logfinished chan struct{}
+}
+
+type BufferedLiveLogger struct {
+	LiveLogger
+	data atomic.Pointer[internalBufferedLiveLoggerData]
 }
 
 func (logger *BufferedLiveLogger) sendLogs(logchan chan *protocol.TimelineRecordFeedLinesWrapper, logfinished chan struct{}) {
@@ -238,23 +291,32 @@ func (logger *BufferedLiveLogger) sendLogs(logchan chan *protocol.TimelineRecord
 }
 
 func (logger *BufferedLiveLogger) Close() error {
-	if logger.logchan != nil {
-		close(logger.logchan)
-		logger.logchan = nil
-		<-logger.logfinished
+	if data := logger.data.Swap(nil); data != nil {
+		close(data.logchan)
+		data.logchan = nil
+		<-data.logfinished
 	}
 	return nil
 }
 
 func (logger *BufferedLiveLogger) SendLog(wrapper *protocol.TimelineRecordFeedLinesWrapper) error {
-	if logger.logchan == nil {
+	if data := logger.data.Load(); data != nil {
+		data.logchan <- wrapper
+	} else {
 		logchan := make(chan *protocol.TimelineRecordFeedLinesWrapper, websocketPingSize)
-		logger.logchan = logchan
 		logfinished := make(chan struct{})
-		logger.logfinished = logfinished
-		go logger.sendLogs(logchan, logfinished)
+		ndata := internalBufferedLiveLoggerData{
+			logchan:     logchan,
+			logfinished: logfinished,
+		}
+		if logger.data.CompareAndSwap(data, &ndata) {
+			go logger.sendLogs(logchan, logfinished)
+		} else {
+			close(ndata.logchan)
+			close(ndata.logfinished)
+			return logger.SendLog(wrapper)
+		}
 	}
-	logger.logchan <- wrapper
 	return nil
 }
 
