@@ -354,7 +354,7 @@ func (logger *BufferedLiveLogger) SendLog(wrapper *protocol.TimelineRecordFeedLi
 			}
 			if logger.data.CompareAndSwap(data, &ndata) {
 				go logger.sendLogs(ndata.logchan, ndata.logdrain, ndata.logfinished)
-				return data.queueLog(wrapper)
+				return ndata.queueLog(wrapper)
 			} else {
 				close(ndata.logchan)
 				close(ndata.logfinished)

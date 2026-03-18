@@ -3,7 +3,6 @@ package logger
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
 
@@ -103,7 +102,6 @@ func TestBufferedLiveLogger(t *testing.T) {
 
 	t.Run("close", func(t *testing.T) {
 		t.Parallel()
-		time.Sleep(1122 * time.Microsecond)
 		require.NoError(t, bufferedLogger.Close())
 	})
 
@@ -111,7 +109,6 @@ func TestBufferedLiveLogger(t *testing.T) {
 		t.Parallel()
 		var err error
 		for i := range 100 {
-			time.Sleep(1 * time.Millisecond)
 			err = bufferedLogger.SendLog(&protocol.TimelineRecordFeedLinesWrapper{
 				Count: 1,
 				Value: []string{fmt.Sprintf("line %v", (i + 1))},
