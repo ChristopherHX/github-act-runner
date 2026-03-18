@@ -243,10 +243,19 @@ type internalBufferedLiveLoggerData struct {
 	logfinished chan struct{}
 }
 
-// IsZero returns true if the struct is closed
+// isZero returns true if the struct is closed
 // * internalBufferedLiveLoggerData is replaced by a zero struct instead of nil to not auto restart
-func (i *internalBufferedLiveLoggerData) IsZero() bool {
+func (i *internalBufferedLiveLoggerData) isZero() bool {
 	return i == nil || i.logchan == nil || i.logdrain == nil || i.logfinished == nil
+}
+
+func (i *internalBufferedLiveLoggerData) queueLog(wrapper *protocol.TimelineRecordFeedLinesWrapper) error {
+	select {
+	case <-i.logdrain:
+		return errors.New("buffered live logger closing")
+	case i.logchan <- wrapper:
+		return nil
+	}
 }
 
 type BufferedLiveLogger struct {
@@ -322,7 +331,7 @@ func (logger *BufferedLiveLogger) sendLogs(logchan chan *protocol.TimelineRecord
 }
 
 func (logger *BufferedLiveLogger) Close() error {
-	if data := logger.data.Swap(&internalBufferedLiveLoggerData{}); !data.IsZero() {
+	if data := logger.data.Swap(&internalBufferedLiveLoggerData{}); !data.isZero() {
 		// Keep logchan open to avoid races and just let it be freed
 		close(data.logdrain)
 		<-data.logfinished
@@ -333,15 +342,10 @@ func (logger *BufferedLiveLogger) Close() error {
 func (logger *BufferedLiveLogger) SendLog(wrapper *protocol.TimelineRecordFeedLinesWrapper) error {
 	for {
 		if data := logger.data.Load(); data != nil {
-			if data.IsZero() {
+			if data.isZero() {
 				return errors.New("buffered live logger is closed")
 			}
-			select {
-			case <-data.logdrain:
-				return errors.New("buffered live logger closing")
-			case data.logchan <- wrapper:
-				return nil
-			}
+			return data.queueLog(wrapper)
 		} else {
 			ndata := internalBufferedLiveLoggerData{
 				logchan:     make(chan *protocol.TimelineRecordFeedLinesWrapper, websocketPingSize),
@@ -350,12 +354,7 @@ func (logger *BufferedLiveLogger) SendLog(wrapper *protocol.TimelineRecordFeedLi
 			}
 			if logger.data.CompareAndSwap(data, &ndata) {
 				go logger.sendLogs(ndata.logchan, ndata.logdrain, ndata.logfinished)
-				select {
-				case <-ndata.logdrain:
-					return errors.New("buffered live logger closing")
-				case ndata.logchan <- wrapper:
-					return nil
-				}
+				return data.queueLog(wrapper)
 			} else {
 				close(ndata.logchan)
 				close(ndata.logfinished)
