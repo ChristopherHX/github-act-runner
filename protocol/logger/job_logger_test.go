@@ -101,12 +101,10 @@ func TestBufferedLiveLogger(t *testing.T) {
 	}))
 
 	t.Run("close", func(t *testing.T) {
-		t.Parallel()
 		require.NoError(t, bufferedLogger.Close())
 	})
 
 	t.Run("sendLogs", func(t *testing.T) {
-		t.Parallel()
 		var err error
 		for i := range 100 {
 			err = bufferedLogger.SendLog(&protocol.TimelineRecordFeedLinesWrapper{
