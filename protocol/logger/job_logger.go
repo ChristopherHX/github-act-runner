@@ -250,11 +250,19 @@ func (i *internalBufferedLiveLoggerData) isZero() bool {
 }
 
 func (i *internalBufferedLiveLoggerData) queueLog(wrapper *protocol.TimelineRecordFeedLinesWrapper) error {
+	// First, non-blocking check: if logdrain is already closed, do not allow new logs.
 	select {
 	case <-i.logdrain:
 		return errors.New("buffered live logger closing")
+	default:
+	}
+
+	// Then, attempt to enqueue the log while still respecting logdrain if it closes concurrently.
+	select {
 	case i.logchan <- wrapper:
 		return nil
+	case <-i.logdrain:
+		return errors.New("buffered live logger closing")
 	}
 }
 
