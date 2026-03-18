@@ -157,6 +157,9 @@ func (logger *WebsocketLiveloggerWithFallback) Initialize() {
 
 type errorLogger struct{}
 
+// ErrMissingLoggerConnection is returned when a log is sent without an active logger connection.
+var ErrMissingLoggerConnection = errors.New("missing logger connection")
+
 // Close implements [LiveLogger].
 func (e *errorLogger) Close() error {
 	return nil
@@ -164,7 +167,7 @@ func (e *errorLogger) Close() error {
 
 // SendLog implements [LiveLogger].
 func (e *errorLogger) SendLog(lines *protocol.TimelineRecordFeedLinesWrapper) error {
-	return errors.New("missing Logger Connection")
+	return ErrMissingLoggerConnection
 }
 
 func makePointer[T any](p T) *T {
