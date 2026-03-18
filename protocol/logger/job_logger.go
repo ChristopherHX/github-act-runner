@@ -343,15 +343,13 @@ func (logger *BufferedLiveLogger) SendLog(wrapper *protocol.TimelineRecordFeedLi
 				return nil
 			}
 		} else {
-			logchan := make(chan *protocol.TimelineRecordFeedLinesWrapper, websocketPingSize)
-			logfinished := make(chan struct{})
 			ndata := internalBufferedLiveLoggerData{
-				logchan:     logchan,
+				logchan:     make(chan *protocol.TimelineRecordFeedLinesWrapper, websocketPingSize),
 				logdrain:    make(chan struct{}),
-				logfinished: logfinished,
+				logfinished: make(chan struct{}),
 			}
 			if logger.data.CompareAndSwap(data, &ndata) {
-				go logger.sendLogs(logchan, ndata.logdrain, logfinished)
+				go logger.sendLogs(ndata.logchan, ndata.logdrain, ndata.logfinished)
 				select {
 				case <-ndata.logdrain:
 					return errors.New("buffered live logger closing")
