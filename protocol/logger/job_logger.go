@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -193,7 +195,7 @@ func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *protocol.Timelin
 	if currentLogger == nil {
 		currentLogger = logger.initialize()
 		if currentLogger == nil {
-			return errors.New("SendLog failure")
+			return errors.New("initialize failure")
 		}
 	}
 	err := currentLogger.SendLog(wrapper)
@@ -237,7 +239,14 @@ func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *protocol.Timelin
 
 type internalBufferedLiveLoggerData struct {
 	logchan     chan *protocol.TimelineRecordFeedLinesWrapper
+	logdrain    chan struct{}
 	logfinished chan struct{}
+}
+
+// IsZero returns true if the struct is closed
+// * internalBufferedLiveLoggerData is replaced by a zero struct instead of nil to not auto restart
+func (i *internalBufferedLiveLoggerData) IsZero() bool {
+	return i == nil || i.logchan == nil || i.logdrain == nil || i.logfinished == nil
 }
 
 type BufferedLiveLogger struct {
@@ -245,10 +254,32 @@ type BufferedLiveLogger struct {
 	data atomic.Pointer[internalBufferedLiveLoggerData]
 }
 
-func (logger *BufferedLiveLogger) sendLogs(logchan chan *protocol.TimelineRecordFeedLinesWrapper, logfinished chan struct{}) {
+func (logger *BufferedLiveLogger) sendLogs(logchan chan *protocol.TimelineRecordFeedLinesWrapper, logdrain chan struct{}, logfinished chan struct{}) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("panic recovered: %v\n%s", r, debug.Stack())
+		}
+	}()
 	defer close(logfinished)
+	var shouldDrain bool
 	for {
-		lines, ok := <-logchan
+		var lines *protocol.TimelineRecordFeedLinesWrapper
+		var ok bool
+		if !shouldDrain {
+			select {
+			case lines, ok = <-logchan:
+			case <-logdrain:
+				shouldDrain = true
+			}
+		}
+		if shouldDrain {
+			// Now try read
+			select {
+			case lines, ok = <-logchan:
+			default:
+				ok = false
+			}
+		}
 		if !ok {
 			return
 		}
@@ -291,8 +322,9 @@ func (logger *BufferedLiveLogger) sendLogs(logchan chan *protocol.TimelineRecord
 }
 
 func (logger *BufferedLiveLogger) Close() error {
-	if data := logger.data.Swap(nil); data != nil {
-		close(data.logchan)
+	if data := logger.data.Swap(&internalBufferedLiveLoggerData{}); !data.IsZero() {
+		// Keep logchan open to avoid races and just let it be freed
+		close(data.logdrain)
 		<-data.logfinished
 	}
 	return nil
@@ -300,17 +332,26 @@ func (logger *BufferedLiveLogger) Close() error {
 
 func (logger *BufferedLiveLogger) SendLog(wrapper *protocol.TimelineRecordFeedLinesWrapper) error {
 	if data := logger.data.Load(); data != nil {
-		data.logchan <- wrapper
+		if data.IsZero() {
+			return errors.New("buffered live logger is closed")
+		}
+		select {
+		case <-data.logdrain:
+			return errors.New("buffered live logger closing")
+		default:
+			data.logchan <- wrapper
+		}
 	} else {
 		logchan := make(chan *protocol.TimelineRecordFeedLinesWrapper, websocketPingSize)
 		logfinished := make(chan struct{})
 		ndata := internalBufferedLiveLoggerData{
 			logchan:     logchan,
+			logdrain:    make(chan struct{}),
 			logfinished: logfinished,
 		}
 		if logger.data.CompareAndSwap(data, &ndata) {
 			ndata.logchan <- wrapper
-			go logger.sendLogs(logchan, logfinished)
+			go logger.sendLogs(logchan, ndata.logdrain, logfinished)
 		} else {
 			close(ndata.logchan)
 			close(ndata.logfinished)

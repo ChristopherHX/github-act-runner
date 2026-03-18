@@ -1,9 +1,12 @@
 package logger
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -34,4 +37,86 @@ func TestJobLogger(t *testing.T) {
 	if logger.TimelineRecords.Value[2].RefName != init3RefName {
 		t.FailNow()
 	}
+}
+
+type TestLiveLogger struct {
+	*testing.T
+}
+
+// Close implements [LiveLogger].
+func (t *TestLiveLogger) Close() error {
+	return nil
+}
+
+// SendLog implements [LiveLogger].
+func (t *TestLiveLogger) SendLog(lines *protocol.TimelineRecordFeedLinesWrapper) error {
+	return nil
+}
+
+func getTestLiveLogger(t *testing.T) LiveLogger {
+	return &TestLiveLogger{
+		T: t,
+	}
+}
+
+func TestBufferedLiveLoggerDrain(t *testing.T) {
+	bufferedLogger := &BufferedLiveLogger{
+		LiveLogger: getTestLiveLogger(t),
+	}
+
+	var logchan chan *protocol.TimelineRecordFeedLinesWrapper = make(chan *protocol.TimelineRecordFeedLinesWrapper)
+	var logdrain chan struct{} = make(chan struct{})
+	var logfinished chan struct{} = make(chan struct{})
+
+	t.Run("forwardLogs", func(t *testing.T) {
+		t.Parallel()
+		bufferedLogger.sendLogs(logchan, logdrain, logfinished)
+	})
+
+	t.Run("sendLogs", func(t *testing.T) {
+		t.Parallel()
+		logchan <- &protocol.TimelineRecordFeedLinesWrapper{
+			Count: 1,
+			Value: []string{"line1"},
+		}
+		logchan <- &protocol.TimelineRecordFeedLinesWrapper{
+			Count: 1,
+			Value: []string{"line2"},
+		}
+		close(logdrain)
+		<-logfinished
+	})
+}
+
+func TestBufferedLiveLogger(t *testing.T) {
+	bufferedLogger := &BufferedLiveLogger{
+		LiveLogger: getTestLiveLogger(t),
+	}
+
+	require.NoError(t, bufferedLogger.SendLog(&protocol.TimelineRecordFeedLinesWrapper{
+		Count: 1,
+		Value: []string{"line1"},
+	}))
+
+	t.Run("close", func(t *testing.T) {
+		t.Parallel()
+		time.Sleep(1122 * time.Microsecond)
+		require.NoError(t, bufferedLogger.Close())
+	})
+
+	t.Run("sendLogs", func(t *testing.T) {
+		t.Parallel()
+		var err error
+		for i := range 100 {
+			time.Sleep(1 * time.Millisecond)
+			err = bufferedLogger.SendLog(&protocol.TimelineRecordFeedLinesWrapper{
+				Count: 1,
+				Value: []string{fmt.Sprintf("line %v", (i + 1))},
+			})
+			if err != nil {
+				break
+			}
+		}
+		require.Error(t, err)
+	})
 }
