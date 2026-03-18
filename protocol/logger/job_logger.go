@@ -331,37 +331,39 @@ func (logger *BufferedLiveLogger) Close() error {
 }
 
 func (logger *BufferedLiveLogger) SendLog(wrapper *protocol.TimelineRecordFeedLinesWrapper) error {
-	if data := logger.data.Load(); data != nil {
-		if data.IsZero() {
-			return errors.New("buffered live logger is closed")
-		}
-		select {
-		case <-data.logdrain:
-			return errors.New("buffered live logger closing")
-		case data.logchan <- wrapper:
-		}
-	} else {
-		logchan := make(chan *protocol.TimelineRecordFeedLinesWrapper, websocketPingSize)
-		logfinished := make(chan struct{})
-		ndata := internalBufferedLiveLoggerData{
-			logchan:     logchan,
-			logdrain:    make(chan struct{}),
-			logfinished: logfinished,
-		}
-		if logger.data.CompareAndSwap(data, &ndata) {
-			select {
-			case <-ndata.logdrain:
-				return errors.New("buffered live logger closing")
-			case ndata.logchan <- wrapper:
+	for {
+		if data := logger.data.Load(); data != nil {
+			if data.IsZero() {
+				return errors.New("buffered live logger is closed")
 			}
-			go logger.sendLogs(logchan, ndata.logdrain, logfinished)
+			select {
+			case <-data.logdrain:
+				return errors.New("buffered live logger closing")
+			case data.logchan <- wrapper:
+				return nil
+			}
 		} else {
-			close(ndata.logchan)
-			close(ndata.logfinished)
-			return logger.SendLog(wrapper)
+			logchan := make(chan *protocol.TimelineRecordFeedLinesWrapper, websocketPingSize)
+			logfinished := make(chan struct{})
+			ndata := internalBufferedLiveLoggerData{
+				logchan:     logchan,
+				logdrain:    make(chan struct{}),
+				logfinished: logfinished,
+			}
+			if logger.data.CompareAndSwap(data, &ndata) {
+				go logger.sendLogs(logchan, ndata.logdrain, logfinished)
+				select {
+				case <-ndata.logdrain:
+					return errors.New("buffered live logger closing")
+				case ndata.logchan <- wrapper:
+					return nil
+				}
+			} else {
+				close(ndata.logchan)
+				close(ndata.logfinished)
+			}
 		}
 	}
-	return nil
 }
 
 type JobLogger struct {
