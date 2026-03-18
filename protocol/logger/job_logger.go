@@ -198,7 +198,7 @@ func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *protocol.Timelin
 	if currentLogger == nil {
 		currentLogger = logger.initialize()
 		if currentLogger == nil {
-			return errors.New("initialize failure")
+			return fmt.Errorf("failed to initialize live logger: no logger instance available (ForceWebsock=%t)", logger.ForceWebsock)
 		}
 	}
 	err := currentLogger.SendLog(wrapper)
@@ -214,7 +214,7 @@ func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *protocol.Timelin
 					}
 					currentLogger = logger.initializeVssLogger()
 					if currentLogger == nil {
-						return errors.New("SendLog failure")
+						return fmt.Errorf("failed to initialize VSS logger after websocket reconnect failure: %w", err)
 					}
 					return currentLogger.SendLog(wrapper)
 				}
@@ -228,7 +228,7 @@ func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *protocol.Timelin
 					}
 					currentLogger = logger.initializeVssLogger()
 					if currentLogger == nil {
-						return errors.New("SendLog failure")
+						return fmt.Errorf("failed to initialize VSS logger after websocket send failure: %w", err)
 					}
 					return currentLogger.SendLog(wrapper)
 				}
