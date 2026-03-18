@@ -254,7 +254,7 @@ type BufferedLiveLogger struct {
 	data atomic.Pointer[internalBufferedLiveLoggerData]
 }
 
-func (logger *BufferedLiveLogger) sendLogs(logchan chan *protocol.TimelineRecordFeedLinesWrapper, logdrain chan struct{}, logfinished chan struct{}) {
+func (logger *BufferedLiveLogger) sendLogs(logchan chan *protocol.TimelineRecordFeedLinesWrapper, logdrain, logfinished chan struct{}) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("panic recovered: %v\n%s", r, debug.Stack())

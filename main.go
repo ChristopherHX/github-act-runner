@@ -222,9 +222,7 @@ func (svc *RunRunnerSvc) Start(s service.Service) error {
 		runner.Terminal = terminal
 	}
 
-	//nolint:gosec
 	ctx, cancel := context.WithCancel(context.Background())
-	//nolint:gosec
 	listenerctx, cancelListener := context.WithCancel(context.Background())
 	svc.stop = func() {
 		cancelListener()

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,13 +61,14 @@ func getTestLiveLogger(t *testing.T) LiveLogger {
 }
 
 func TestBufferedLiveLoggerDrain(t *testing.T) {
+	t.Parallel()
 	bufferedLogger := &BufferedLiveLogger{
 		LiveLogger: getTestLiveLogger(t),
 	}
 
-	var logchan chan *protocol.TimelineRecordFeedLinesWrapper = make(chan *protocol.TimelineRecordFeedLinesWrapper)
-	var logdrain chan struct{} = make(chan struct{})
-	var logfinished chan struct{} = make(chan struct{})
+	logchan := make(chan *protocol.TimelineRecordFeedLinesWrapper)
+	logdrain := make(chan struct{})
+	logfinished := make(chan struct{})
 
 	t.Run("forwardLogs", func(t *testing.T) {
 		t.Parallel()
@@ -89,6 +91,7 @@ func TestBufferedLiveLoggerDrain(t *testing.T) {
 }
 
 func TestBufferedLiveLogger(t *testing.T) {
+	t.Parallel()
 	bufferedLogger := &BufferedLiveLogger{
 		LiveLogger: getTestLiveLogger(t),
 	}
