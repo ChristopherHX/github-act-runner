@@ -207,7 +207,7 @@ func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *protocol.Timelin
 			fmt.Printf("Failed to send webconsole log %s\n", err.Error())
 		}
 		if wslogger, ok := currentLogger.(*WebsocketLivelogger); ok {
-			if err := wslogger.Connect(); err != nil {
+			if err = wslogger.Connect(); err != nil {
 				if !logger.ForceWebsock {
 					if logger.Connection.Trace {
 						fmt.Printf("Failed to reconnect to websocket %s, fallback to vsslogger\n", err.Error())
@@ -220,7 +220,7 @@ func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *protocol.Timelin
 				}
 				return err
 			}
-			err := currentLogger.SendLog(wrapper)
+			err = currentLogger.SendLog(wrapper)
 			if err != nil {
 				if !logger.ForceWebsock {
 					if logger.Connection.Trace {

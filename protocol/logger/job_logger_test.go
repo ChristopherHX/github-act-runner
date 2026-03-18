@@ -90,7 +90,6 @@ func TestBufferedLiveLoggerDrain(t *testing.T) {
 }
 
 func TestBufferedLiveLogger(t *testing.T) {
-	t.Parallel()
 	bufferedLogger := &BufferedLiveLogger{
 		LiveLogger: getTestLiveLogger(t),
 	}
