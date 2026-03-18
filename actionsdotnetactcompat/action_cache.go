@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 
 	"github.com/actions-oss/act-cli/pkg/common"
@@ -35,6 +37,11 @@ func (cache *ActionCacheBase) GetTarArchive(ctx context.Context, cacheDir, sha, 
 	pr, pw := io.Pipe()
 	cleanIncludePrefix := path.Clean(includePrefix)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("panic recovered: %v\n%s", r, debug.Stack())
+			}
+		}()
 		defer func() { _ = pw.Close() }()
 		writer := tar.NewWriter(pw)
 		defer func() { _ = writer.Close() }()
