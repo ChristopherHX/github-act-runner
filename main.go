@@ -9,9 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"syscall"
 
@@ -120,6 +122,11 @@ func (run *RunRunner) Run() int {
 	listenerctx, cancelListener := context.WithCancel(context.Background())
 	defer cancelListener()
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("panic recovered: %v\n%s", r, debug.Stack())
+			}
+		}()
 		sig := <-channel
 		if sig == syscall.SIGTERM {
 			fmt.Println("SIGTERM received, cancel any current job and wait for completion")
@@ -215,15 +222,18 @@ func (svc *RunRunnerSvc) Start(s service.Service) error {
 		runner.Terminal = terminal
 	}
 
-	//nolint:gosec
 	ctx, cancel := context.WithCancel(context.Background())
-	//nolint:gosec
 	listenerctx, cancelListener := context.WithCancel(context.Background())
 	svc.stop = func() {
 		cancelListener()
 	}
 	svc.wait = make(chan error)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("panic recovered: %v\n%s", r, debug.Stack())
+			}
+		}()
 		defer cancelListener()
 		defer cancel()
 		defer close(svc.wait)
@@ -404,6 +414,11 @@ func main() {
 			ccontext, cancelccontext := context.WithCancel(context.Background())
 			defer cancelccontext()
 			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("panic recovered: %v\n%s", r, debug.Stack())
+					}
+				}()
 				execcontext, cancelExec := context.WithCancel(context.Background())
 				defer cancelExec()
 				buf := make([]byte, bufferSize)
@@ -431,6 +446,11 @@ func main() {
 							fmt.Printf("unmarshal job request: %v", err)
 						}
 						go func() {
+							defer func() {
+								if r := recover(); r != nil {
+									log.Printf("panic recovered: %v\n%s", r, debug.Stack())
+								}
+							}()
 							defer cancelExec()
 							defer cancelccontext()
 							wc := &actionsrunner.DefaultWorkerContext{

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"path"
@@ -152,6 +153,11 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx, corectx cont
 		for _, instance := range settings.Instances {
 			//nolint:gosec
 			go func(instance *runnerconfiguration.RunnerInstance) (exitcode int) {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("panic recovered: %v\n%s", r, debug.Stack())
+					}
+				}()
 				defer wg.Done()
 				defer func() {
 					// Without this the inner return 1 got lost and we would retry it
@@ -189,6 +195,11 @@ func (run *RunRunner) Run(runnerenv RunnerEnvironment, listenerctx, corectx cont
 						Result:    result,
 					}
 					go func() {
+						defer func() {
+							if r := recover(); r != nil {
+								log.Printf("panic recovered: %v\n%s", r, debug.Stack())
+							}
+						}()
 						for i := 0; ; i++ {
 							if err := vssConnection.FinishJob(finish, jobrun.Plan); err != nil {
 								runnerenv.Printf("Failed to finish previous stuck job with Status Failed: %v\n", err.Error())
@@ -450,6 +461,11 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 	session *protocol.AgentMessageConnection, message protocol.TaskAgentMessage, instance *runnerconfiguration.RunnerInstance,
 ) {
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("panic recovered: %v\n%s", r, debug.Stack())
+			}
+		}()
 		plogger := &PrefixConsoleLogger{
 			Parent: runnerenv,
 			Prefix: fmt.Sprintf("%v ( %v ):", instance.Agent.Name, instance.RegistrationURL),
@@ -539,6 +555,11 @@ func runJob(runnerenv RunnerEnvironment, joblock *sync.Mutex, vssConnection *pro
 		}
 		con := *vssConnection
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("panic recovered: %v\n%s", r, debug.Stack())
+				}
+			}()
 			for {
 				renewErr := renewJob(jobctx, runServiceURL, jobreq, &con, instance)
 				if renewErr != nil {
