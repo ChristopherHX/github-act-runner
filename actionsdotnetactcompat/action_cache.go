@@ -40,9 +40,11 @@ func (cache *ActionCacheBase) GetTarArchive(ctx context.Context, cacheDir, sha, 
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("panic recovered: %v\n%s", r, debug.Stack())
+				_ = pw.CloseWithError(fmt.Errorf("panic recovered in GetTarArchive: %v", r))
+				return
 			}
+			_ = pw.Close()
 		}()
-		defer func() { _ = pw.Close() }()
 		writer := tar.NewWriter(pw)
 		defer func() { _ = writer.Close() }()
 		reader, err := os.Open(cache.mapping[cacheDir+"@"+sha])

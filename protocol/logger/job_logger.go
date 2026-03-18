@@ -338,8 +338,7 @@ func (logger *BufferedLiveLogger) SendLog(wrapper *protocol.TimelineRecordFeedLi
 		select {
 		case <-data.logdrain:
 			return errors.New("buffered live logger closing")
-		default:
-			data.logchan <- wrapper
+		case data.logchan <- wrapper:
 		}
 	} else {
 		logchan := make(chan *protocol.TimelineRecordFeedLinesWrapper, websocketPingSize)
@@ -350,7 +349,11 @@ func (logger *BufferedLiveLogger) SendLog(wrapper *protocol.TimelineRecordFeedLi
 			logfinished: logfinished,
 		}
 		if logger.data.CompareAndSwap(data, &ndata) {
-			ndata.logchan <- wrapper
+			select {
+			case <-ndata.logdrain:
+				return errors.New("buffered live logger closing")
+			case ndata.logchan <- wrapper:
+			}
 			go logger.sendLogs(logchan, ndata.logdrain, logfinished)
 		} else {
 			close(ndata.logchan)
