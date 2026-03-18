@@ -203,7 +203,7 @@ func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *protocol.Timelin
 		if logger.Connection.Trace {
 			fmt.Printf("Failed to send webconsole log %s\n", err.Error())
 		}
-		if wslogger, err := currentLogger.(*WebsocketLivelogger); err {
+		if wslogger, ok := currentLogger.(*WebsocketLivelogger); ok {
 			if err := wslogger.Connect(); err != nil {
 				if !logger.ForceWebsock {
 					if logger.Connection.Trace {
