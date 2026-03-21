@@ -216,10 +216,10 @@ func (logger *WebsocketLiveloggerWithFallback) sendLogFallback(
 			fmt.Printf("Failed to send to websocket %s, fallback to vsslogger\n", err.Error())
 		}
 		currentLogger := logger.initializeVssLogger()
-		if currentLogger == nil {
-			return fmt.Errorf("failed to initialize VSS logger after websocket send failure: %w", err)
+		if currentLogger.isValid() {
+			return currentLogger.logger.SendLog(wrapper)
 		}
-		return currentLogger.logger.SendLog(wrapper)
+		return fmt.Errorf("failed to initialize VSS logger after websocket send failure: %w", err)
 	}
 	return err
 }
