@@ -94,7 +94,7 @@ func loadConfiguration() (*runnerconfiguration.RunnerSettings, error) {
 				// fmt.Printf("The runner needs to be configured first: %v\n", err.Error())
 				// return 1
 				settings.PoolID = 1
-			} else if err != nil {
+			} else {
 				return nil, err
 			}
 		}
@@ -292,7 +292,7 @@ func main() {
 					_ = os.Remove("auth.json")  // Ignore error for cleanup
 					_ = os.Remove("cred.pkcs1") // Ignore error for cleanup
 					if saveActionsRunnerConfig && len(settings.Instances) == 1 {
-						_ = runnerCompat.FromRunnerInstance(settings.Instances[0], runnerCompat.DefaultConfigFileAccess{})
+						err = runnerCompat.FromRunnerInstance(settings.Instances[0], runnerCompat.DefaultConfigFileAccess{})
 					} else {
 						if writeErr := common.WriteJSON("settings.json", settings); writeErr != nil {
 							fmt.Printf("Failed to write settings.json: %v", writeErr)

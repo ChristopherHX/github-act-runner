@@ -193,7 +193,8 @@ func (logger *WebsocketLiveloggerWithFallback) Close() error {
 	return logger.replace(&errorLogger{})
 }
 
-func (logger *WebsocketLiveloggerWithFallback) sendLogFallback(err error, reason string, wrapper *protocol.TimelineRecordFeedLinesWrapper) error {
+func (logger *WebsocketLiveloggerWithFallback) sendLogFallback(err error, reason string,
+	wrapper *protocol.TimelineRecordFeedLinesWrapper) error {
 	if !logger.ForceWebsock {
 		if logger.Connection.Trace {
 			fmt.Printf("Failed to %s to websocket %s, fallback to vsslogger\n", reason, err.Error())
