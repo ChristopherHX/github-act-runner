@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/actions-oss/act-cli/pkg/common"
@@ -44,6 +45,7 @@ const (
 )
 
 type ghaFormatter struct {
+	m             sync.Mutex
 	rqt           *protocol.AgentJobRequestMessage
 	rc            *runner.RunContext
 	logger        *logger.JobLogger
@@ -95,6 +97,8 @@ func (f *ghaFormatter) EvaluateStep(ctx context.Context, rec *protocol.TimelineR
 }
 
 func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+	f.m.Lock()
+	defer f.m.Unlock()
 	b := &bytes.Buffer{}
 	var stepID string
 	stage, hasStage := entry.Data["stage"]
@@ -216,6 +220,10 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		msg = arg
 	case "ignored":
 		msg = raw
+	case "summary":
+		content, _ := entry.Data["content"].(string)
+		// Upload Async
+		go f.logger.UploadStepSummary(f.logger.Current(), content)
 	}
 	msg = f.linefeedregex.ReplaceAllString(prefix+strings.Trim(msg, "\r\n"), "\n"+prefix)
 
