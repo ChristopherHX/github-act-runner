@@ -445,6 +445,18 @@ func (logger *JobLogger) MoveNextExt(startNextRecord bool) *protocol.TimelineRec
 	return nil
 }
 
+func (logger *JobLogger) UploadStepSummary(cur *protocol.TimelineRecord, summary string) {
+	if logger.ResultsConnection != nil && cur != nil && summary != "" {
+		rs := &results.ResultsService{
+			Connection: logger.ResultsConnection,
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), resultsUploadTimeout)
+		defer cancel()
+		_ = rs.UploadResultsStepSummaryAsync(ctx, logger.JobRequest.Plan.PlanID, logger.JobRequest.JobID, cur.ID,
+			strings.NewReader(summary), int64(len(summary))) // Ignore upload error for async operation
+	}
+}
+
 func (logger *JobLogger) uploadBlock(cur *protocol.TimelineRecord, finalBlock bool) {
 	if !logger.IsResults && finalBlock && logger.CurrentBuffer.Len() > 0 {
 		logid, err := logger.Connection.UploadLogFile(
