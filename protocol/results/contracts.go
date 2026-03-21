@@ -14,7 +14,7 @@ type GetSignedStepSummaryURLRequest struct {
 
 type GetSignedStepSummaryURLResponse struct {
 	SummaryURL      string `json:"summary_url,omitempty"`
-	SoftSizeLimit   int64  `json:"soft_size_limit,omitempty"`
+	SoftSizeLimit   string `json:"soft_size_limit,omitempty"`
 	BlobStorageType string `json:"blob_storage_type,omitempty"`
 }
 

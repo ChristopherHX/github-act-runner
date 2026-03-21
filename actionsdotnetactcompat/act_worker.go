@@ -222,8 +222,7 @@ func (f *ghaFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		msg = raw
 	case "summary":
 		content, _ := entry.Data["content"].(string)
-		// Upload Async
-		go f.logger.UploadStepSummary(f.logger.Current(), content)
+		f.logger.UploadStepSummary(f.logger.Current(), content)
 	}
 	msg = f.linefeedregex.ReplaceAllString(prefix+strings.Trim(msg, "\r\n"), "\n"+prefix)
 

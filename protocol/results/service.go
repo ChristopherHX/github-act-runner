@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/ChristopherHX/github-act-runner/protocol"
@@ -106,7 +107,8 @@ func (rs *ResultsService) UploadResultsStepSummaryAsync(
 	if uploadURLResponse.SummaryURL == "" {
 		return fmt.Errorf("failed to get step log upload url")
 	}
-	if fileSize > uploadURLResponse.SoftSizeLimit {
+	softSizeLimit, _ := strconv.ParseInt(uploadURLResponse.SoftSizeLimit, 10, 64)
+	if fileSize > softSizeLimit && softSizeLimit > 0 {
 		return fmt.Errorf(
 			"file size is larger than the upload url allows, file size: %v, upload url size: %v",
 			fileSize,
