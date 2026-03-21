@@ -146,7 +146,7 @@ go run . run
 - ~~Running steps after cancellation~~ Is now working in 0.6.0
 - ~~steps.timeout-minutes not implemented~~ Is now working in 0.6.0
 - ~~Service Container are not implemented~~ Is now working in 0.7.0
-- Step Summaries are not implemented (only file command is provided)
+- ~~Step Summaries are not implemented (only file command is provided)~~ Is now part of 0.13.1
 - Annotations are not implemented
 - Problem Matcher are not implemented
 - Expressions in `with` and `env` (also applies to workflow and job env blocks) keys / directly assign to a mapping expression are not implemented
