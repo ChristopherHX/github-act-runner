@@ -193,6 +193,22 @@ func (logger *WebsocketLiveloggerWithFallback) Close() error {
 	return logger.replace(&errorLogger{})
 }
 
+func (logger *WebsocketLiveloggerWithFallback) sendLogFallback(
+	err error, reason string, wrapper *protocol.TimelineRecordFeedLinesWrapper,
+) error {
+	if !logger.ForceWebsock {
+		if logger.Connection.Trace {
+			fmt.Printf("Failed to %s to websocket %s, fallback to vsslogger\n", reason, err.Error())
+		}
+		currentLogger := logger.initializeVssLogger()
+		if currentLogger == nil {
+			return fmt.Errorf("failed to initialize VSS logger after websocket %s failure: %w", reason, err)
+		}
+		return currentLogger.SendLog(wrapper)
+	}
+	return err
+}
+
 func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *protocol.TimelineRecordFeedLinesWrapper) error {
 	currentLogger := getPointer(logger.currentLogger.Load())
 	if currentLogger == nil {
@@ -208,31 +224,11 @@ func (logger *WebsocketLiveloggerWithFallback) SendLog(wrapper *protocol.Timelin
 		}
 		if wslogger, ok := currentLogger.(*WebsocketLivelogger); ok {
 			if err = wslogger.Connect(); err != nil {
-				if !logger.ForceWebsock {
-					if logger.Connection.Trace {
-						fmt.Printf("Failed to reconnect to websocket %s, fallback to vsslogger\n", err.Error())
-					}
-					currentLogger = logger.initializeVssLogger()
-					if currentLogger == nil {
-						return fmt.Errorf("failed to initialize VSS logger after websocket reconnect failure: %w", err)
-					}
-					return currentLogger.SendLog(wrapper)
-				}
-				return err
+				return logger.sendLogFallback(err, "reconnect", wrapper)
 			}
 			err = currentLogger.SendLog(wrapper)
 			if err != nil {
-				if !logger.ForceWebsock {
-					if logger.Connection.Trace {
-						fmt.Printf("Failed to send webconsole log %s, fallback to vsslogger\n", err.Error())
-					}
-					currentLogger = logger.initializeVssLogger()
-					if currentLogger == nil {
-						return fmt.Errorf("failed to initialize VSS logger after websocket send failure: %w", err)
-					}
-					return currentLogger.SendLog(wrapper)
-				}
-				return err
+				return logger.sendLogFallback(err, "send", wrapper)
 			}
 			return nil
 		}
